@@ -599,7 +599,7 @@
     });
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
     $$("[data-sel]", root).forEach((sel) => (sel.onchange = () => { S[sel.dataset.sel] = sel.value; changed(); }));
-    $$("[data-go]", root).forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
+    $$("[data-go]", root).forEach((b) => { b.onclick = () => (location.hash = b.dataset.go); if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") location.hash = b.dataset.go; }; });
     $$("[data-lpick]", root).forEach((tr) => {
       const go = () => {
         const same = S.lossPick?.level === S.plevel && S.lossPick.key === tr.dataset.lpick;
@@ -3431,8 +3431,9 @@
         ${kpi({ hero: true, label: `Core, Promo and KVI availability at ${avDays()} day${avDays() === 1 ? "" : "s"} of cover`, value: avPct(all.tot), accent: "var(--series-2)",
           sub: `${chip(b)}<span>${int(all.tot.ok)} of ${int(all.tot.slots)} outlet × SKU pairs</span>`,
           foot: `<div class="bar" style="flex:1 1 100%;margin:2px 0 6px" role="img" aria-label="Availability ${avPct(all.tot)}"><i style="width:${fill}%;background:var(--${b.cls})"></i></div><span>${int(all.outs.length)} outlets · ${int(all.skus.length)} SKUs</span><span>Shortfall ${int(all.tot.short)} units</span>` })}
-        ${avCard("Core", c.tot, "var(--series-2)")}${avCard("Promo", p.tot, "var(--series-3)")}${avCard("KVI", k.tot, "var(--series-1)")}
-        ${avCard("E-Commerce", e.tot, "var(--series-4)", `<span>${int(e.byO.size)} outlets · YES assortment only</span>`)}
+        ${[avCard("Core", c.tot, "var(--series-2)"), avCard("Promo", p.tot, "var(--series-3)"), avCard("KVI", k.tot, "var(--series-1)"),
+          avCard("E-Commerce", e.tot, "var(--series-4)", `<span>${int(e.byO.size)} outlets · YES assortment only</span>`)]
+          .map((h, i) => h.replace('<div class="kpi"', `<div class="kpi kpi-click" data-go="${["avc", "avp", "avv", "ave"][i]}" tabindex="0" role="link" title="Open the ${["Core", "Promo", "KVI", "E-Commerce"][i]} page"`)).join("")}
       </div></div></section>
       ${avTypeCriteria(["core", "promo", "kvi", "all", "ecom"], { core: c, promo: p, kvi: k, all, ecom: e })}
       ${avRhoMatrix({ core: c, promo: p, kvi: k, all })}
