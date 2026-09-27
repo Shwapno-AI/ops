@@ -42,7 +42,7 @@
   ];
 
   const S = { data: null, page: "overview", period: "tilldate", filters: {}, openDim: null, tables: {}, level: "rl", bands: new Set(), lastFocus: null,
-    cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", pstat: "all", plevel: "rl", ageDrill: null,
+    cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
     cw: null, cwLoading: false, cwErr: null, cwCrit: null,
@@ -104,7 +104,13 @@
   const rep = () => S.data?.[S.period];
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(o.dim[k]));
   const baseList = () => (NET_PAGES.has(S.page) ? netRows() : CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
-  const inView = () => baseList().filter((o) => matches(o));
+  const inView = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
+  // Loss page outlet-age filter: open a year or more, or under a year (outlets without an opening date only under All).
+  function lossAgeOk(o) {
+    if (S.lage === "all") return true;
+    const a = pnlCalc(o).age;
+    return a != null && (S.lage === "old" ? a >= 12 : a < 12);
+  }
   function pnlList() {
     const P = S.data?.pnl;
     if (!P) return [];
@@ -351,7 +357,7 @@
         return;
       }
       const r = rep();
-      $("#scope").textContent = S.page === "loss" && d.pnl ? `Outlet P&L for ${S.pm === "ytd" ? "the year to date" : fmonth(S.pm || d.pnl.months[d.pnl.months.length - 1])}. ${int(inView().filter((o) => o.s >= 1).length)} trading outlets in view.` : showP && r ? `${r.closed ? "Closed month" : "Month to date"}, ${r.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(r.date)}.${SALES_PAGES.has(S.page) ? ` ${int(inView().length)} outlets in view.` : " Company-wide figures."}` : "";
+      $("#scope").textContent = S.page === "loss" && d.pnl ? `Outlet P&L for ${S.pm === "ytd" ? "the year to date" : fmonth(S.pm || d.pnl.months[d.pnl.months.length - 1])}. ${int(inView().filter((o) => o.s >= 1).length)} trading outlets in view${S.lage === "old" ? ", open 1 year or more" : S.lage === "new" ? ", open under 1 year" : ""}.` : showP && r ? `${r.closed ? "Closed month" : "Month to date"}, ${r.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(r.date)}.${SALES_PAGES.has(S.page) ? ` ${int(inView().length)} outlets in view.` : " Company-wide figures."}` : "";
     }
   }
   function changed() {
@@ -1266,6 +1272,7 @@
     const periodName = ytd ? `year to date (${P.months.length} months)` : fmonth(S.pm);
     const monthSel = `<select class="sel" data-sel="pm" aria-label="Month">${P.months.map((m) => `<option value="${m}" ${m === S.pm ? "selected" : ""}>${fmonth(m)}</option>`).join("")}${P.months.length > 1 ? `<option value="ytd" ${ytd ? "selected" : ""}>Year to date, ${fmonth(P.months[0])} to ${fmonth(P.months[P.months.length - 1])}</option>` : ""}</select>`;
     const basisSeg = seg("pbasis", [["before", "Before financing cost"], ["after", "After financing cost"]], "P&L basis");
+    const ageSeg = seg("lage", [["all", "All outlets"], ["old", "Open 1 year or more"], ["new", "Under 1 year"]], "Outlet age");
 
     // age bands
     const bands = [...AGE_BANDS.map((b) => b[0]), "Opening date unknown"].map((b) => {
@@ -1358,7 +1365,7 @@
     });
 
     if (ytd) S.tables.loss.spec.cols = S.tables.loss.spec.cols.filter((c) => c.k !== "pl0");
-    return `<div class="panel-tools">${monthSel}${basisSeg}</div>
+    return `<div class="panel-tools">${monthSel}${basisSeg}${ageSeg}</div>
       <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
       ${kpi({ hero: true, label: `Loss-making outlets, ${periodName}`, value: int(losses.length), sub: `${chip({ cls: "bad", label: pct(losses.length / (all.length || 1)) + " of outlets" })}<span>of ${int(all.length)} trading outlets, ${basisLbl}</span>`, foot: `<span>Total loss ${bdt(totLoss)}</span><span>Net outlet P/L ${bdt(net)}</span><span>${int(closedL.length)} closed outlets excluded (P/L ${bdt(sum(closedL, "pl"))})</span>`, accent: "var(--bad)" })}
       ${kpi({ label: "Total loss", value: `<span class="down">${bdt(totLoss)}</span>`, sub: "Sum of loss-making outlets", foot: `<span>Average ${bdt(losses.length ? totLoss / losses.length : null)} per outlet</span>`, accent: "var(--bad)" })}
