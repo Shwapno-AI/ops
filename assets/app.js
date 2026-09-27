@@ -538,11 +538,13 @@
         <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The dashboard checks the folders every hour between 8 am and 11 pm and refreshes on its own. To refresh straight away, open the repository on GitHub, go to Actions, choose "Refresh data" and press "Run workflow". If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
   }
 
+  // A fresh query string on each load, so the browser can't reuse an old cached copy of the connected dashboard.
+  const freshUrl = (u) => u + (u.includes("?") ? "&" : "?") + "_=" + Date.now();
   function pageEmbed(k) {
     const e = EMBEDS[k];
     return `<section class="panel embed"><div class="panel-head"><div><h2>${esc(TITLES[k])}</h2><p>${esc(e.desc)}</p></div>
-      <div class="panel-tools"><a class="btn" href="${e.url}" target="_blank" rel="noopener">Open in new tab</a></div></div>
-      <iframe src="${e.url}" title="${esc(TITLES[k])} dashboard" loading="lazy"></iframe></section>`;
+      <div class="panel-tools"><button type="button" class="btn" data-embed-reload title="Load the latest version of this dashboard">Reload</button><a class="btn" href="${e.url}" target="_blank" rel="noopener">Open in new tab</a></div></div>
+      <iframe src="${freshUrl(e.url)}" title="${esc(TITLES[k])} dashboard" loading="lazy"></iframe></section>`;
   }
 
   // ------------------------------------------------------------------ shared helpers (growth pages)
@@ -599,6 +601,7 @@
     });
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
     $$("[data-sel]", root).forEach((sel) => (sel.onchange = () => { S[sel.dataset.sel] = sel.value; changed(); }));
+    $$("[data-embed-reload]", root).forEach((b) => (b.onclick = () => { const f = b.closest(".embed")?.querySelector("iframe"); if (f) f.src = freshUrl(EMBEDS[S.page]?.url || f.src.split(/[?&]_=/)[0]); }));
     $$("[data-go]", root).forEach((b) => { b.onclick = () => (location.hash = b.dataset.go); if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") location.hash = b.dataset.go; }; });
     $$("[data-lpick]", root).forEach((tr) => {
       const go = () => {
