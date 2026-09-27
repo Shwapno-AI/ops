@@ -8,7 +8,7 @@
   // ------------------------------------------------------------------ config
   const NAV = [
     { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"]] },
-    { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
+    { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
@@ -16,7 +16,7 @@
     { group: "System", items: [["dq", "Data quality"]] },
   ];
   const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
-  const SALES_PAGES = new Set(["overview", "achievement", "growth", "footfall", "ranking"]);
+  const SALES_PAGES = new Set(["overview", "achievement", "growth", "gp", "footfall", "ranking"]);
   const PERIOD_PAGES = new Set([...SALES_PAGES, "category"]);
   const NET_PAGES = new Set(["gm", "on"]);
   const CW_PAGES = new Set(["cw", "cwl", "cwx", "cwb", "cwm", "cwo"]);
@@ -648,6 +648,47 @@
   }
 
   // ------------------------------------------------------------------ sales growth
+  // ------------------------------------------------------------------ gross profit
+  // GP value and GP margin (GP value ÷ sales) this period, last year (same days) and last month (same days).
+  function gpAgg(os) {
+    let s = 0, sy = 0, sm = 0, g = 0, gy = 0, gm = 0;
+    for (const o of os) { s += o.s || 0; sy += o.sy || 0; sm += o.sm || 0; g += o.gv || 0; gy += o.gvy || 0; gm += o.gvm || 0; }
+    const gp = ratio(g, s), gpy = ratio(gy, sy), gpm = ratio(gm, sm);
+    return { n: os.length, s, sy, sm, g, gy, gm, gp, gpy, gpm, dy: isNum(gp) && isNum(gpy) ? gp - gpy : null, dm: isNum(gp) && isNum(gpm) ? gp - gpm : null, ggy: growth(g, gy), ggm: growth(g, gm) };
+  }
+  function pageGP() {
+    const r = rep(); if (!r) return noData();
+    const list = inView(), a = gpAgg(list);
+    const gd = gdrill("gp", S.level), lv = gd ? "outlet" : S.level;
+    const rows = groupRows(gd ? list.filter((o) => o.dim[S.level] === gd.key) : list, lv, gpAgg);
+    const mgn = (v) => (isNum(v) ? pct(v, 2) : "—");
+    const cols = [nameCol(lv), ...(lv === "outlet" ? [] : [nCol]),
+      { k: "s", label: "Sales", num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s) },
+      { k: "g", label: "GP value", num: 1, fmt: (x) => bdt(x.g), csv: (x) => Math.round(x.g) },
+      { k: "gp", label: "GP%", num: 1, fmt: (x) => `<strong>${mgn(x.gp)}</strong>`, csv: (x) => pcsv(x.gp) },
+      { k: "gpy", label: "GP% last year", num: 1, fmt: (x) => mgn(x.gpy), csv: (x) => pcsv(x.gpy) },
+      { k: "dy", label: "vs last year", num: 1, fmt: (x) => delta(x.dy, "pp"), csv: (x) => pcsv(x.dy) },
+      { k: "gpm", label: "GP% last month", num: 1, fmt: (x) => mgn(x.gpm), csv: (x) => pcsv(x.gpm) },
+      { k: "dm", label: "vs last month", num: 1, fmt: (x) => delta(x.dm, "pp"), csv: (x) => pcsv(x.dm) },
+      { k: "gy", label: "GP value last year", num: 1, fmt: (x) => bdt(x.gy), csv: (x) => Math.round(x.gy) },
+      { k: "ggy", label: "GP growth vs last year", num: 1, fmt: (x) => delta(x.ggy), csv: (x) => pcsv(x.ggy) },
+      { k: "gm", label: "GP value last month", num: 1, fmt: (x) => bdt(x.gm), csv: (x) => Math.round(x.gm) },
+      { k: "ggm", label: "GP growth vs last month", num: 1, fmt: (x) => delta(x.ggm), csv: (x) => pcsv(x.ggm) }];
+    const table = mountTable("gp", {
+      title: gd ? `Gross profit, outlets of ${gd.key}` : `Gross profit by ${levelName(S.level).toLowerCase()}`, file: `gross_profit_${S.level}`,
+      desc: (n) => `${int(n)} rows. GP% is GP value divided by sales. Last year and last month use the report's same-day periods (${cmpLabel(r)}). ${lv === "outlet" ? "Click a row for the outlet profile." : "Click a row to list its outlets."}`,
+      rows, cols, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "g", rowAttr: gpickAttr("gp", S.level), banner: gBanner("gp", gd), tools: levelSel(),
+    });
+    const upDown = (v) => `var(--${isNum(v) && v < 0 ? "bad" : "good"})`;
+    return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">
+      ${kpi({ label: "GP margin, this period", value: mgn(a.gp), sub: `${delta(a.dy, "pp")} vs last year`, foot: `<span>GP ${bdt(a.g)}</span><span>Sales ${bdt(a.s)}</span>`, accent: upDown(a.dy) })}
+      ${kpi({ label: "GP margin, last year", value: mgn(a.gpy), sub: "Same days last year", foot: `<span>GP ${bdt(a.gy)}</span><span>Sales ${bdt(a.sy)}</span>`, accent: "var(--series-2)" })}
+      ${kpi({ label: "GP margin, last month", value: mgn(a.gpm), sub: `This period ${delta(a.dm, "pp")} vs last month`, foot: `<span>GP ${bdt(a.gm)}</span><span>Sales ${bdt(a.sm)}</span>`, accent: "var(--series-3)" })}
+      ${kpi({ label: "GP value vs last year", value: delta(a.ggy), sub: `${bdt(a.g)} vs ${bdt(a.gy)}`, foot: `<span>Change ${bdt(a.g - a.gy)}</span>`, accent: upDown(a.ggy) })}
+      ${kpi({ label: "GP value vs last month", value: delta(a.ggm), sub: `${bdt(a.g)} vs ${bdt(a.gm)}`, foot: `<span>Change ${bdt(a.g - a.gm)}</span>`, accent: upDown(a.ggm) })}
+      </div>${table}`;
+  }
+
   function pageGrowth() {
     const r = rep(); if (!r) return noData();
     const c = S.cmp, list = inView();
@@ -3636,7 +3677,7 @@
     $("#filters").hidden = !FILTER_PAGES.has(S.page);
     if (FILTER_PAGES.has(S.page)) renderFilters();
     const p = S.page;
-    const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
+    const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
       avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
