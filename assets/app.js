@@ -23,7 +23,7 @@
   const CW_PAGES = new Set(["cw", "cwl", "cwx", "cwb", "cwm", "cwo"]);
   const AV_PAGES = new Set(["avs", "avk", "avc", "avp", "avv", "ave", "avb"]);
   const RC_PAGES = new Set(["rco", "rcu"]);
-  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, "rcu"]);
+  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
@@ -46,7 +46,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcd: { lvl: "rl", rl: null, zn: null },
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -352,9 +352,9 @@
         return;
       }
       if (RC_PAGES.has(S.page)) {
-        const c = S.rcv;
-        if (c) fresh(`Data to ${fdate(c.range.end, true)}`, c.source?.snapshotAt || c.generatedAt);
-        $("#scope").textContent = c ? `${fdate(c.range.start)} to ${fdate(c.range.end)}, ${c.range.days} days. ${S.page === "rcu" ? `${int(inView().length)} of ${int(baseList().length)} outlets in view.` : "Company-wide; sidebar filters apply on By outlet."}` : "";
+        const c = S.rcv, D = c && rcData();
+        if (c) fresh(`Data to ${fdate((D?.range || c.range).end, true)}`, c.source?.snapshotAt || c.generatedAt);
+        $("#scope").textContent = c ? `${fdate((D?.range || c.range).start)} to ${fdate((D?.range || c.range).end)}. ${rcIsDefault() ? "Hourly snapshot; use the filters to query Power BI live." : "Live from Power BI for the chosen filters."}` : "";
         return;
       }
       if (CW_PAGES.has(S.page)) {
@@ -614,6 +614,7 @@
     });
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
     $$("[data-sel]", root).forEach((sel) => (sel.onchange = () => { S[sel.dataset.sel] = sel.value; changed(); }));
+    wireRc(root);
     $$("[data-embed-reload]", root).forEach((b) => (b.onclick = () => { const f = b.closest(".embed")?.querySelector("iframe"); if (f) f.src = freshUrl(EMBEDS[S.page]?.url || f.src.split(/[?&]_=/)[0]); }));
     $$("[data-go]", root).forEach((b) => { b.onclick = () => (location.hash = b.dataset.go); if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") location.hash = b.dataset.go; }; });
     $$("[data-lpick]", root).forEach((tr) => {
@@ -3644,38 +3645,163 @@
     on("[data-avecomband]", (n) => openAvEcomBand(Number(n.dataset.avecomband)));
   }
 
-  // ------------------------------------------------------------------ receiving (Power BI snapshot, data/rcv.json)
-  // Units received vs sold over the report window, inventory and stock days, and over / under receiving incidents.
-  // Over-receiving value is a non-additive Power BI measure: shown for the company, a division, a category or one
-  // outlet, never summed across outlets.
+  // ------------------------------------------------------------------ receiving (Power BI)
+  // Default view: the hourly snapshot (data/rcv.json), so the pages open instantly. Any filter runs a live query
+  // against the public Power BI report through assets/vendor/rcv-powerbi.js. Power BI cannot answer all six
+  // business divisions in one query, so each division is asked separately and the answers are combined.
+  // Over-receiving value is a Power BI measure: shown for the company, a division, a category or one outlet,
+  // never added up across outlets.
+  const RC_DEF = { days: "28", dateFrom: "", dateTo: "", masterCategory: "all", category: "", region: "", rho: "", zn: "", outlet: "", articleNo: "", poNumber: "", userCode: "", movementCode: "all" };
+  S.rcf = { ...RC_DEF };
+  const rcLive = new Map();
+  let rcClientP = null;
   function loadRc() {
     if (S.rcv || S.rcLoading) return;
     S.rcLoading = true; S.rcErr = null;
     fetch("data/rcv.json", { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { prepRc(d); S.rcv = d; })
+      .then((d) => { rcPrep(d); S.rcv = d; })
       .catch((e) => { S.rcErr = e.message; })
       .finally(() => { S.rcLoading = false; if (RC_PAGES.has(S.page)) render(); });
   }
-  function prepRc(d) {
-    const v = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
-    d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc) }; });
+  const rcMissing = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
+  function rcPrep(d) {
+    d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: rcMissing(o.rl), zn: rcMissing(o.zn), div: rcMissing(o.div), dis: rcMissing(o.dis), fmt: rcMissing(o.fmt), own: rcMissing(o.own), pnp: rcMissing(o.pnp), loc: rcMissing(o.loc) }; });
   }
   function rcGuard() {
     if (S.rcv) return "";
     loadRc();
     return S.rcErr ? `<p class="empty">The receiving data could not be loaded (${esc(S.rcErr)}). Run the "Refresh data" workflow, then reload this page.</p>` : '<p class="empty">Loading receiving data…</p>';
   }
+  const rcIsDefault = () => Object.keys(RC_DEF).every((k) => String(S.rcf[k] || "") === String(RC_DEF[k]));
+  // Outlet codes picked by the RHO / Zonal / Outlet filters (null when none of them is set).
+  function rcOutletCodes(f) {
+    if (!f.rho && !f.zn && !f.outlet) return null;
+    return S.rcv.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn) && (!f.outlet || o.c === f.outlet)).map((o) => o.c);
+  }
+  function rcQuery(f) {
+    const q = { masterCategory: f.masterCategory || "all" };
+    if (f.dateFrom && f.dateTo) { q.dateFrom = f.dateFrom; q.dateTo = f.dateTo; } else q.days = Number(f.days) || 28;
+    if (f.category) q.category = f.category;
+    if (f.region) q.region = f.region;
+    const codes = rcOutletCodes(f); if (codes) q.outletCodes = codes;
+    if (f.articleNo) q.articleNo = f.articleNo.trim();
+    if (f.poNumber) q.poNumber = f.poNumber.trim();
+    if (f.userCode) q.userCode = f.userCode.trim();
+    if (f.movementCode && f.movementCode !== "all") q.movementCode = f.movementCode;
+    return q;
+  }
+  function rcClient() {
+    if (!rcClientP) rcClientP = import(new URL("assets/vendor/rcv-powerbi.js", document.baseURI).href).then(async (m) => { const c = new m.PowerBIDataClient(); await c.connect(); return c; }).catch((e) => { rcClientP = null; throw e; });
+    return rcClientP;
+  }
+  // Run a job for each business division in scope, three at a time.
+  async function rcPerDivision(q, job) {
+    const c = await rcClient();
+    const divs = q.masterCategory && q.masterCategory !== "all" ? [q.masterCategory] : c.scope.masterCategories;
+    const out = []; let i = 0;
+    const worker = async () => { while (i < divs.length) { const mc = divs[i++]; out.push(await job(c, { ...q, masterCategory: mc }, mc)); } };
+    await Promise.all([worker(), worker(), worker()]);
+    return out;
+  }
+  const rcNum = (v) => (v == null || v === "" || !isFinite(Number(v)) ? null : Number(v));
+  // Combine per-division Power BI answers into the same shape as rcv.json.
+  function rcCombine(parts, range) {
+    const k = { r: 0, s: 0, inv: 0, stock: 0, ov: 0, oi: 0, ui: 0 }, oiPop = [0], uiPop = [0];
+    const trend = new Map(), regs = new Map(), outs = new Map(), cats = [];
+    const addRow = (m, key, x, extra) => { const t = m.get(key) || { k: key, r: 0, s: 0, inv: 0, ov: 0, oi: 0, ui: 0, ...extra }; t.r += rcNum(x.Receiving) || 0; t.s += rcNum(x.Sales) || 0; t.inv += rcNum(x.Inventory) || 0; t.ov += rcNum(x.OverValue) || 0; t.oi += rcNum(x.OverIncidents) || 0; t.ui += rcNum(x.UnderIncidents) || 0; m.set(key, t); };
+    parts.forEach(({ core, outs: o }) => {
+      const x = core.kpis?.[0] || {};
+      k.r += rcNum(x.Receiving) || 0; k.s += rcNum(x.Sales) || 0; k.inv += rcNum(x.Inventory) || 0; k.stock += rcNum(x.LatestStock) || 0; k.ov += rcNum(x.OverValue) || 0;
+      k.oi += rcNum(x.OverIncidents) || 0; k.ui += rcNum(x.UnderIncidents) || 0;
+      if (rcNum(x.OverIncidentPct) > 0) oiPop[0] += rcNum(x.OverIncidents) / (rcNum(x.OverIncidentPct) / 100);
+      if (rcNum(x.UnderIncidentPct) > 0) uiPop[0] += rcNum(x.UnderIncidents) / (rcNum(x.UnderIncidentPct) / 100);
+      (core.trend || []).forEach((t) => { const d = new Date(rcNum(t.Date)).toISOString().slice(0, 10), a = trend.get(d) || { d, r: 0, s: 0 }; a.r += rcNum(t.Receiving) || 0; a.s += rcNum(t.Sales) || 0; trend.set(d, a); });
+      (core.categories || []).forEach((c) => cats.push({ k: c.Category || "Not set", r: rcNum(c.Receiving), s: rcNum(c.Sales), inv: rcNum(c.Inventory), ov: rcNum(c.OverValue), oi: rcNum(c.OverIncidents) || 0, ui: rcNum(c.UnderIncidents) || 0 }));
+      (core.regions || []).forEach((g) => addRow(regs, g.Region || "Not set", g));
+      (o.outlets || []).forEach((g) => addRow(outs, g.OutletCode, g, { region: g.Region, name: g.Outlet }));
+    });
+    const master = new Map((S.data?.master?.outlets || []).map((m) => [m.c, m]));
+    const outlets = [...outs.values()].filter((o) => o.k).map((o) => {
+      const m = master.get(o.k) || {}, name = String(o.name || o.k).replace(new RegExp("^" + o.k + "\\s*-?\\s*"), "");
+      const row = { c: o.k, n: m.n || name, region: o.region, r: o.r, s: o.s, inv: o.inv, ov: o.ov, oi: o.oi, ui: o.ui, rl: m.rl, zn: m.zn, div: m.div, dis: m.dis, fmt: m.fmt, own: m.own, pnp: m.pnp, loc: m.loc };
+      return row;
+    });
+    const d = { live: true, range: { start: range.start, end: new Date(Date.parse(range.endExclusive + "T00:00:00Z") - 86400000).toISOString().slice(0, 10), days: range.days },
+      kpis: { ...k, sd: null, oiPct: oiPop[0] ? (k.oi / oiPop[0]) * 100 : null, uiPct: uiPop[0] ? (k.ui / uiPop[0]) * 100 : null, outlets: outlets.filter((o) => o.r || o.s).length },
+      trend: [...trend.values()].sort((a, b) => (a.d < b.d ? -1 : 1)), categories: cats, regions: [...regs.values()], outlets, articles: null,
+      source: S.rcv.source, quality: { unmapped: outlets.filter((o) => !master.has(o.c)).map((o) => o.c) } };
+    rcPrep(d);
+    return d;
+  }
+  // The data the Receiving pages show right now: the snapshot, or the live answer for the current filters.
+  function rcData() {
+    if (!S.rcv) return null;
+    if (rcIsDefault()) return S.rcv;
+    const key = JSON.stringify(rcQuery(S.rcf)), hit = rcLive.get(key);
+    if (hit) return hit.data || hit;
+    const entry = { loading: true, started: Date.now() };
+    rcLive.set(key, entry);
+    const q = rcQuery(S.rcf);
+    rcPerDivision(q, async (c, qq) => { const [core, outs] = await Promise.all([c.load(qq, { section: "core" }), c.load(qq, { section: "outlets" })]); return { core, outs, range: core.range }; })
+      .then((parts) => { entry.data = rcCombine(parts, parts[0]?.range || { start: "", endExclusive: "", days: 0 }); })
+      .catch((e) => { entry.error = e.message || String(e); })
+      .finally(() => { entry.loading = false; if (RC_PAGES.has(S.page)) render(); });
+    return entry;
+  }
+  // Hideable filter bar, like the original Receiving dashboard.
+  function rcBar() {
+    const d = S.rcv, f = S.rcDraft || S.rcf, src = d.source || {};
+    const opt = (list, cur, all) => `<option value="">${esc(all)}</option>` + list.map((v) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(v)}</option>`).join("");
+    const rhos = [...new Set(d.outlets.map((o) => o.dim.rl))].sort(), zns = [...new Set(d.outlets.filter((o) => !f.rho || o.dim.rl === f.rho).map((o) => o.dim.zn))].sort();
+    const outs = d.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn)).sort((a, b) => a.c.localeCompare(b.c));
+    const regions = [...new Set(d.regions.map((r) => r.k).filter((k) => k && k !== "Not set"))].sort(), cats = [...new Set(d.categories.map((c) => c.k))].sort();
+    const parts = [f.dateFrom && f.dateTo ? `${fdate(f.dateFrom)} to ${fdate(f.dateTo)}` : `Last ${f.days} days`, f.masterCategory === "all" ? "All business divisions" : f.masterCategory,
+      f.category, f.region, f.rho, f.zn, f.outlet, f.articleNo && `Article ${f.articleNo}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, f.movementCode !== "all" && `Movement ${f.movementCode}`].filter(Boolean);
+    const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${rcIsDefault() ? " (hourly snapshot)" : " (live from Power BI)"}</p></div>
+      <div class="panel-tools">${rcIsDefault() ? "" : '<button type="button" class="btn" data-rcreset>Reset</button>'}<button class="btn" data-uitoggle="rcBarOpen" aria-expanded="${!!UI.rcBarOpen}">${UI.rcBarOpen ? "Hide" : "Show"}</button></div></div>`;
+    if (!UI.rcBarOpen) return `<section class="panel ui-slim">${head}</section>`;
+    const inp = (k, label, ph) => `<label class="net-date">${label}<input type="text" data-rcf="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}"></label>`;
+    return `<section class="panel">${head}<div class="panel-body rc-bar">
+      <label class="net-date">Period<select class="sel" data-rcf="days">${[["7", "Last 7 days"], ["14", "Last 14 days"], ["28", "Last 28 days"], ["30", "Last 30 days"], ["60", "Last 60 days"], ["90", "Last 90 days"]].map(([v, t]) => `<option value="${v}" ${f.days === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="net-date">From<input type="date" data-rcf="dateFrom" value="${esc(f.dateFrom)}"></label><label class="net-date">To<input type="date" data-rcf="dateTo" value="${esc(f.dateTo)}"></label>
+      <label class="net-date">Business division<select class="sel" data-rcf="masterCategory"><option value="all">All business divisions</option>${(src.divisions || []).map((v) => `<option value="${esc(v)}" ${f.masterCategory === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>
+      <label class="net-date">Category<select class="sel" data-rcf="category">${opt(cats, f.category, "All categories")}</select></label>
+      <label class="net-date">Division / region<select class="sel" data-rcf="region">${opt(regions, f.region, "All divisions")}</select></label>
+      <label class="net-date">RHO<select class="sel" data-rcf="rho">${opt(rhos, f.rho, "All RHOs")}</select></label>
+      <label class="net-date">Zonal<select class="sel" data-rcf="zn">${opt(zns, f.zn, "All zonals")}</select></label>
+      <label class="net-date">Outlet<select class="sel" data-rcf="outlet"><option value="">All outlets</option>${outs.map((o) => `<option value="${esc(o.c)}" ${f.outlet === o.c ? "selected" : ""}>${esc(o.c)} · ${esc(o.nm)}</option>`).join("")}</select></label>
+      ${inp("articleNo", "Article code", "e.g. 2100001")}${inp("poNumber", "PO number", "Exact PO")}${inp("userCode", "User code", "Exact user")}
+      <label class="net-date">Movement<select class="sel" data-rcf="movementCode"><option value="all">All movements</option>${(src.movementTypes || []).map((v) => `<option value="${esc(v)}" ${f.movementCode === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>
+      <div class="rc-bar-go"><button type="button" class="btn primary" data-rcapply>Apply</button><button type="button" class="btn" data-rcreset>Reset</button><span class="muted">Filters other than the default read Power BI live; a query takes a few seconds per business division.</span></div>
+    </div></section>`;
+  }
+  function wireRc(root) {
+    $$("[data-rcapply]", root).forEach((b) => (b.onclick = () => {
+      const f = { ...S.rcf };
+      $$("[data-rcf]", root).forEach((el) => (f[el.dataset.rcf] = el.value));
+      if ((f.dateFrom && !f.dateTo) || (!f.dateFrom && f.dateTo) || (f.dateFrom && f.dateTo && f.dateFrom > f.dateTo)) { f.dateFrom = ""; f.dateTo = ""; }
+      S.rcf = f; S.rcDraft = null; changed();
+    }));
+    $$("[data-rcreset]", root).forEach((b) => (b.onclick = () => { S.rcf = { ...RC_DEF }; S.rcDraft = null; changed(); }));
+    // RHO / Zonal narrow the next lists straight away (no query until Apply)
+    $$('[data-rcf="rho"],[data-rcf="zn"]', root).forEach((el) => (el.onchange = () => {
+      const f = { ...(S.rcDraft || S.rcf) }; $$("[data-rcf]", root).forEach((x) => (f[x.dataset.rcf] = x.value));
+      if (el.dataset.rcf === "rho") { f.zn = ""; f.outlet = ""; } else f.outlet = "";
+      S.rcDraft = f; render();
+    }));
+    $$("[data-rcart]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); rcArticles(JSON.parse(n.dataset.rcart)); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(e); }; });
+  }
   const units = (v) => { if (!isNum(v)) return "—"; const a = Math.abs(v), sg = v < 0 ? "−" : ""; return sg + (a >= 1e7 ? (a / 1e7).toFixed(2) + " Cr" : a >= 1e5 ? (a / 1e5).toFixed(2) + " Lac" : a >= 1e3 ? (a / 1e3).toFixed(1) + " K" : String(Math.round(a))); };
   const signedUnits = (v) => (isNum(v) ? `${v > 0 ? "+" : ""}${units(v)}` : "—");
-  // Adds balance (received − sold) and stock days (inventory ÷ average daily sales) to a row.
   const rcRow = (x, days) => ({ ...x, bal: isNum(x.r) || isNum(x.s) ? (x.r || 0) - (x.s || 0) : null, sd: x.s > 0 && days ? x.inv / (x.s / days) : null });
   function rcSum(rows, days) {
     const t = { n: rows.length, r: 0, s: 0, inv: 0, oi: 0, ui: 0 };
     rows.forEach((o) => { t.r += o.r || 0; t.s += o.s || 0; t.inv += o.inv || 0; t.oi += o.oi || 0; t.ui += o.ui || 0; });
     return { ...rcRow(t, days), ov: rows.length === 1 ? rows[0].ov : null };
   }
-  const rcCols = (first, withN, ovAll) => [first, ...(withN ? [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }] : []),
+  const rcAttr = (extra, metric = "Gap", title = "") => `data-rcart="${esc(JSON.stringify({ extra, metric, title }))}" tabindex="0" role="button"`;
+  const rcCols = (first, withN) => [first, ...(withN ? [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }] : []),
     { k: "r", label: "Received units", num: 1, fmt: (x) => units(x.r), csv: (x) => Math.round(x.r || 0) },
     { k: "s", label: "Sold units", num: 1, fmt: (x) => units(x.s), csv: (x) => Math.round(x.s || 0) },
     { k: "bal", label: "Receipt balance", num: 1, fmt: (x) => signedUnits(x.bal), csv: (x) => (isNum(x.bal) ? Math.round(x.bal) : "") },
@@ -3683,7 +3809,36 @@
     { k: "sd", label: "Stock days", num: 1, fmt: (x) => (isNum(x.sd) ? x.sd.toFixed(1) : "—"), csv: (x) => (isNum(x.sd) ? x.sd.toFixed(2) : "") },
     { k: "oi", label: "Over-receiving incidents", num: 1, fmt: (x) => int(x.oi) },
     { k: "ui", label: "Under-receiving incidents", num: 1, fmt: (x) => int(x.ui) },
-    { k: "ov", label: "Over-receiving value", num: 1, fmt: (x) => (isNum(x.ov) ? bdt(x.ov) : `<span class="muted" title="${ovAll ? "" : "Not additive across outlets; see each outlet"}">—</span>`), csv: (x) => (isNum(x.ov) ? Math.round(x.ov) : "") }];
+    { k: "ov", label: "Over-receiving value", num: 1, fmt: (x) => (isNum(x.ov) ? bdt(x.ov) : '<span class="muted" title="Not additive across outlets; see each outlet">—</span>'), csv: (x) => (isNum(x.ov) ? Math.round(x.ov) : "") }];
+  // Drawer: article-level detail from Power BI for the current filters plus one extra condition (a division, category or outlet).
+  const RC_METRICS = { Gap: "Received and sold", Receiving: "Received units", Sales: "Sold units", Inventory: "Inventory", OverValue: "Over-receiving value", OverIncidents: "Over-receiving incidents", UnderIncidents: "Under-receiving incidents" };
+  async function rcArticles({ extra = {}, metric = "Gap", title = "" }) {
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    const f = { ...S.rcf, ...extra };
+    $("#drawerTitle").textContent = `${title || RC_METRICS[metric]}: articles`;
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">Reading article detail from Power BI…</p>`;
+    showDrawer();
+    try {
+      const q = rcQuery(f);
+      const parts = await rcPerDivision(q, (c, qq) => c.loadArticleDetails(qq, metric));
+      const rows = parts.flatMap((p) => p.rows || []).map((a) => ({ code: a.ArticleNo, name: a.ArticleName || a.ArticleNo, div: a.MasterCategory, cat: a.Category, r: rcNum(a.Receiving), s: rcNum(a.Sales), inv: rcNum(a.Inventory), sd: rcNum(a.StockDay), ov: rcNum(a.OverValue), oi: rcNum(a.OverIncidents), ui: rcNum(a.UnderIncidents) }));
+      const colsFor = { Gap: ["r", "s", "bal"], Receiving: ["r"], Sales: ["s"], Inventory: ["inv"], OverValue: ["ov"], OverIncidents: ["oi"], UnderIncidents: ["ui"] }[metric] || ["r", "s", "bal"];
+      rows.forEach((x) => (x.bal = (x.r || 0) - (x.s || 0)));
+      const sortKey = metric === "Gap" ? "bal" : colsFor[0];
+      rows.sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+      const lab = { r: "Received", s: "Sold", bal: "Balance", inv: "Inventory", ov: "Over-receiving value", oi: "Over incidents", ui: "Under incidents" };
+      const fm = (k, v) => (k === "ov" ? bdt(v) : k === "oi" || k === "ui" ? int(v) : k === "bal" ? signedUnits(v) : units(v));
+      NCSV.rcart = () => [`receiving_articles_${metric.toLowerCase()}`, ["Article code", "Article", "Business division", "Category", ...colsFor.map((k) => lab[k])], rows.map((x) => [x.code, x.name, x.div, x.cat, ...colsFor.map((k) => (isNum(x[k]) ? Math.round(x[k]) : ""))]), (rcData()?.range || S.rcv.range).end];
+      const shown = rows.slice(0, 500);
+      $("#drawerBody").innerHTML = `<div class="lr-dtools"><span class="muted">${int(rows.length)} articles${rows.length > 500 ? " (first 500 shown; the CSV has all)" : ""}. Metric: ${esc(RC_METRICS[metric])}.</span>${csvBtn("rcart")}</div>
+        <div class="rc-metrics">${Object.entries(RC_METRICS).map(([k, t]) => `<button type="button" class="btn${k === metric ? " primary" : ""}" data-rcart="${esc(JSON.stringify({ extra, metric: k, title }))}">${esc(t)}</button>`).join("")}</div>
+        <div class="table-wrap" style="max-height:560px"><table class="compact"><thead><tr><th>Article</th>${colsFor.map((k) => `<th class="num">${lab[k]}</th>`).join("")}</tr></thead><tbody>
+        ${shown.map((x) => `<tr><td><span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.code)} · ${esc(x.cat || "")} · ${esc(x.div || "")}</span></td>${colsFor.map((k) => `<td class="num">${fm(k, x[k])}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${colsFor.length + 1}" class="empty">No articles for this selection.</td></tr>`}</tbody></table></div>`;
+      wireDyn($("#drawerBody")); wireRc($("#drawerBody"));
+    } catch (e) {
+      $("#drawerBody").innerHTML = `<p class="empty">Power BI did not answer (${esc(e.message || String(e))}). Try again, or narrow the filters.</p>`;
+    }
+  }
   function rcTrend(d) {
     const host = $("#rcTrend");
     if (!host) return;
@@ -3705,71 +3860,84 @@
     host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Daily units received and sold">${svg}</svg>`;
   }
   function rcHead(d) {
-    const src = d.source || {};
-    return `<p class="muted" style="margin:0">${fdate(d.range.start)} to ${fdate(d.range.end)} (${d.range.days} days), ${esc((src.divisions || []).length ? "all business divisions" : "")}. Source: the public Power BI receiving report${src.powerBiRefreshedAt ? `, refreshed ${new Date(src.powerBiRefreshedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" })}` : ""}. <a href="${esc(src.report || "#")}" target="_blank" rel="noopener">Open the report</a></p>`;
+    const src = S.rcv.source || {};
+    return `<p class="muted" style="margin:0">${fdate(d.range.start)} to ${fdate(d.range.end)} (${d.range.days} days). ${d.live ? "Live from" : "Hourly snapshot of"} the public Power BI receiving report${src.powerBiRefreshedAt ? `, refreshed ${new Date(src.powerBiRefreshedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" })}` : ""}. <a href="${esc(src.report || "#")}" target="_blank" rel="noopener">Open the report</a></p>`;
+  }
+  // Loading / error states for a live query.
+  function rcState(D) {
+    if (!D) return rcGuard();
+    if (D.loading) return `${rcBar()}<section class="panel"><div class="panel-body"><p class="muted" style="margin:0">Reading receiving data live from Power BI for these filters… (${Math.round((Date.now() - D.started) / 1000)} s so far; about 5–30 seconds)</p></div></section>`;
+    if (D.error) return `${rcBar()}<section class="panel"><div class="panel-body"><p class="empty" style="margin:0">Power BI did not answer for these filters (${esc(D.error)}). Narrow the filters (for example one business division) or press Reset.</p></div></section>`;
+    return "";
   }
   function pageRCO() {
     const g = rcGuard(); if (g) return g;
-    const d = S.rcv, k = d.kpis, days = d.range.days, bal = (k.r || 0) - (k.s || 0), balPct = k.s ? bal / k.s : null;
-    const regions = d.regions.map((x) => rcRow({ ...x, k: x.k === "Not set" ? "No division (head office, DCs)" : x.k }, days)), cats = d.categories.map((x) => rcRow(x, days));
-    const arts = d.articles.map(([code, name, cat, r, s]) => ({ key: code, code, name: name || code, cat: cat || "—", r, s, bal: (r || 0) - (s || 0) }));
+    const D = rcData(), st = rcState(D); if (st) { if (D?.loading) setTimeout(() => S.page === "rco" && rcData()?.loading && render(), 1500); return st; }
+    const k = D.kpis, days = D.range.days, bal = (k.r || 0) - (k.s || 0), balPct = k.s ? bal / k.s : null;
+    const regions = D.regions.map((x) => rcRow({ ...x, k: x.k === "Not set" ? "No division (head office, DCs)" : x.k, raw: x.k }, days)), cats = D.categories.map((x) => rcRow(x, days));
     const nameC = (label) => ({ k: "k", label, fmt: (x) => `<span class="cell-primary">${esc(x.k)}</span>`, csv: (x) => x.k, val: (x) => x.k });
-    const regT = mountTable("rc-reg", { title: "By division", file: "receiving_by_division", stamp: d.range.end, desc: (n) => `${int(n)} divisions. Receipt balance is units received minus units sold; stock days is inventory divided by average daily sales.`,
-      rows: regions, key: (x) => x.k, searchText: (x) => x.k, defaultSort: "bal", pageSize: 25, cols: rcCols(nameC("Division"), false, true) });
-    const catT = mountTable("rc-cat", { title: "By category", file: "receiving_by_category", stamp: d.range.end, desc: (n) => `${int(n)} categories, biggest receipt balance first. Over-receiving value is worked out per category.`,
-      rows: cats, key: (x) => x.k, searchText: (x) => x.k, defaultSort: "bal", pageSize: 25, cols: rcCols(nameC("Category"), false, true) });
-    const artT = mountTable("rc-art", { title: "By article", file: "receiving_by_article", stamp: d.range.end, desc: (n) => `${int(n)} articles with movement in the window, company-wide. Search by code, name or category.`,
-      rows: arts, key: (x) => x.key, searchText: (x) => `${x.code} ${x.name} ${x.cat}`, defaultSort: "bal", pageSize: 25,
-      cols: [{ k: "name", label: "Article", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.code)} · ${esc(x.cat)}</span>`, csv: (x) => x.name, val: (x) => x.name },
-        { k: "code", label: "Article code", hide: 1, csv: (x) => x.code }, { k: "cat", label: "Category", hide: 1, csv: (x) => x.cat },
-        { k: "r", label: "Received units", num: 1, fmt: (x) => units(x.r), csv: (x) => Math.round(x.r || 0) },
-        { k: "s", label: "Sold units", num: 1, fmt: (x) => units(x.s), csv: (x) => Math.round(x.s || 0) },
-        { k: "bal", label: "Receipt balance", num: 1, fmt: (x) => signedUnits(x.bal), csv: (x) => Math.round(x.bal) }] });
-    AFTER.push(() => rcTrend(d));
-    const pulse = `Over the last ${days} days outlets received ${units(k.r)} units and sold ${units(k.s)}: receipts ran ${pct(Math.abs(balPct || 0), 1)} ${bal >= 0 ? "above" : "below"} sales, so inventory is ${bal >= 0 ? "building" : "drawing down"}.`;
-    return `${rcHead(d)}
+    const regT = mountTable("rc-reg", { title: "By division", file: "receiving_by_division", stamp: D.range.end, desc: (n) => `${int(n)} divisions. Receipt balance is units received minus units sold; stock days is inventory divided by average daily sales. Click a row for its articles.`,
+      rows: regions, key: (x) => x.k, searchText: (x) => x.k, defaultSort: "bal", pageSize: 25, rowAttr: (x) => (x.raw && x.raw !== "Not set" ? rcAttr({ region: x.raw }, "Gap", x.k) : ""), cols: rcCols(nameC("Division"), false) });
+    const catT = mountTable("rc-cat", { title: "By category", file: "receiving_by_category", stamp: D.range.end, desc: (n) => `${int(n)} categories, biggest receipt balance first. Click a row for its articles.`,
+      rows: cats, key: (x) => x.k, searchText: (x) => x.k, defaultSort: "bal", pageSize: 25, rowAttr: (x) => rcAttr({ category: x.k }, "Gap", x.k), cols: rcCols(nameC("Category"), false) });
+    let artT = "";
+    if (D.articles) {
+      const arts = D.articles.map(([code, name, cat, r, s]) => ({ key: code, code, name: name || code, cat: cat || "—", r, s, bal: (r || 0) - (s || 0) }));
+      artT = mountTable("rc-art", { title: "By article", file: "receiving_by_article", stamp: D.range.end, desc: (n) => `${int(n)} articles with movement in the window, company-wide. Search by code, name or category.`,
+        rows: arts, key: (x) => x.key, searchText: (x) => `${x.code} ${x.name} ${x.cat}`, defaultSort: "bal", pageSize: 25,
+        cols: [{ k: "name", label: "Article", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.code)} · ${esc(x.cat)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+          { k: "code", label: "Article code", hide: 1, csv: (x) => x.code }, { k: "cat", label: "Category", hide: 1, csv: (x) => x.cat },
+          { k: "r", label: "Received units", num: 1, fmt: (x) => units(x.r), csv: (x) => Math.round(x.r || 0) },
+          { k: "s", label: "Sold units", num: 1, fmt: (x) => units(x.s), csv: (x) => Math.round(x.s || 0) },
+          { k: "bal", label: "Receipt balance", num: 1, fmt: (x) => signedUnits(x.bal), csv: (x) => Math.round(x.bal) }] });
+    } else artT = `<section class="panel"><div class="panel-head"><div><h2>By article</h2><p>Article detail for these filters comes straight from Power BI.</p></div><div class="panel-tools"><button type="button" class="btn" ${rcAttr({}, "Gap", "All articles")}>Open articles</button></div></div></section>`;
+    AFTER.push(() => rcTrend(D));
+    const card = (html, metric, title) => html.replace('<div class="kpi"', `<div class="kpi kpi-click" ${rcAttr({}, metric, title)} title="Open the articles behind this number"`);
+    const pulse = `Over these ${days} days outlets received ${units(k.r)} units and sold ${units(k.s)}: receipts ran ${pct(Math.abs(balPct || 0), 1)} ${bal >= 0 ? "above" : "below"} sales, so inventory is ${bal >= 0 ? "building" : "drawing down"}.`;
+    return `${rcBar()}${rcHead(D)}
       <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
-      ${kpi({ label: "Received units", value: units(k.r), sub: `Over ${days} days`, foot: `<span>${units(k.r / days)} a day</span>`, accent: "var(--series-2)" })}
-      ${kpi({ label: "Sold units", value: units(k.s), sub: `Over ${days} days`, foot: `<span>${units(k.s / days)} a day</span>`, accent: "var(--series-1)" })}
-      ${kpi({ label: "Receipt balance", value: signedUnits(bal), sub: bal >= 0 ? "Inventory building" : "Inventory drawing down", foot: `<span>${pct(Math.abs(balPct || 0), 1)} ${bal >= 0 ? "above" : "below"} sales</span>`, accent: `var(--${bal > 0 ? "warn" : "good"})` })}
-      ${kpi({ label: "Inventory units", value: units(k.inv), sub: `${k.s > 0 ? (k.inv / (k.s / days)).toFixed(1) : "—"} stock days`, foot: `<span>Latest stock ${units(k.stock)}</span>`, accent: "var(--series-3)" })}
-      ${kpi({ label: "Over-receiving value", value: bdt(k.ov), sub: `${int(k.oi)} incidents`, foot: `<span>${isNum(k.oiPct) ? k.oiPct.toFixed(2) + "%" : "—"} of receipts</span>`, accent: "var(--bad)" })}
-      ${kpi({ label: "Under-receiving incidents", value: int(k.ui), sub: "Received less than expected", foot: `<span>${isNum(k.uiPct) ? k.uiPct.toFixed(2) + "%" : "—"} of receipts</span>`, accent: "var(--warn)" })}
-      ${kpi({ label: "Active outlets", value: int(k.outlets), sub: "With receiving or sales", foot: `<span>${int(d.quality.unmapped.length)} not in the outlet master</span>`, accent: "var(--idle)" })}
+      ${card(kpi({ label: "Received units", value: units(k.r), sub: `Over ${days} days`, foot: `<span>${units(k.r / days)} a day</span>`, accent: "var(--series-2)" }), "Receiving", "Received units")}
+      ${card(kpi({ label: "Sold units", value: units(k.s), sub: `Over ${days} days`, foot: `<span>${units(k.s / days)} a day</span>`, accent: "var(--series-1)" }), "Sales", "Sold units")}
+      ${card(kpi({ label: "Receipt balance", value: signedUnits(bal), sub: bal >= 0 ? "Inventory building" : "Inventory drawing down", foot: `<span>${pct(Math.abs(balPct || 0), 1)} ${bal >= 0 ? "above" : "below"} sales</span>`, accent: `var(--${bal > 0 ? "warn" : "good"})` }), "Gap", "Receipt balance")}
+      ${card(kpi({ label: "Inventory units", value: units(k.inv), sub: `${k.s > 0 ? (k.inv / (k.s / days)).toFixed(1) : "—"} stock days`, foot: `<span>Latest stock ${units(k.stock)}</span>`, accent: "var(--series-3)" }), "Inventory", "Inventory")}
+      ${card(kpi({ label: "Over-receiving value", value: bdt(k.ov), sub: `${int(k.oi)} incidents`, foot: `<span>${isNum(k.oiPct) ? k.oiPct.toFixed(2) + "%" : "—"} of receipts</span>`, accent: "var(--bad)" }), "OverValue", "Over-receiving value")}
+      ${card(kpi({ label: "Under-receiving incidents", value: int(k.ui), sub: "Received less than expected", foot: `<span>${isNum(k.uiPct) ? k.uiPct.toFixed(2) + "%" : "—"} of receipts</span>`, accent: "var(--warn)" }), "UnderIncidents", "Under-receiving incidents")}
+      ${kpi({ label: "Active outlets", value: int(k.outlets), sub: "With receiving or sales", foot: `<span>${int(D.quality.unmapped.length)} not in the outlet master</span>`, accent: "var(--idle)" }).replace('<div class="kpi"', '<div class="kpi kpi-click" data-go="rcu" tabindex="0" role="link" title="Open Receiving by outlet"')}
       </div>
       <p class="muted" style="margin:0">${esc(pulse)}</p>
-      <section class="panel"><div class="panel-head"><div><h2>Daily units received and sold</h2><p>${fdate(d.range.start)} to ${fdate(d.range.end)}.</p></div></div>
+      <section class="panel"><div class="panel-head"><div><h2>Daily units received and sold</h2><p>${fdate(D.range.start)} to ${fdate(D.range.end)}.</p></div></div>
         <div class="panel-body"><div class="chart-legend"><span><i class="swatch" style="background:var(--series-2)"></i>Received</span><span><i class="swatch" style="background:var(--series-1)"></i>Sold</span></div><div class="chart" id="rcTrend"></div></div></section>
       ${regT}${catT}${artT}`;
   }
   function pageRCU() {
     const g = rcGuard(); if (g) return g;
-    const d = S.rcv, days = d.range.days, list = inView();
-    const D = leaderDrill("rcd", "rc-out", list, "outlet figures for the whole window"), at = D.at;
-    const inPath = list.filter(D.inPath);
+    const D = rcData(), st = rcState(D); if (st) { if (D?.loading) setTimeout(() => S.page === "rcu" && rcData()?.loading && render(), 1500); return st; }
+    const days = D.range.days, list = D.outlets;
+    const DR = leaderDrill("rcd", "rc-out", list, "click an outlet for its articles"), at = DR.at;
+    const inPath = list.filter(DR.inPath);
     let rows;
     if (at === "outlet") rows = inPath.map((o) => ({ key: o.c, name: o.nm, sub: `${o.c}, ${o.dim.zn}`, o, ...rcRow(o, days), n: 1 }));
     else {
       const gm = new Map();
       inPath.forEach((o) => { const k = o.dim[at]; if (!gm.has(k)) gm.set(k, []); gm.get(k).push(o); });
-      rows = [...gm].map(([k, os]) => ({ key: k, name: k, sub: at === "zn" ? D.zsub(k, `${int(os.length)} outlets`) : `${int(os.length)} outlets`, ...rcSum(os, days) }));
+      rows = [...gm].map(([k, os]) => ({ key: k, name: k, sub: at === "zn" ? DR.zsub(k, `${int(os.length)} outlets`) : `${int(os.length)} outlets`, ...rcSum(os, days) }));
     }
     const t = rcSum(inPath, days);
     const nameL = { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at];
     const table = mountTable("rc-out", {
-      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file("receiving"), stamp: d.range.end,
-      banner: D.crumbs, tools: D.tools,
+      title: DR.V.zn ? `Outlets of ${DR.V.zn}` : DR.V.rl ? `Zonals of ${DR.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: DR.file("receiving"), stamp: D.range.end,
+      banner: DR.crumbs, tools: DR.tools,
       desc: (n) => `${int(n)} ${at === "outlet" ? "outlets" : at === "zn" ? "zonals" : "regional leaders"}. Receipt balance is received minus sold; stock days is inventory divided by average daily sales. Over-receiving value is shown per outlet (it doesn't add up across outlets).`,
-      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "oi", pageSize: 25, rowAttr: (x) => (x.o ? "" : D.pick(x)),
-      cols: rcCols({ k: "name", label: nameL, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet", false),
+      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "oi", pageSize: 25, rowAttr: (x) => (x.o ? rcAttr({ outlet: x.o.c, rho: "", zn: "" }, "Gap", `${x.o.c} ${x.o.nm}`) : DR.pick(x)),
+      cols: rcCols({ k: "name", label: nameL, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet"),
     });
-    return `${rcHead(d)}
+    return `${rcBar()}${rcHead(D)}
       <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
-      ${kpi({ label: "Outlets in view", value: int(inPath.length), sub: `of ${int(d.outlets.length)} with receiving data`, foot: "<span>Sidebar filters apply</span>", accent: "var(--idle)" })}
+      ${kpi({ label: "Outlets", value: int(inPath.length), sub: DR.V.rl || DR.V.zn ? "In this drill" : "With receiving data", foot: "<span>Use the filters above to narrow</span>", accent: "var(--idle)" })}
       ${kpi({ label: "Received units", value: units(t.r), sub: `Over ${days} days`, foot: `<span>Sold ${units(t.s)}</span>`, accent: "var(--series-2)" })}
       ${kpi({ label: "Receipt balance", value: signedUnits(t.bal), sub: t.bal >= 0 ? "Inventory building" : "Inventory drawing down", foot: `<span>${t.s ? pct(Math.abs(t.bal / t.s), 1) : "—"} ${t.bal >= 0 ? "above" : "below"} sales</span>`, accent: `var(--${t.bal > 0 ? "warn" : "good"})` })}
       ${kpi({ label: "Stock days", value: isNum(t.sd) ? t.sd.toFixed(1) : "—", sub: `Inventory ${units(t.inv)} units`, foot: "<span>Inventory ÷ average daily sales</span>", accent: "var(--series-3)" })}
-      ${kpi({ label: "Over-receiving incidents", value: int(t.oi), sub: `Under-receiving ${int(t.ui)}`, foot: "<span>Across outlets in view</span>", accent: "var(--bad)" })}
+      ${kpi({ label: "Over-receiving incidents", value: int(t.oi), sub: `Under-receiving ${int(t.ui)}`, foot: "<span>Across these outlets</span>", accent: "var(--bad)" })}
       </div>${table}`;
   }
 

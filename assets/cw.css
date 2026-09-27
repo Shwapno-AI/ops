@@ -250,3 +250,13 @@ tr.lr-top td{background:var(--bad-soft)}
 section[id^="t-"]{scroll-margin-top:calc(var(--k-top,57px) + 12px)}
 /* Availability: stale-file warning sits beside the Scope title */
 .av-stale{font-size:12.5px;font-weight:500;color:var(--warn);margin-left:6px}
+/* Receiving filter bar */
+.rc-bar{display:flex;flex-wrap:wrap;gap:10px 12px;align-items:flex-end}
+.rc-bar .net-date{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--ink-3)}
+.rc-bar input[type=text],.rc-bar input[type=date]{min-width:130px}
+.rc-bar .sel{max-width:230px}
+.rc-bar-go{display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%}
+.rc-bar-go .muted{font-size:12px}
+.rc-metrics{display:flex;flex-wrap:wrap;gap:6px}
+.rc-metrics .btn{font-size:12px;padding:5px 10px}
+tr[data-rcart]{cursor:pointer}tr[data-rcart]:hover td{background:var(--surface-2)}
