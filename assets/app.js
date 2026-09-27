@@ -619,13 +619,19 @@
     $$("[data-lreason]", root).forEach((b) => (b.onclick = () => openLossReason(b.dataset.lreason, b.dataset.lrl)));
     $$("[data-lstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openLossStatus(n.dataset.lstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
     // Leader tables (leaderDrill): level switch, drill down a level, breadcrumb back.
-    const dGo = (n) => { const id = n.dataset.dtab; if (S.tables[id]) { S.tables[id].page = 1; S.tables[id].q = ""; } render(); requestAnimationFrame(() => $("#t-" + id)?.scrollIntoView({ block: "start" })); };
+    // Re-render in place; only bring the table back into view when its title has scrolled above the header.
+    const dGo = (n, follow) => {
+      const id = n.dataset.dtab; if (S.tables[id]) { S.tables[id].page = 1; S.tables[id].q = ""; }
+      const y = scrollY; render(); scrollTo(0, y);
+      if (!follow) return;
+      requestAnimationFrame(() => { const el = $("#t-" + id), top = $(".topbar")?.offsetHeight || 0; if (el && el.getBoundingClientRect().top < top) scrollTo(0, scrollY + el.getBoundingClientRect().top - top - 12); });
+    };
     $$("[data-dlvl]", root).forEach((b) => (b.onclick = () => { S[b.dataset.dst] = { lvl: b.dataset.dlvl, rl: null, zn: null }; dGo(b); }));
     $$("[data-dpick]", root).forEach((tr) => {
-      const go = () => { const V = S[tr.dataset.dst]; if (tr.dataset.dpick === "rl") V.rl = tr.dataset.dkey; else V.zn = tr.dataset.dkey; dGo(tr); };
+      const go = () => { const V = S[tr.dataset.dst]; if (tr.dataset.dpick === "rl") V.rl = tr.dataset.dkey; else V.zn = tr.dataset.dkey; dGo(tr, true); };
       tr.onclick = go; tr.onkeydown = (e) => { if (e.key === "Enter") go(); };
     });
-    $$("[data-dgo]", root).forEach((b) => (b.onclick = () => { const V = S[b.dataset.dst]; if (b.dataset.dgo === "top") { V.rl = null; V.zn = null; } else V.zn = null; dGo(b); }));
+    $$("[data-dgo]", root).forEach((b) => (b.onclick = () => { const V = S[b.dataset.dst]; if (b.dataset.dgo === "top") { V.rl = null; V.zn = null; } else V.zn = null; dGo(b, true); }));
     $$("[data-uitoggle]", root).forEach((b) => (b.onclick = () => { UI[b.dataset.uitoggle] = !UI[b.dataset.uitoggle]; saveUI(); render(); }));
     wireNet(root);
     wireCw(root);
@@ -3630,6 +3636,7 @@
     Object.keys(S.tables).forEach((id) => $("#t-" + id) && drawTable(id));
     wireDyn(view);
     AFTER.forEach((f) => f());
+    const tb = $(".topbar"); if (tb) document.documentElement.style.setProperty("--k-top", tb.offsetHeight + "px");
   }
 
   function route() {

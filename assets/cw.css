@@ -246,3 +246,5 @@ tr.lr-top td{background:var(--bad-soft)}
 .lr-row>#t-loss-grp table{font-size:12px}
 .lr-row>#t-loss-grp th,.lr-row>#t-loss-grp td{padding-left:7px;padding-right:7px}
 .lr-row>#t-loss-grp .cell-secondary{font-size:11px}
+/* Tables scrolled into view stop below the sticky header, so their title stays visible */
+section[id^="t-"]{scroll-margin-top:calc(var(--k-top,57px) + 12px)}
