@@ -28,6 +28,10 @@ The Availability pages read `data/av.json`, built by `scripts/av/refresh.py` fro
 
 Rules: an outlet with no Core, KVI or Promo stock, or no Core, KVI or Promo sales, is left out everywhere. A pair is available when stock covers the chosen days of sales (60-day sales ÷ 60 × days, default 2); a pair with no sales in 60 days counts and is available when it has stock. E-Commerce counts only Assortment = YES pairs and is available when stock covers DOS 2 Days. The KVI outlet list is only a filter on the KVI page.
 
+### Receiving
+
+The Receiving pages read `data/rcv.json`, built by `scripts/rcv/refresh.py`. The figures come from the public Power BI receiving report; the Receiving dashboard's own workflow reads that report every few minutes and publishes `snapshot.json`, which this step downloads each hour (set `RCV_SNAPSHOT_URL` to read a different snapshot). Outlets are joined to the outlet master for the sidebar filters. Over-receiving value is a non-additive Power BI measure, so it is shown for the company, a division, a category or one outlet, never summed.
+
 ### Outlet network and Growth & momentum
 
 These two pages are built into this dashboard and read `data/network.json`, which the same hourly refresh builds from the mother folder. It needs these workbooks, anywhere under it:

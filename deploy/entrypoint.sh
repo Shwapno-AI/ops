@@ -25,6 +25,7 @@ export DRIVE_CACHE=/tmp/drive-cache
       python3 /app/scripts/network/refresh.py || echo "Outlet network refresh failed; keeping the last good data."
       python3 /app/scripts/cw/refresh.py || echo "Consumable and wastage refresh failed; keeping the last good data."
       python3 /app/scripts/av/refresh.py || echo "Availability refresh failed; keeping the last good data."
+      python3 /app/scripts/rcv/refresh.py || echo "Receiving refresh failed; keeping the last good data."
       find "$DRIVE_CACHE" -type f ! -newer /tmp/run-start -delete 2>/dev/null || true
     fi
     first=0

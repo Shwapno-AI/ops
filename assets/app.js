@@ -12,21 +12,22 @@
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
-    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["rcv", "Receiving"]] },
+    { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"]] },
+    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
-  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
+  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
   const SALES_PAGES = new Set(["overview", "achievement", "growth", "gp", "footfall", "ranking"]);
   const PERIOD_PAGES = new Set([...SALES_PAGES, "category"]);
   const NET_PAGES = new Set(["gm", "on"]);
   const CW_PAGES = new Set(["cw", "cwl", "cwx", "cwb", "cwm", "cwo"]);
   const AV_PAGES = new Set(["avs", "avk", "avc", "avp", "avv", "ave", "avb"]);
-  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES]);
+  const RC_PAGES = new Set(["rco", "rcu"]);
+  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, "rcu"]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
     vc: { url: "https://aftabz-lab.github.io/visit-compliance-dashboard/", desc: "Outlet visit schedules and compliance." },
-    rcv: { url: "https://aftabz-lab.github.io/receiving-dashboard-shwapno/", desc: "Outlet receiving dashboard." },
   };
   const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"]];
   // Extra outlet-master fields, filterable on the outlet network pages only.
@@ -45,7 +46,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null,
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -103,7 +104,7 @@
   }
   const rep = () => S.data?.[S.period];
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(o.dim[k]));
-  const baseList = () => (NET_PAGES.has(S.page) ? netRows() : CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
+  const baseList = () => (NET_PAGES.has(S.page) ? netRows() : CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
   const inView = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
   // Loss page outlet-age filter: open a year or more, or under a year (outlets without an opening date only under All).
   function lossAgeOk(o) {
@@ -348,6 +349,12 @@
         const a = S.av;
         if (a) { const st = (a.files || []).find((f) => f.kind === "stock"); fresh(st?.modified ? `Stock ${fdate(st.modified.slice(0, 10), true)}` : "", a.generatedAt); }
         $("#scope").textContent = a ? `${avDays()} day${avDays() === 1 ? "" : "s"} of cover. ${int(inView().length)} of ${int(baseList().length)} outlets in view.` : "";
+        return;
+      }
+      if (RC_PAGES.has(S.page)) {
+        const c = S.rcv;
+        if (c) fresh(`Data to ${fdate(c.range.end, true)}`, c.source?.snapshotAt || c.generatedAt);
+        $("#scope").textContent = c ? `${fdate(c.range.start)} to ${fdate(c.range.end)}, ${c.range.days} days. ${S.page === "rcu" ? `${int(inView().length)} of ${int(baseList().length)} outlets in view.` : "Company-wide; sidebar filters apply on By outlet."}` : "";
         return;
       }
       if (CW_PAGES.has(S.page)) {
@@ -3637,6 +3644,135 @@
     on("[data-avecomband]", (n) => openAvEcomBand(Number(n.dataset.avecomband)));
   }
 
+  // ------------------------------------------------------------------ receiving (Power BI snapshot, data/rcv.json)
+  // Units received vs sold over the report window, inventory and stock days, and over / under receiving incidents.
+  // Over-receiving value is a non-additive Power BI measure: shown for the company, a division, a category or one
+  // outlet, never summed across outlets.
+  function loadRc() {
+    if (S.rcv || S.rcLoading) return;
+    S.rcLoading = true; S.rcErr = null;
+    fetch("data/rcv.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { prepRc(d); S.rcv = d; })
+      .catch((e) => { S.rcErr = e.message; })
+      .finally(() => { S.rcLoading = false; if (RC_PAGES.has(S.page)) render(); });
+  }
+  function prepRc(d) {
+    const v = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
+    d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc) }; });
+  }
+  function rcGuard() {
+    if (S.rcv) return "";
+    loadRc();
+    return S.rcErr ? `<p class="empty">The receiving data could not be loaded (${esc(S.rcErr)}). Run the "Refresh data" workflow, then reload this page.</p>` : '<p class="empty">Loading receiving data…</p>';
+  }
+  const units = (v) => { if (!isNum(v)) return "—"; const a = Math.abs(v), sg = v < 0 ? "−" : ""; return sg + (a >= 1e7 ? (a / 1e7).toFixed(2) + " Cr" : a >= 1e5 ? (a / 1e5).toFixed(2) + " Lac" : a >= 1e3 ? (a / 1e3).toFixed(1) + " K" : String(Math.round(a))); };
+  const signedUnits = (v) => (isNum(v) ? `${v > 0 ? "+" : ""}${units(v)}` : "—");
+  // Adds balance (received − sold) and stock days (inventory ÷ average daily sales) to a row.
+  const rcRow = (x, days) => ({ ...x, bal: isNum(x.r) || isNum(x.s) ? (x.r || 0) - (x.s || 0) : null, sd: x.s > 0 && days ? x.inv / (x.s / days) : null });
+  function rcSum(rows, days) {
+    const t = { n: rows.length, r: 0, s: 0, inv: 0, oi: 0, ui: 0 };
+    rows.forEach((o) => { t.r += o.r || 0; t.s += o.s || 0; t.inv += o.inv || 0; t.oi += o.oi || 0; t.ui += o.ui || 0; });
+    return { ...rcRow(t, days), ov: rows.length === 1 ? rows[0].ov : null };
+  }
+  const rcCols = (first, withN, ovAll) => [first, ...(withN ? [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }] : []),
+    { k: "r", label: "Received units", num: 1, fmt: (x) => units(x.r), csv: (x) => Math.round(x.r || 0) },
+    { k: "s", label: "Sold units", num: 1, fmt: (x) => units(x.s), csv: (x) => Math.round(x.s || 0) },
+    { k: "bal", label: "Receipt balance", num: 1, fmt: (x) => signedUnits(x.bal), csv: (x) => (isNum(x.bal) ? Math.round(x.bal) : "") },
+    { k: "inv", label: "Inventory units", num: 1, fmt: (x) => units(x.inv), csv: (x) => Math.round(x.inv || 0) },
+    { k: "sd", label: "Stock days", num: 1, fmt: (x) => (isNum(x.sd) ? x.sd.toFixed(1) : "—"), csv: (x) => (isNum(x.sd) ? x.sd.toFixed(2) : "") },
+    { k: "oi", label: "Over-receiving incidents", num: 1, fmt: (x) => int(x.oi) },
+    { k: "ui", label: "Under-receiving incidents", num: 1, fmt: (x) => int(x.ui) },
+    { k: "ov", label: "Over-receiving value", num: 1, fmt: (x) => (isNum(x.ov) ? bdt(x.ov) : `<span class="muted" title="${ovAll ? "" : "Not additive across outlets; see each outlet"}">—</span>`), csv: (x) => (isNum(x.ov) ? Math.round(x.ov) : "") }];
+  function rcTrend(d) {
+    const host = $("#rcTrend");
+    if (!host) return;
+    const rows = d.trend;
+    if (!rows.length) { host.innerHTML = '<p class="net-empty">No daily data.</p>'; return; }
+    const W = Math.round(Math.max(300, Math.min(1200, host.clientWidth || 800))), narrow = W < 520;
+    const H = Math.round(Math.max(170, Math.min(240, W * (narrow ? 0.5 : 0.22)))), m = { t: 12, r: narrow ? 12 : 20, b: 28, l: narrow ? 48 : 60 };
+    const pw = W - m.l - m.r, ph = H - m.t - m.b, n = rows.length;
+    const max = Math.max(1, ...rows.flatMap((x) => [x.r || 0, x.s || 0])) * 1.12;
+    const X = (i) => m.l + (n === 1 ? pw / 2 : (i / (n - 1)) * pw), Y = (v) => m.t + ph - (Math.max(0, v || 0) / max) * ph;
+    let svg = "";
+    for (let i = 0; i <= 4; i++) { const val = (max / 4) * i, y = Y(val); svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" style="stroke:var(--grid)"/><text x="${m.l - 8}" y="${y + 3.5}" text-anchor="end" class="cw-axis">${units(val)}</text>`; }
+    const step = Math.max(1, Math.ceil(n / (narrow ? 4 : 9)));
+    rows.forEach((x, i) => { const last = i === n - 1; if (i && !last && i % step) return; svg += `<text x="${i === 0 ? m.l : last ? W - m.r : X(i)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : last ? "end" : "middle"}" class="cw-axis">${fdate(x.d, true)}</text>`; });
+    [["r", "--series-2", "Received"], ["s", "--series-1", "Sold"]].forEach(([k, c, lbl]) => {
+      svg += `<path d="${rows.map((x, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join(" ")}" fill="none" style="stroke:var(${c})" stroke-width="2.4" stroke-linejoin="round"/>`;
+      rows.forEach((x, i) => { svg += `<circle cx="${X(i).toFixed(1)}" cy="${Y(x[k]).toFixed(1)}" r="3" style="fill:var(${c})"><title>${fdate(x.d)} · ${lbl} ${int(x[k])} units</title></circle>`; });
+    });
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Daily units received and sold">${svg}</svg>`;
+  }
+  function rcHead(d) {
+    const src = d.source || {};
+    return `<p class="muted" style="margin:0">${fdate(d.range.start)} to ${fdate(d.range.end)} (${d.range.days} days), ${esc((src.divisions || []).length ? "all business divisions" : "")}. Source: the public Power BI receiving report${src.powerBiRefreshedAt ? `, refreshed ${new Date(src.powerBiRefreshedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" })}` : ""}. <a href="${esc(src.report || "#")}" target="_blank" rel="noopener">Open the report</a></p>`;
+  }
+  function pageRCO() {
+    const g = rcGuard(); if (g) return g;
+    const d = S.rcv, k = d.kpis, days = d.range.days, bal = (k.r || 0) - (k.s || 0), balPct = k.s ? bal / k.s : null;
+    const regions = d.regions.map((x) => rcRow({ ...x, k: x.k === "Not set" ? "No division (head office, DCs)" : x.k }, days)), cats = d.categories.map((x) => rcRow(x, days));
+    const arts = d.articles.map(([code, name, cat, r, s]) => ({ key: code, code, name: name || code, cat: cat || "—", r, s, bal: (r || 0) - (s || 0) }));
+    const nameC = (label) => ({ k: "k", label, fmt: (x) => `<span class="cell-primary">${esc(x.k)}</span>`, csv: (x) => x.k, val: (x) => x.k });
+    const regT = mountTable("rc-reg", { title: "By division", file: "receiving_by_division", stamp: d.range.end, desc: (n) => `${int(n)} divisions. Receipt balance is units received minus units sold; stock days is inventory divided by average daily sales.`,
+      rows: regions, key: (x) => x.k, searchText: (x) => x.k, defaultSort: "bal", pageSize: 25, cols: rcCols(nameC("Division"), false, true) });
+    const catT = mountTable("rc-cat", { title: "By category", file: "receiving_by_category", stamp: d.range.end, desc: (n) => `${int(n)} categories, biggest receipt balance first. Over-receiving value is worked out per category.`,
+      rows: cats, key: (x) => x.k, searchText: (x) => x.k, defaultSort: "bal", pageSize: 25, cols: rcCols(nameC("Category"), false, true) });
+    const artT = mountTable("rc-art", { title: "By article", file: "receiving_by_article", stamp: d.range.end, desc: (n) => `${int(n)} articles with movement in the window, company-wide. Search by code, name or category.`,
+      rows: arts, key: (x) => x.key, searchText: (x) => `${x.code} ${x.name} ${x.cat}`, defaultSort: "bal", pageSize: 25,
+      cols: [{ k: "name", label: "Article", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.code)} · ${esc(x.cat)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "code", label: "Article code", hide: 1, csv: (x) => x.code }, { k: "cat", label: "Category", hide: 1, csv: (x) => x.cat },
+        { k: "r", label: "Received units", num: 1, fmt: (x) => units(x.r), csv: (x) => Math.round(x.r || 0) },
+        { k: "s", label: "Sold units", num: 1, fmt: (x) => units(x.s), csv: (x) => Math.round(x.s || 0) },
+        { k: "bal", label: "Receipt balance", num: 1, fmt: (x) => signedUnits(x.bal), csv: (x) => Math.round(x.bal) }] });
+    AFTER.push(() => rcTrend(d));
+    const pulse = `Over the last ${days} days outlets received ${units(k.r)} units and sold ${units(k.s)}: receipts ran ${pct(Math.abs(balPct || 0), 1)} ${bal >= 0 ? "above" : "below"} sales, so inventory is ${bal >= 0 ? "building" : "drawing down"}.`;
+    return `${rcHead(d)}
+      <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
+      ${kpi({ label: "Received units", value: units(k.r), sub: `Over ${days} days`, foot: `<span>${units(k.r / days)} a day</span>`, accent: "var(--series-2)" })}
+      ${kpi({ label: "Sold units", value: units(k.s), sub: `Over ${days} days`, foot: `<span>${units(k.s / days)} a day</span>`, accent: "var(--series-1)" })}
+      ${kpi({ label: "Receipt balance", value: signedUnits(bal), sub: bal >= 0 ? "Inventory building" : "Inventory drawing down", foot: `<span>${pct(Math.abs(balPct || 0), 1)} ${bal >= 0 ? "above" : "below"} sales</span>`, accent: `var(--${bal > 0 ? "warn" : "good"})` })}
+      ${kpi({ label: "Inventory units", value: units(k.inv), sub: `${k.s > 0 ? (k.inv / (k.s / days)).toFixed(1) : "—"} stock days`, foot: `<span>Latest stock ${units(k.stock)}</span>`, accent: "var(--series-3)" })}
+      ${kpi({ label: "Over-receiving value", value: bdt(k.ov), sub: `${int(k.oi)} incidents`, foot: `<span>${isNum(k.oiPct) ? k.oiPct.toFixed(2) + "%" : "—"} of receipts</span>`, accent: "var(--bad)" })}
+      ${kpi({ label: "Under-receiving incidents", value: int(k.ui), sub: "Received less than expected", foot: `<span>${isNum(k.uiPct) ? k.uiPct.toFixed(2) + "%" : "—"} of receipts</span>`, accent: "var(--warn)" })}
+      ${kpi({ label: "Active outlets", value: int(k.outlets), sub: "With receiving or sales", foot: `<span>${int(d.quality.unmapped.length)} not in the outlet master</span>`, accent: "var(--idle)" })}
+      </div>
+      <p class="muted" style="margin:0">${esc(pulse)}</p>
+      <section class="panel"><div class="panel-head"><div><h2>Daily units received and sold</h2><p>${fdate(d.range.start)} to ${fdate(d.range.end)}.</p></div></div>
+        <div class="panel-body"><div class="chart-legend"><span><i class="swatch" style="background:var(--series-2)"></i>Received</span><span><i class="swatch" style="background:var(--series-1)"></i>Sold</span></div><div class="chart" id="rcTrend"></div></div></section>
+      ${regT}${catT}${artT}`;
+  }
+  function pageRCU() {
+    const g = rcGuard(); if (g) return g;
+    const d = S.rcv, days = d.range.days, list = inView();
+    const D = leaderDrill("rcd", "rc-out", list, "outlet figures for the whole window"), at = D.at;
+    const inPath = list.filter(D.inPath);
+    let rows;
+    if (at === "outlet") rows = inPath.map((o) => ({ key: o.c, name: o.nm, sub: `${o.c}, ${o.dim.zn}`, o, ...rcRow(o, days), n: 1 }));
+    else {
+      const gm = new Map();
+      inPath.forEach((o) => { const k = o.dim[at]; if (!gm.has(k)) gm.set(k, []); gm.get(k).push(o); });
+      rows = [...gm].map(([k, os]) => ({ key: k, name: k, sub: at === "zn" ? D.zsub(k, `${int(os.length)} outlets`) : `${int(os.length)} outlets`, ...rcSum(os, days) }));
+    }
+    const t = rcSum(inPath, days);
+    const nameL = { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at];
+    const table = mountTable("rc-out", {
+      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file("receiving"), stamp: d.range.end,
+      banner: D.crumbs, tools: D.tools,
+      desc: (n) => `${int(n)} ${at === "outlet" ? "outlets" : at === "zn" ? "zonals" : "regional leaders"}. Receipt balance is received minus sold; stock days is inventory divided by average daily sales. Over-receiving value is shown per outlet (it doesn't add up across outlets).`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "oi", pageSize: 25, rowAttr: (x) => (x.o ? "" : D.pick(x)),
+      cols: rcCols({ k: "name", label: nameL, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet", false),
+    });
+    return `${rcHead(d)}
+      <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
+      ${kpi({ label: "Outlets in view", value: int(inPath.length), sub: `of ${int(d.outlets.length)} with receiving data`, foot: "<span>Sidebar filters apply</span>", accent: "var(--idle)" })}
+      ${kpi({ label: "Received units", value: units(t.r), sub: `Over ${days} days`, foot: `<span>Sold ${units(t.s)}</span>`, accent: "var(--series-2)" })}
+      ${kpi({ label: "Receipt balance", value: signedUnits(t.bal), sub: t.bal >= 0 ? "Inventory building" : "Inventory drawing down", foot: `<span>${t.s ? pct(Math.abs(t.bal / t.s), 1) : "—"} ${t.bal >= 0 ? "above" : "below"} sales</span>`, accent: `var(--${t.bal > 0 ? "warn" : "good"})` })}
+      ${kpi({ label: "Stock days", value: isNum(t.sd) ? t.sd.toFixed(1) : "—", sub: `Inventory ${units(t.inv)} units`, foot: "<span>Inventory ÷ average daily sales</span>", accent: "var(--series-3)" })}
+      ${kpi({ label: "Over-receiving incidents", value: int(t.oi), sub: `Under-receiving ${int(t.ui)}`, foot: "<span>Across outlets in view</span>", accent: "var(--bad)" })}
+      </div>${table}`;
+  }
+
   // ------------------------------------------------------------------ drawer
   function openOutlet(code) {
     const o = rep()?.outlets.find((x) => x.c === code);
@@ -3684,7 +3820,7 @@
     if (FILTER_PAGES.has(S.page)) renderFilters();
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
