@@ -1300,7 +1300,7 @@
     const inPath = all.filter((x) => D.inPath(x.o));
     let grpRows;
     if (at === "outlet") {
-      grpRows = inPath.map((x) => ({ key: x.o.c, name: x.o.nm, sub: `${x.o.c}, ${x.o.dim.zn}`, x, loss: x.pl, s: x.o.s || 0, age: x.age }));
+      grpRows = inPath.filter((x) => x.loss).map((x) => ({ key: x.o.c, name: x.o.nm, sub: `${x.o.c}, ${x.o.dim.zn}`, x, loss: x.pl, s: x.o.s || 0, age: x.age }));
     } else {
       const g = new Map();
       inPath.forEach((x) => { const k = x.o.dim[at]; if (!g.has(k)) g.set(k, []); g.get(k).push(x); });
@@ -1308,9 +1308,9 @@
     }
     const nameLbl = { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at];
     const grp = mountTable("loss-grp", {
-      title: V.zn ? `Outlet P/L in ${V.zn}` : V.rl ? `Loss by zonal under ${V.rl}` : { rl: "Loss by regional leader", zn: "Loss by zonal", outlet: "P/L by outlet" }[at], file: D.file(`loss_${S.pm}`), pageSize: 25,
+      title: V.zn ? `Loss-making outlets of ${V.zn}` : V.rl ? `Loss by zonal under ${V.rl}` : { rl: "Loss by regional leader", zn: "Loss by zonal", outlet: "Loss-making outlets" }[at], file: D.file(`loss_${S.pm}`), pageSize: 25,
       banner: D.crumbs, tools: D.tools,
-      desc: (n) => (at === "outlet" ? `${int(n)} outlets, P&L ${basisLbl}, biggest loss first. Click an outlet for its cost breakdown.` : `${int(n)} ${at === "zn" ? "zonals" : "regional leaders"}, P&L ${basisLbl}. Click ${at === "zn" ? "a zonal to list its outlets" : "a leader to see their zonals"}. The loss-making list below follows your selection.`),
+      desc: (n) => (at === "outlet" ? `${int(n)} loss-making outlet${n === 1 ? "" : "s"}, P&L ${basisLbl}, biggest loss first. Click an outlet for its cost breakdown.` : `${int(n)} ${at === "zn" ? "zonals" : "regional leaders"}, P&L ${basisLbl}. Click ${at === "zn" ? "a zonal to list its outlets" : "a leader to see their zonals"}. The loss-making list below follows your selection.`),
       rows: grpRows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "l", defaultDir: "desc",
       rowAttr: (x) => (at === "outlet" ? `data-pnl="${esc(x.key)}" tabindex="0"` : D.pick(x)),
       cols: at === "outlet"
