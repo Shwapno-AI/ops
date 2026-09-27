@@ -3146,16 +3146,16 @@
     const pool = ecom ? d.ecom.skus : d.skus.filter((s) => s.core || s.promo || s.kvi);
     const nds = [...new Set(pool.map((s) => s.nd).filter(Boolean))].sort();
     const cats = [...new Set(pool.filter((s) => !f.nd || s.nd === f.nd).map((s) => s.cat3).filter(Boolean))].sort();
-    const stale = d.stale.length ? `<p class="note" style="margin:0">${d.stale.map((x) => `${x.kind === "stock" ? "Stock" : "Sales (DOS)"} file is from ${fdate(x.modified.slice(0, 10))}`).join("; ")}, more than 2 days old. Upload today's file to the Availability folder.</p>` : "";
+    const stale = d.stale.length ? `<span class="av-stale">[${d.stale.map((x) => `${x.kind === "stock" ? "Stock" : "Sales (DOS)"} file is from ${fdate(x.modified.slice(0, 10))}`).join("; ")}, more than 2 days old. Upload today's file to the Availability folder.]</span>` : "";
     if (!UI.avBarOpen) {
       const parts = [ecom ? "Stock against DOS 2 Days" : `${avDays()} day${avDays() === 1 ? "" : "s"} of cover`, f.nd || "All product divisions", f.cat3 || "All CAT3"];
-      return `<section class="panel ui-slim"><div class="panel-head"><div><h2>Scope</h2><p>${esc(parts.join(" · "))}</p></div>
-        <div class="panel-tools">${extra}<button class="btn" data-uitoggle="avBarOpen" aria-expanded="false">Show</button></div></div>${stale ? `<div class="panel-body">${stale}</div>` : ""}</section>`;
+      return `<section class="panel ui-slim"><div class="panel-head"><div><h2>Scope ${stale}</h2><p>${esc(parts.join(" · "))}</p></div>
+        <div class="panel-tools">${extra}<button class="btn" data-uitoggle="avBarOpen" aria-expanded="false">Show</button></div></div></section>`;
     }
-    return `<section class="panel"><div class="panel-head"><div><h2>Scope</h2><p>${ecom ? "E-Commerce: available when stock covers DOS 2 Days; only Assortment = YES pairs count." : `Available when stock covers the chosen days of sales (60-day sales ÷ 60 × days). Items with no sales in 60 days count as available when in stock.`} ${int(d.excluded.length)} outlets with no Core, KVI or Promo stock or sales are left out everywhere.</p></div>
+    return `<section class="panel"><div class="panel-head"><div><h2>Scope ${stale}</h2><p>${ecom ? "E-Commerce: available when stock covers DOS 2 Days; only Assortment = YES pairs count." : `Available when stock covers the chosen days of sales (60-day sales ÷ 60 × days). Items with no sales in 60 days count as available when in stock.`} ${int(d.excluded.length)} outlets with no Core, KVI or Promo stock or sales are left out everywhere.</p></div>
       <div class="panel-tools">${ecom ? "" : `<label class="net-date">Required cover${avSel("days", AV_DAYS, "Required cover")}</label>`}
         ${avSel("nd", [["", "All product divisions"], ...nds.map((x) => [x, x])], "Product division")}
-        ${avSel("cat3", [["", "All CAT3"], ...cats.map((x) => [x, x])], "CAT3")}${extra}<button class="btn" data-uitoggle="avBarOpen" aria-expanded="true">Hide</button></div></div>${stale ? `<div class="panel-body">${stale}</div>` : ""}</section>`;
+        ${avSel("cat3", [["", "All CAT3"], ...cats.map((x) => [x, x])], "CAT3")}${extra}<button class="btn" data-uitoggle="avBarOpen" aria-expanded="true">Hide</button></div></div></section>`;
   }
   const avPct = (a) => (a && a.slots ? pct(avRate(a), 2) : "—");
   // Status chips use the same five bands as the criteria cards (AV_BANDS).

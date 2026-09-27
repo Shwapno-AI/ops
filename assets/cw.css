@@ -248,3 +248,5 @@ tr.lr-top td{background:var(--bad-soft)}
 .lr-row>#t-loss-grp .cell-secondary{font-size:11px}
 /* Tables scrolled into view stop below the sticky header, so their title stays visible */
 section[id^="t-"]{scroll-margin-top:calc(var(--k-top,57px) + 12px)}
+/* Availability: stale-file warning sits beside the Scope title */
+.av-stale{font-size:12.5px;font-weight:500;color:var(--warn);margin-left:6px}
