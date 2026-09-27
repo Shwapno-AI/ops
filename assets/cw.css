@@ -260,3 +260,5 @@ section[id^="t-"]{scroll-margin-top:calc(var(--k-top,57px) + 12px)}
 .rc-metrics{display:flex;flex-wrap:wrap;gap:6px}
 .rc-metrics .btn{font-size:12px;padding:5px 10px}
 tr[data-rcart]{cursor:pointer}tr[data-rcart]:hover td{background:var(--surface-2)}
+.rcx-trail button{all:unset;cursor:pointer;color:var(--info);text-decoration:underline}
+tr[data-rcx]{cursor:pointer}tr[data-rcx]:hover td{background:var(--surface-2)}

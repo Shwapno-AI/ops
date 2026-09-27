@@ -12,7 +12,7 @@
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
-    { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"]] },
+    { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
@@ -22,7 +22,7 @@
   const NET_PAGES = new Set(["gm", "on"]);
   const CW_PAGES = new Set(["cw", "cwl", "cwx", "cwb", "cwm", "cwo"]);
   const AV_PAGES = new Set(["avs", "avk", "avc", "avp", "avv", "ave", "avb"]);
-  const RC_PAGES = new Set(["rco", "rcu"]);
+  const RC_PAGES = new Set(["rco", "rcu", "rcx"]);
   const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
@@ -46,7 +46,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcd: { lvl: "rl", rl: null, zn: null },
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -3705,19 +3705,31 @@
     return out;
   }
   const rcNum = (v) => (v == null || v === "" || !isFinite(Number(v)) ? null : Number(v));
+  // Run one Power BI query; if the division is too heavy (Company Goods), repeat it in batches of 100 outlets,
+  // three batches at a time. Always returns an array of answers to be added together.
+  async function rcSafe(q, fn) {
+    try { return [await fn(q)]; } catch (e) {
+      const codes = q.outletCodes || S.rcv.outlets.map((o) => o.c), parts = [];
+      for (let i = 0; i < codes.length; i += 100) parts.push(codes.slice(i, i + 100));
+      const out = []; let k = 0;
+      const worker = async () => { while (k < parts.length) { const p = parts[k++]; out.push(await fn({ ...q, outletCodes: p })); } };
+      await Promise.all([worker(), worker(), worker()]);
+      return out;
+    }
+  }
   // Combine per-division Power BI answers into the same shape as rcv.json.
   function rcCombine(parts, range) {
     const k = { r: 0, s: 0, inv: 0, stock: 0, ov: 0, oi: 0, ui: 0 }, oiPop = [0], uiPop = [0];
-    const trend = new Map(), regs = new Map(), outs = new Map(), cats = [];
+    const trend = new Map(), regs = new Map(), outs = new Map(), catm = new Map();
     const addRow = (m, key, x, extra) => { const t = m.get(key) || { k: key, r: 0, s: 0, inv: 0, ov: 0, oi: 0, ui: 0, ...extra }; t.r += rcNum(x.Receiving) || 0; t.s += rcNum(x.Sales) || 0; t.inv += rcNum(x.Inventory) || 0; t.ov += rcNum(x.OverValue) || 0; t.oi += rcNum(x.OverIncidents) || 0; t.ui += rcNum(x.UnderIncidents) || 0; m.set(key, t); };
-    parts.forEach(({ core, outs: o }) => {
+    parts.forEach(({ core = {}, outs: o = {} }) => {
       const x = core.kpis?.[0] || {};
       k.r += rcNum(x.Receiving) || 0; k.s += rcNum(x.Sales) || 0; k.inv += rcNum(x.Inventory) || 0; k.stock += rcNum(x.LatestStock) || 0; k.ov += rcNum(x.OverValue) || 0;
       k.oi += rcNum(x.OverIncidents) || 0; k.ui += rcNum(x.UnderIncidents) || 0;
       if (rcNum(x.OverIncidentPct) > 0) oiPop[0] += rcNum(x.OverIncidents) / (rcNum(x.OverIncidentPct) / 100);
       if (rcNum(x.UnderIncidentPct) > 0) uiPop[0] += rcNum(x.UnderIncidents) / (rcNum(x.UnderIncidentPct) / 100);
       (core.trend || []).forEach((t) => { const d = new Date(rcNum(t.Date)).toISOString().slice(0, 10), a = trend.get(d) || { d, r: 0, s: 0 }; a.r += rcNum(t.Receiving) || 0; a.s += rcNum(t.Sales) || 0; trend.set(d, a); });
-      (core.categories || []).forEach((c) => cats.push({ k: c.Category || "Not set", r: rcNum(c.Receiving), s: rcNum(c.Sales), inv: rcNum(c.Inventory), ov: rcNum(c.OverValue), oi: rcNum(c.OverIncidents) || 0, ui: rcNum(c.UnderIncidents) || 0 }));
+      (core.categories || []).forEach((c) => addRow(catm, c.Category || "Not set", c));
       (core.regions || []).forEach((g) => addRow(regs, g.Region || "Not set", g));
       (o.outlets || []).forEach((g) => addRow(outs, g.OutletCode, g, { region: g.Region, name: g.Outlet }));
     });
@@ -3729,7 +3741,7 @@
     });
     const d = { live: true, range: { start: range.start, end: new Date(Date.parse(range.endExclusive + "T00:00:00Z") - 86400000).toISOString().slice(0, 10), days: range.days },
       kpis: { ...k, sd: null, oiPct: oiPop[0] ? (k.oi / oiPop[0]) * 100 : null, uiPct: uiPop[0] ? (k.ui / uiPop[0]) * 100 : null, outlets: outlets.filter((o) => o.r || o.s).length },
-      trend: [...trend.values()].sort((a, b) => (a.d < b.d ? -1 : 1)), categories: cats, regions: [...regs.values()], outlets, articles: null,
+      trend: [...trend.values()].sort((a, b) => (a.d < b.d ? -1 : 1)), categories: [...catm.values()], regions: [...regs.values()], outlets, articles: null,
       source: S.rcv.source, quality: { unmapped: outlets.filter((o) => !master.has(o.c)).map((o) => o.c) } };
     rcPrep(d);
     return d;
@@ -3743,8 +3755,11 @@
     const entry = { loading: true, started: Date.now() };
     rcLive.set(key, entry);
     const q = rcQuery(S.rcf);
-    rcPerDivision(q, async (c, qq) => { const [core, outs] = await Promise.all([c.load(qq, { section: "core" }), c.load(qq, { section: "outlets" })]); return { core, outs, range: core.range }; })
-      .then((parts) => { entry.data = rcCombine(parts, parts[0]?.range || { start: "", endExclusive: "", days: 0 }); })
+    rcPerDivision(q, async (c, qq) => {
+      const [cores, outs] = await Promise.all([rcSafe(qq, (x) => c.load(x, { section: "core" })), rcSafe(qq, (x) => c.load(x, { section: "outlets" }))]);
+      return cores.map((core, i) => ({ core, outs: outs[i] || { outlets: [] }, range: core.range })).concat(outs.slice(cores.length).map((o) => ({ core: {}, outs: o })));
+    })
+      .then((groups) => { const parts = groups.flat(); entry.data = rcCombine(parts, parts.find((p) => p.range)?.range || { start: "", endExclusive: "", days: 0 }); })
       .catch((e) => { entry.error = e.message || String(e); })
       .finally(() => { entry.loading = false; if (RC_PAGES.has(S.page)) render(); });
     return entry;
@@ -3790,6 +3805,7 @@
       if (el.dataset.rcf === "rho") { f.zn = ""; f.outlet = ""; } else f.outlet = "";
       S.rcDraft = f; render();
     }));
+    $$("[data-rcx]", root).forEach((n) => { const go = () => { S.rcx = JSON.parse(n.dataset.rcx); render(); requestAnimationFrame(() => { const el = $("#view section[id^='t-rcx']"); if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" }); }); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-rcart]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); rcArticles(JSON.parse(n.dataset.rcart)); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(e); }; });
   }
   const units = (v) => { if (!isNum(v)) return "—"; const a = Math.abs(v), sg = v < 0 ? "−" : ""; return sg + (a >= 1e7 ? (a / 1e7).toFixed(2) + " Cr" : a >= 1e5 ? (a / 1e5).toFixed(2) + " Lac" : a >= 1e3 ? (a / 1e3).toFixed(1) + " K" : String(Math.round(a))); };
@@ -3820,8 +3836,10 @@
     showDrawer();
     try {
       const q = rcQuery(f);
-      const parts = await rcPerDivision(q, (c, qq) => c.loadArticleDetails(qq, metric));
-      const rows = parts.flatMap((p) => p.rows || []).map((a) => ({ code: a.ArticleNo, name: a.ArticleName || a.ArticleNo, div: a.MasterCategory, cat: a.Category, r: rcNum(a.Receiving), s: rcNum(a.Sales), inv: rcNum(a.Inventory), sd: rcNum(a.StockDay), ov: rcNum(a.OverValue), oi: rcNum(a.OverIncidents), ui: rcNum(a.UnderIncidents) }));
+      const parts = (await rcPerDivision(q, (c, qq) => rcSafe(qq, (x) => c.loadArticleDetails(x, metric)))).flat();
+      const byArt = new Map();
+      parts.flatMap((p) => p.rows || []).forEach((a) => { const t = byArt.get(a.ArticleNo); if (!t) byArt.set(a.ArticleNo, { ...a }); else ["Receiving", "Sales", "Inventory", "OverValue", "OverIncidents", "UnderIncidents"].forEach((k) => { if (a[k] != null) t[k] = (rcNum(t[k]) || 0) + (rcNum(a[k]) || 0); }); });
+      const rows = [...byArt.values()].map((a) => ({ code: a.ArticleNo, name: a.ArticleName || a.ArticleNo, div: a.MasterCategory, cat: a.Category, r: rcNum(a.Receiving), s: rcNum(a.Sales), inv: rcNum(a.Inventory), sd: rcNum(a.StockDay), ov: rcNum(a.OverValue), oi: rcNum(a.OverIncidents), ui: rcNum(a.UnderIncidents) }));
       const colsFor = { Gap: ["r", "s", "bal"], Receiving: ["r"], Sales: ["s"], Inventory: ["inv"], OverValue: ["ov"], OverIncidents: ["oi"], UnderIncidents: ["ui"] }[metric] || ["r", "s", "bal"];
       rows.forEach((x) => (x.bal = (x.r || 0) - (x.s || 0)));
       const sortKey = metric === "Gap" ? "bal" : colsFor[0];
@@ -3941,6 +3959,99 @@
       </div>${table}`;
   }
 
+  // ---- Receiving drill-down: business division > category > article > outlet > receiving lines (all live from Power BI)
+  const rcxCache = new Map();
+  const rcxDate = (v) => (isNum(rcNum(v)) ? new Date(rcNum(v)).toISOString().slice(0, 10) : "");
+  // What the current drill level needs, and how to ask Power BI for it.
+  function rcxLevel() {
+    const x = S.rcx, q = rcQuery(S.rcf);
+    if (x.outlet) return { lvl: "lines", key: ["lines", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNo: x.art, outletCodes: [x.outlet] }, 5)).rows };
+    if (x.art) return { lvl: "outlets", key: ["outlets", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNo: x.art }, 1)).rows.filter((r) => r.OutletCode) };
+    const addUp = (lists, key) => { const by = new Map(); lists.flat().forEach((a) => { const k = a[key], t = by.get(k); if (!t) by.set(k, { ...a }); else ["Receiving", "Sales", "Inventory", "OverValue", "OverIncidents", "UnderIncidents"].forEach((f) => { if (a[f] != null) t[f] = (rcNum(t[f]) || 0) + (rcNum(a[f]) || 0); }); }); return [...by.values()]; };
+    if (x.cat) return { lvl: "articles", key: ["articles", q, x], run: async (c) => {
+      const qq = { ...q, masterCategory: x.mc, category: x.cat };
+      const res = await Promise.all(["Gap", "Incidents", "OverValue"].map(async (m) => addUp((await rcSafe(qq, (y) => c.loadArticleDetails(y, m))).map((r) => r.rows || []), "ArticleNo")));
+      const by = new Map();
+      res.forEach((rows) => rows.forEach((a) => by.set(a.ArticleNo, { ...(by.get(a.ArticleNo) || {}), ...a })));
+      return [...by.values()];
+    } };
+    if (x.mc) return { lvl: "categories", key: ["categories", q, x], run: async (c) => addUp((await rcSafe({ ...q, masterCategory: x.mc }, (y) => c.load(y, { section: "snapshotBreakdowns" }))).map((r) => r.categories || []), "Category") };
+    return { lvl: "divisions", key: ["divisions", q], run: async () => rcPerDivision(q, async (c, qq, mc) => ({ mc, ...addUp((await rcSafe(qq, (y) => c.load(y, { section: "kpis" }))).map((r) => (r.kpis || []).map((k) => ({ ...k, key: 1 }))), "key")[0] })) };
+  }
+  function rcxFetch(L) {
+    const key = JSON.stringify(L.key), hit = rcxCache.get(key);
+    if (hit) return hit;
+    const entry = { loading: true, started: Date.now() };
+    rcxCache.set(key, entry);
+    rcClient().then((c) => L.run(c)).then((rows) => { entry.rows = rows; }).catch((e) => { entry.error = e.message || String(e); })
+      .finally(() => { entry.loading = false; if (S.page === "rcx") render(); });
+    return entry;
+  }
+  function pageRCX() {
+    const g = rcGuard(); if (g) return g;
+    const x = S.rcx, L = rcxLevel(), E = rcxFetch(L);
+    const master = new Map((S.data?.master?.outlets || []).map((m) => [m.c, m]));
+    const days = rcQuery(S.rcf).days || (S.rcf.dateFrom && S.rcf.dateTo ? Math.round((Date.parse(S.rcf.dateTo) - Date.parse(S.rcf.dateFrom)) / 86400000) + 1 : 28);
+    const crumb = (label, set, current) => (current ? `<strong>${esc(label)}</strong>` : `<button type="button" data-rcx="${esc(JSON.stringify(set))}">${esc(label)}</button>`);
+    const trail = [crumb("Business divisions", {}, !x.mc)];
+    if (x.mc) trail.push(crumb(x.mc, { mc: x.mc }, !x.cat));
+    if (x.cat) trail.push(crumb(x.cat, { mc: x.mc, cat: x.cat }, !x.art));
+    if (x.art) trail.push(crumb(`${x.art} ${x.artName || ""}`, { mc: x.mc, cat: x.cat, art: x.art, artName: x.artName }, !x.outlet));
+    if (x.outlet) trail.push(crumb(`${x.outlet} ${master.get(x.outlet)?.n || ""}`, x, true));
+    const banner = `<div class="drill-banner rcx-trail">${trail.join(" › ")}</div>`;
+    const hints = { divisions: "Click a business division for its categories.", categories: "Click a category for its articles.", articles: "Click an article for the outlets that received it.",
+      outlets: "Outlets where this article was over-received. Stock days above the standard, closing stock far above sales and a high over-receiving score point to the cause. Click an outlet for its receiving lines.",
+      lines: "Every receiving line for this article at this outlet: which PO, when it was raised and received, the movement type and who created it." };
+    if (E.loading || E.error) {
+      if (E.loading) setTimeout(() => S.page === "rcx" && rcxFetch(rcxLevel()).loading && render(), 1500);
+      return `${rcBar()}<section class="panel"><div class="panel-head"><div><h2>Receiving drill-down</h2><p>${esc(hints[L.lvl])}</p></div></div>${banner}<div class="panel-body"><p class="${E.error ? "empty" : "muted"}" style="margin:0">${E.error ? `Power BI did not answer (${esc(E.error)}). Try again or narrow the filters.` : `Reading from Power BI… (${Math.round((Date.now() - E.started) / 1000)} s)`}</p></div></section>`;
+    }
+    const rows = E.rows || [];
+    const setAttr = (set) => `data-rcx="${esc(JSON.stringify(set))}" tabindex="0" role="button"`;
+    let spec;
+    const std = (label, extra = []) => [
+      { k: "r", label: "Received", num: 1, fmt: (y) => units(y.r), csv: (y) => Math.round(y.r || 0) },
+      { k: "s", label: "Sold", num: 1, fmt: (y) => units(y.s), csv: (y) => Math.round(y.s || 0) },
+      { k: "bal", label: "Balance", num: 1, fmt: (y) => signedUnits(y.bal), csv: (y) => Math.round(y.bal || 0) },
+      ...extra,
+      { k: "oi", label: "Over incidents", num: 1, fmt: (y) => int(y.oi) }, { k: "ui", label: "Under incidents", num: 1, fmt: (y) => int(y.ui) },
+      { k: "ov", label: "Over-receiving value", num: 1, fmt: (y) => (isNum(y.ov) ? bdt(y.ov) : "—"), csv: (y) => (isNum(y.ov) ? Math.round(y.ov) : "") }];
+    const nm = (label) => ({ k: "name", label, fmt: (y) => `<span class="cell-primary">${esc(y.name)}</span>${y.sub ? `<span class="cell-secondary">${esc(y.sub)}</span>` : ""}`, csv: (y) => y.name, val: (y) => y.name });
+    const invCols = [{ k: "inv", label: "Inventory", num: 1, fmt: (y) => units(y.inv), csv: (y) => Math.round(y.inv || 0) }, { k: "sd", label: "Stock days", num: 1, fmt: (y) => (isNum(y.sd) ? y.sd.toFixed(1) : "—"), csv: (y) => (isNum(y.sd) ? y.sd.toFixed(2) : "") }];
+    const base = (a) => { const r = rcNum(a.Receiving), s = rcNum(a.Sales), inv = rcNum(a.Inventory); return { r, s, bal: (r || 0) - (s || 0), inv, sd: s > 0 && days ? inv / (s / days) : rcNum(a.StockDay), ov: rcNum(a.OverValue), oi: rcNum(a.OverIncidents) || 0, ui: rcNum(a.UnderIncidents) || 0 }; };
+    if (L.lvl === "divisions") {
+      spec = { title: "Business divisions", rows: rows.map((a) => ({ key: a.mc, name: a.mc, ...base(a), set: { mc: a.mc } })), cols: [nm("Business division"), ...std("", invCols)], sort: "bal" };
+    } else if (L.lvl === "categories") {
+      spec = { title: `Categories in ${x.mc}`, rows: rows.map((a) => ({ key: a.Category, name: a.Category || "Not set", ...base(a), set: { mc: x.mc, cat: a.Category } })), cols: [nm("Category"), ...std("", invCols)], sort: "bal" };
+    } else if (L.lvl === "articles") {
+      spec = { title: `Articles in ${x.cat}`, rows: rows.map((a) => ({ key: a.ArticleNo, name: a.ArticleName || a.ArticleNo, sub: a.ArticleNo, code: a.ArticleNo, ...base(a), set: { mc: x.mc, cat: x.cat, art: a.ArticleNo, artName: a.ArticleName } })),
+        cols: [nm("Article"), { k: "code", label: "Article code", hide: 1, csv: (y) => y.code }, ...std("")], sort: "ov" };
+    } else if (L.lvl === "outlets") {
+      spec = { title: `Outlets for ${x.art} ${x.artName || ""}`, sort: "ov",
+        rows: rows.map((a) => { const m = master.get(a.OutletCode) || {}, sdc = rcNum(a.CurrentStockDay), sdd = rcNum(a.StdStockDays); return { key: a.OutletCode, name: m.n || a.OutletName || a.OutletCode, sub: `${a.OutletCode}${m.rl ? `, ${m.rl}, ${m.zn}` : ""}`, code: a.OutletCode,
+          open: rcNum(a.OpeningStock), r: rcNum(a.Receiving), s: rcNum(a.TotalSales), inv: rcNum(a.TotalInventory), close: rcNum(a.ClosingStockReceiving), cur: rcNum(a.CurrentStockSystem), sdc, sdd, over: rcNum(a.OverReceiving), ov: rcNum(a.OverValue), score: rcNum(a.OverScore),
+          set: { mc: x.mc, cat: x.cat, art: x.art, artName: x.artName, outlet: a.OutletCode } }; }),
+        cols: [nm("Outlet"), { k: "code", label: "Outlet code", hide: 1, csv: (y) => y.code },
+          { k: "open", label: "Opening stock", num: 1, fmt: (y) => units(y.open), csv: (y) => y.open ?? "" }, { k: "r", label: "Received", num: 1, fmt: (y) => units(y.r), csv: (y) => y.r ?? "" },
+          { k: "s", label: "Sold", num: 1, fmt: (y) => units(y.s), csv: (y) => y.s ?? "" }, { k: "close", label: "Closing stock on receiving", num: 1, fmt: (y) => units(y.close), csv: (y) => y.close ?? "" },
+          { k: "cur", label: "Stock now", num: 1, fmt: (y) => units(y.cur), csv: (y) => y.cur ?? "" },
+          { k: "sdc", label: "Stock days (now / standard)", num: 1, fmt: (y) => `<span class="${isNum(y.sdc) && isNum(y.sdd) && y.sdc > y.sdd ? "down" : ""}">${isNum(y.sdc) ? y.sdc.toFixed(1) : "—"}</span> / ${isNum(y.sdd) ? y.sdd : "—"}`, csv: (y) => (isNum(y.sdc) ? y.sdc.toFixed(1) : "") },
+          { k: "over", label: "Over-received units", num: 1, fmt: (y) => units(y.over), csv: (y) => y.over ?? "" },
+          { k: "ov", label: "Over-receiving value", num: 1, fmt: (y) => (isNum(y.ov) ? bdt(y.ov) : "—"), csv: (y) => (isNum(y.ov) ? Math.round(y.ov) : "") },
+          { k: "score", label: "Over score", num: 1, fmt: (y) => (isNum(y.score) ? y.score.toFixed(2) : "—"), csv: (y) => (isNum(y.score) ? y.score.toFixed(3) : "") }] };
+    } else {
+      spec = { title: `Receiving lines: ${x.art} at ${x.outlet}`, sort: "rd", asc: 1,
+        rows: rows.map((a, i) => ({ key: i, po: a.PONumber, mv: a.MovementType, by: a.CreatedBy, pd: rcxDate(a.PODate), rd: rcxDate(a.ReceivingDate), r: rcNum(a.Receiving) })),
+        cols: [{ k: "rd", label: "Receiving date", fmt: (y) => fdate(y.rd), csv: (y) => y.rd }, { k: "po", label: "PO number", fmt: (y) => esc(y.po || "—") }, { k: "pd", label: "PO date", fmt: (y) => fdate(y.pd), csv: (y) => y.pd },
+          { k: "mv", label: "Movement", fmt: (y) => esc(y.mv || "—") }, { k: "by", label: "Created by", fmt: (y) => esc(y.by || "—") }, { k: "r", label: "Units received", num: 1, fmt: (y) => int(y.r) }] };
+    }
+    const table = mountTable("rcx-" + L.lvl, { title: spec.title, file: `receiving_drill_${L.lvl}`, stamp: (S.rcv.range || {}).end, banner, desc: (n) => `${int(n)} rows. ${hints[L.lvl]}`,
+      rows: spec.rows, key: (y) => y.key, searchText: (y) => `${y.name || ""} ${y.sub || ""} ${y.po || ""} ${y.by || ""}`, defaultSort: spec.sort, defaultDir: spec.asc ? "asc" : "desc", pageSize: 50,
+      rowAttr: (y) => (y.set ? setAttr(y.set) : ""), cols: spec.cols });
+    const end = S.rcf.dateTo || S.rcv.range.end, start = S.rcf.dateFrom || new Date(Date.parse(end + "T00:00:00Z") - (days - 1) * 86400000).toISOString().slice(0, 10);
+    return `${rcBar()}${rcHead({ range: { start, end, days }, live: true })}${table}`;
+  }
+
   // ------------------------------------------------------------------ drawer
   function openOutlet(code) {
     const o = rep()?.outlets.find((x) => x.c === code);
@@ -3988,7 +4099,7 @@
     if (FILTER_PAGES.has(S.page)) renderFilters();
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
