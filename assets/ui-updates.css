@@ -9,7 +9,7 @@
 
 /* Grow the existing right-anchored 560px drawer by 20% toward the left. */
 .drawer{width:min(672px,100vw)}
-.drawer-body>*{min-width:0}
+.drawer-body>*{min-width:0;flex-shrink:0}
 
 .age-drill-link{
   appearance:none;border:0;border-radius:var(--radius-chip);background:transparent;
