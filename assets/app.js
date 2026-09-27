@@ -229,7 +229,13 @@
   function csv(id, rows) {
     const sp = S.tables[id].spec;
     const q = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const cols = (sp.csvCols || sp.cols).filter((c) => !c.nocsv);
+    let cols = (sp.csvCols || sp.cols).filter((c) => !c.nocsv);
+    // Outlet rows always carry the outlet code (plus leader and zonal) unless the table already has a code column.
+    const oc = (r) => r?.o?.c || r?.x?.o?.c || r?.code || null;
+    if (rows.length && oc(rows[0]) && !cols.some((c) => /code/i.test(c.csvLabel || c.label))) {
+      const od = (r) => r.o || r.x?.o || {};
+      cols = [{ label: "Outlet code", csv: oc }, { label: "Regional leader", csv: (r) => od(r).dim?.rl ?? r.regionalLeader ?? r.rows?.[0]?.regionalLeader ?? "" }, { label: "Zonal", csv: (r) => od(r).dim?.zn ?? r.zone ?? r.rows?.[0]?.zone ?? "" }, ...cols];
+    }
     const lines = [cols.map((c) => q(c.csvLabel || c.label)).join(",")].concat(rows.map((r) => cols.map((c) => q(c.csv ? c.csv(r) : r[c.k])).join(",")));
     const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
