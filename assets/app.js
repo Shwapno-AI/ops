@@ -25,13 +25,14 @@
   const AV_PAGES = new Set(["avs", "avk", "avc", "avp", "avv", "ave", "avb"]);
   const RC_PAGES = new Set(["rco", "rcu", "rcx"]);
   const IP_PAGES = new Set(["ipo", "ipt", "ipc", "ips"]);
-  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, "ipo", "ipt", "ipc"]);
+  // Every page whose data can be narrowed by outlet (or, for KPI performance, by leader) shows the sidebar filters.
+  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
     vc: { url: "https://aftabz-lab.github.io/visit-compliance-dashboard/", desc: "Outlet visit schedules and compliance." },
   };
-  const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"]];
+  const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"], ["age", "Outlet age"]];
   // Extra outlet-master fields, filterable on the outlet network pages only.
   const NET_DIMS = [["area", "Area"], ["city", "Location type (Dv, Ds, T)"], ["floor", "Floor type"], ["shape", "Layout shape"]];
   const CW_DIMS = [["area", "Area"], ["crit", "Final criteria"]];
@@ -54,7 +55,9 @@
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
     gm: { quad: "regionalHead", mover: "regionalHead", dir: "gain", league: "regionalHead" } };
   DIMS.concat(NET_DIMS, CW_DIMS).forEach(([k]) => (S.filters[k] = new Set()));
-  const dims = () => (NET_PAGES.has(S.page) ? DIMS.concat(NET_DIMS) : CW_PAGES.has(S.page) ? DIMS.concat(CW_DIMS) : AV_PAGES.has(S.page) ? DIMS.concat([["area", "Area"]]) : DIMS);
+  // KPI performance is scored per leader, and the SKUs page is summed per regional leader, so they offer
+  // only the filters their data has.
+  const dims = () => (S.page === "performance" ? DIMS.slice(0, 2) : S.page === "ips" ? DIMS.slice(0, 1) : NET_PAGES.has(S.page) ? DIMS.concat(NET_DIMS) : CW_PAGES.has(S.page) ? DIMS.concat(CW_DIMS) : AV_PAGES.has(S.page) ? DIMS.concat([["area", "Area"]]) : DIMS);
   let AFTER = [];
 
   // ------------------------------------------------------------------ format
@@ -105,8 +108,21 @@
     };
   }
   const rep = () => S.data?.[S.period];
-  const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(o.dim[k]));
-  const baseList = () => (NET_PAGES.has(S.page) ? netRows() : CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
+  // Outlet age from the outlet master's opening date (the same for every page).
+  const AGE_OLD = "Open 1 year or more", AGE_NEW = "Under 1 year", AGE_NA = "Opening date unknown";
+  let ageMap = null;
+  function outletAgeBand(code) {
+    if (!ageMap) {
+      if (!S.data?.master) return AGE_NA;
+      ageMap = new Map();
+      const now = Date.now();
+      (S.data?.master?.outlets || []).forEach((m) => { const t = Date.parse(m.ld); if (isFinite(t)) ageMap.set(m.c, (now - t) / (365.25 * 86400000) >= 1 ? AGE_OLD : AGE_NEW); });
+    }
+    return ageMap.get(code) || AGE_NA;
+  }
+  const dimVal = (o, k) => (k !== "age" ? o.dim[k] : S.data?.master ? (o.dim.age ||= outletAgeBand(o.c)) : AGE_NA);
+  const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)));
+  const baseList = () => (S.page === "performance" ? kpiPeople() : NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
   const inView = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
   // Loss page outlet-age filter: open a year or more, or under a year (outlets without an opening date only under All).
   function lossAgeOk(o) {
@@ -291,12 +307,12 @@
     if (UI.filtersHidden) {
       el.innerHTML = head + `<p class="filters-note">${active ? `${active} filter${active === 1 ? "" : "s"} applied` : "No filters applied"}</p>`;
       $("[data-ftoggle]", el).onclick = toggleFilters;
-      $("#railFoot").innerHTML = base.length ? `${int(inView().length)} of ${int(base.length)} outlets in view` : "";
+      $("#railFoot").innerHTML = base.length ? `${int(inView().length)} of ${int(base.length)} ${S.page === "performance" ? "zonals" : "outlets"} in view` : "";
       return;
     }
     el.innerHTML = head + dims().map(([k, label]) => {
       const counts = new Map();
-      base.forEach((o) => { if (matches(o, k)) counts.set(o.dim[k], (counts.get(o.dim[k]) || 0) + 1); });
+      base.forEach((o) => { if (matches(o, k)) { const v = dimVal(o, k); counts.set(v, (counts.get(v) || 0) + 1); } });
       S.filters[k].forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
       const opts = [...counts.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
       const sel = S.filters[k];
@@ -326,7 +342,7 @@
       $("[data-all]", panel).addEventListener("click", () => { $$(".ms-opt", list).filter((o) => !o.hidden).forEach((o) => S.filters[k].add($("input", o).value)); changed(); });
       $("[data-clear]", panel).addEventListener("click", () => { S.filters[k].clear(); changed(); });
     }
-    $("#railFoot").innerHTML = base.length ? `${int(inView().length)} of ${int(base.length)} outlets in view` : "";
+    $("#railFoot").innerHTML = base.length ? `${int(inView().length)} of ${int(base.length)} ${S.page === "performance" ? "zonals" : "outlets"} in view` : "";
   }
   function renderPills() {
     const pills = [];
@@ -890,6 +906,21 @@
     (S.data.master?.outlets || []).forEach((o) => { if (o.zn && o.rl && !m[o.zn]) m[o.zn] = o.rl; });
     return m;
   }
+  // KPI performance is scored per leader, so its sidebar offers Regional leader and Zonal. The filter lists
+  // come from the zonals in the KPI file (each with its RHO from the outlet master).
+  function kpiPeople() {
+    const K = S.data?.kpi; if (!K) return [];
+    const zr = zonalRl(), miss = "Not in outlet master";
+    return [...new Set((K.zonal || []).map((r) => r.head))].filter((h) => h !== "National").map((h) => ({ c: h, dim: { rl: zr[h] || miss, zn: h, age: "" } }));
+  }
+  // Keeps a leader's row when it fits the sidebar filters. Ranks stay the company-wide ranks.
+  function kKeep(head) {
+    const rl = S.filters.rl, zn = S.filters.zn;
+    if (!rl.size && !zn.size) return true;
+    const zr = zonalRl(), has = (set, v) => [...set].some((x) => kname(x) === kname(v));
+    if (S.kl === "zonal") return (!zn.size || has(zn, head)) && (!rl.size || has(rl, zr[head]));
+    return (!rl.size || has(rl, head)) && (!zn.size || [...zn].some((z) => kname(zr[z]) === kname(head)));
+  }
   const catShort = (c) => { const l = c.toLowerCase(); return l.startsWith("business") ? "Business" : l.startsWith("satisf") ? "Customer" : l.startsWith("skill") ? "People" : l.startsWith("expense") ? "Expense" : c; };
   // Loose name key so "Mr. Ranjan" (KPI file) matches "Mr. Ranjon" (outlet master).
   const kname = (v) => String(v || "").toLowerCase().replace(/[^a-z]/g, "").replace(/[aeiou]/g, "");
@@ -930,6 +961,7 @@
       refName = "All zonals";
       ref = kpiAvg(heads, metrics, refName);
     }
+    heads = heads.filter((h) => kKeep(h.head));
     return { K, P, periods, rows, heads, ref, refName, metrics, zr };
   }
   // Rank in the month before, for the movement arrows (single-month periods only).
@@ -1097,7 +1129,7 @@
       body = kpiLostView(V, lvlP, tableTools, prev);
     } else if (S.kv === "summary") {
       const cols = periods.filter((p) => p.have);
-      const keep = (h) => !S.krho || kname(zr[h.head]) === kname(S.krho);
+      const keep = (h) => (!S.krho || kname(zr[h.head]) === kname(S.krho)) && kKeep(h.head);
       const byP = Object.fromEntries(cols.map((p) => [p.k, kpiScores(rows, p.months).rest.filter(keep)]));
       const heads = [...new Set(Object.values(byP).flat().map((h) => h.head))];
       const data = heads.map((h) => { const x = { key: h, name: h, head: h }; cols.forEach((p) => { const f = byP[p.k].find((y) => y.head === h); x[p.k] = f?.score ?? null; x[p.k + "_r"] = f?.rank; }); x.sub = S.kl === "zonal" ? `RHO ${zr[h] || "not in outlet master"}` : ""; return x; });
@@ -3718,18 +3750,22 @@
     if (S.rcv) return "";
     return S.rcErr ? `<p class="empty">The receiving data could not be loaded (${esc(S.rcErr)}). Run the "Refresh data" workflow, then reload this page.</p>` : '<p class="empty">Loading receiving data…</p>';
   }
-  const rcIsDefault = () => Object.keys(RC_DEF).every((k) => String(S.rcf[k] || "") === String(RC_DEF[k]));
-  // Outlet codes picked by the RHO / Zonal / Outlet filters (null when none of them is set).
+  // Sidebar filters on Receiving: the By outlet page narrows its rows itself (instant); Overview and Drill-down
+  // pass the outlets in view to Power BI (live, kept 10 minutes), since their totals are not stored per outlet.
+  const rcSide = () => S.page !== "rcu" && dims().some(([k]) => S.filters[k].size);
+  const rcIsDefault = () => !rcSide() && Object.keys(RC_DEF).every((k) => String(S.rcf[k] || "") === String(RC_DEF[k]));
+  // Outlet codes picked by the RHO / Zonal / Outlet filters and the sidebar (null when none is set).
   function rcOutletCodes(f) {
-    if (!f.rho && !f.zn && !f.outlet) return null;
-    return S.rcv.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn) && (!f.outlet || o.c === f.outlet)).map((o) => o.c);
+    const side = rcSide();
+    if (!f.rho && !f.zn && !f.outlet && !side) return null;
+    return S.rcv.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn) && (!f.outlet || o.c === f.outlet) && (!side || matches(o))).map((o) => o.c).sort();
   }
   function rcQuery(f) {
     const q = { masterCategory: f.masterCategory || "all" };
     if (f.dateFrom && f.dateTo) { q.dateFrom = f.dateFrom; q.dateTo = f.dateTo; } else q.days = Number(f.days) || 28;
     if (f.category) q.category = f.category;
     if (f.region) q.region = f.region;
-    const codes = rcOutletCodes(f); if (codes) q.outletCodes = codes;
+    const codes = rcOutletCodes(f); if (codes) q.outletCodes = codes.length ? codes : ["(none)"]; // no outlet fits: ask for none
     if (f.articleNo) q.articleNo = f.articleNo.trim();
     if (f.poNumber) q.poNumber = f.poNumber.trim();
     if (f.userCode) q.userCode = f.userCode.trim();
@@ -3822,7 +3858,7 @@
     const outs = d.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn)).sort((a, b) => a.c.localeCompare(b.c));
     const regions = [...new Set(d.regions.map((r) => r.k).filter((k) => k && k !== "Not set"))].sort(), cats = [...new Set(d.categories.map((c) => c.k))].sort();
     const parts = [f.dateFrom && f.dateTo ? `${fdate(f.dateFrom)} to ${fdate(f.dateTo)}` : `Last ${f.days} days`, f.masterCategory === "all" ? "All business divisions" : f.masterCategory,
-      f.category, f.region, f.rho, f.zn, f.outlet, f.articleNo && `Article ${f.articleNo}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, f.movementCode !== "all" && `Movement ${f.movementCode}`].filter(Boolean);
+      f.category, f.region, f.rho, f.zn, f.outlet, f.articleNo && `Article ${f.articleNo}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, f.movementCode !== "all" && `Movement ${f.movementCode}`, rcSide() && `${int(rcOutletCodes(f)?.length || 0)} outlets from the sidebar filters`].filter(Boolean);
     const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${rcIsDefault() ? " (snapshot, renewed every 10 minutes)" : " (live from Power BI, kept 10 minutes)"}</p></div>
       <div class="panel-tools">${rcIsDefault() ? "" : '<button type="button" class="btn" data-rcreset>Reset</button>'}<button class="btn" data-uitoggle="rcBarOpen" aria-expanded="${!!UI.rcBarOpen}">${UI.rcBarOpen ? "Hide" : "Show"}</button></div></div>`;
     if (!UI.rcBarOpen) return `<section class="panel ui-slim">${head}</section>`;
@@ -3884,7 +3920,7 @@
   async function rcArtSnap(f, metric) {
     if (!["Gap", "Receiving", "Sales", "OverValue", "OverIncidents", "UnderIncidents"].includes(metric)) return null;
     const { category = "", ...rest } = f;
-    if (Object.keys(RC_DEF).some((k) => k !== "category" && String(rest[k] || "") !== String(RC_DEF[k]))) return null;
+    if (rcSide() || Object.keys(RC_DEF).some((k) => k !== "category" && String(rest[k] || "") !== String(RC_DEF[k]))) return null;
     if (!S.rcDrill && S.rcDrillLoading) await new Promise((r) => setTimeout(r, 400));
     const e = rcDrillGet("articles", "articles", rcDrill()?.ix?.articles, true);
     if (!e) return null;
@@ -4011,7 +4047,7 @@
   function pageRCU() {
     const g = rcGuard(); if (g) return g;
     const D = rcData(), st = rcState(D); if (st) { if (D?.loading) setTimeout(() => S.page === "rcu" && rcData()?.loading && render(), 1500); return st; }
-    const days = D.range.days, list = D.outlets;
+    const days = D.range.days, list = D.outlets.filter((o) => matches(o)); // sidebar filters, applied here
     const DR = leaderDrill("rcd", "rc-out", list, "click an outlet for its articles"), at = DR.at;
     const inPath = list.filter(DR.inPath);
     let rows;
@@ -4353,20 +4389,25 @@
   function ipSkuRows(scope) {
     const d = S.sku;
     if (scope === "all" || scope === "same") return d.skus.map((r, i) => ({ i, t: scope === "same" ? r.slice(11, 17) : r.slice(5, 11) }));
-    const ri = d.rls.indexOf(scope);
+    // one leader, or (from the sidebar filter) several leaders added up
+    const want = new Set((Array.isArray(scope) ? scope : [scope]).map((s) => d.rls.indexOf(s)));
     if (!d.skuRl) { loadSkuRl(); return null; }
-    return d.skuRl.filter((r) => r[1] === ri).map((r) => ({ i: r[0], t: r.slice(2) }));
+    const by = new Map();
+    d.skuRl.forEach((r) => { if (!want.has(r[1])) return; const a = by.get(r[0]); if (a) ipAdd(a, r.slice(2)); else by.set(r[0], r.slice(2)); });
+    return [...by].map(([i, t]) => ({ i, t }));
   }
   function pageIPS() {
     const g = skuGuard(); if (g) return g;
-    const d = S.sku, v = S.ipv, sc = v.sku || "all";
-    const base = ipSkuRows(sc);
+    const d = S.sku, v = S.ipv, side = [...S.filters.rl].filter((r) => d.rls.includes(r)).sort();
+    // The sidebar Regional leader filter wins over the Stores / leader picker.
+    const sc = S.filters.rl.size ? (side.length === 1 ? side[0] : side.length ? side.join(", ") : "none") : v.sku || "all";
+    const base = S.filters.rl.size ? (side.length ? ipSkuRows(side) : []) : ipSkuRows(sc);
     if (!base) return `${ipHead()}<section class="panel"><div class="panel-body"><p class="muted" style="margin:0">Loading ${esc(sc)}'s SKUs…</p></div></section>`;
     const rows = base.map(({ i, t }) => { const s = d.skus[i]; return { key: s[0], code: s[0], name: s[1], div: s[2], c1: s[3], c3: s[4], ...ipRow(t) }; })
       .filter((x) => (!v.sdiv || x.div === v.sdiv) && (!v.sc1 || x.c1 === v.sc1) && (x.ns || x.nl));
     const divs = [...new Set(d.skus.map((s) => s[2]))].sort(), c1s = [...new Set(d.skus.filter((s) => !v.sdiv || s[2] === v.sdiv).map((s) => s[3]))].sort();
     const sel = (k, opts, all, cur) => `<select class="sel" data-ipsel="${k}"><option value="">${esc(all)}</option>${opts.map((o) => `<option value="${esc(o)}" ${cur === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
-    const scopeSel = `<select class="sel" data-ipsel="sku"><option value="all" ${sc === "all" ? "selected" : ""}>All stores</option><option value="same" ${sc === "same" ? "selected" : ""}>Same store</option>${d.rls.map((r) => `<option value="${esc(r)}" ${sc === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select>`;
+    const scopeSel = S.filters.rl.size ? `<span class="muted" style="font-size:12px">Regional leader filter: ${esc(side.join(", ") || "none with SKU data")}</span>` : `<select class="sel" data-ipsel="sku"><option value="all" ${sc === "all" ? "selected" : ""}>All stores</option><option value="same" ${sc === "same" ? "selected" : ""}>Same store</option>${d.rls.map((r) => `<option value="${esc(r)}" ${sc === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select>`;
     const table = mountTable("ip-sku", {
       title: "SKUs", file: `item_skus_${sc}`, tools: `${scopeSel}${sel("sdiv", divs, "All divisions", v.sdiv)}${sel("sc1", c1s, "All Cat 01", v.sc1)}`,
       desc: (n) => `${int(n)} SKUs with sales this year or last, ${sc === "all" ? "all stores" : sc === "same" ? "same stores" : sc}. Sort by Sales change for the biggest decliners or gainers.`,
@@ -4501,7 +4542,7 @@
   function render() {
     renderNav(); renderTop(); renderPills();
     $("#filters").hidden = !FILTER_PAGES.has(S.page);
-    if (FILTER_PAGES.has(S.page)) renderFilters();
+    if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
       rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
