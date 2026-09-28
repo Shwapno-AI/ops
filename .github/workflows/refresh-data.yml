@@ -55,6 +55,8 @@ jobs:
       - name: Download item-performance workbooks and build sku.json
         # Rebuilds only when a workbook changed; about 4 minutes when it does.
         continue-on-error: true
+        env:
+          SKU_OUTLET_FILES: "0"   # per-outlet SKU lists are built only on the Coolify server
         run: python scripts/sku/refresh.py
       - name: Drop cached files this run did not use
         if: always()

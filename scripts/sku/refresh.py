@@ -27,6 +27,7 @@ import heapq
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 from collections import defaultdict
@@ -44,6 +45,38 @@ MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
 OUT_RL = OUT.with_name("sku-rl.json")
 CW = Path(os.environ.get("CW_OUT") or ROOT / "data" / "cw.json")  # SKU x regional leader, loaded only when the SKUs page is set to one leader
 TOP = 15  # gaining / declining SKUs kept per outlet
+OUTLET_DIR = OUT.parent / "sku-outlet"  # one file per outlet with its full SKU list (built on the server, not committed)
+OUTLET_FILES = os.environ.get("SKU_OUTLET_FILES", "1") != "0"  # the GitHub workflow turns them off (they are never committed)
+
+
+def outlet_file(code):
+    return re.sub(r"[^A-Za-z0-9_-]", "_", code) + ".json"
+
+
+class OutletWriter:
+    """Streams each outlet's SKU rows to its own file. A workbook's rows of one outlet usually
+    arrive together, so only the current outlet is held in memory; a later run is appended."""
+
+    def __init__(self, folder):
+        self.dir, self.code, self.rows, self.done = Path(folder), None, [], set()
+        shutil.rmtree(self.dir, ignore_errors=True)
+        self.dir.mkdir(parents=True)
+
+    def add(self, code, row):
+        if code != self.code:
+            self.flush()
+            self.code = code
+        self.rows.append(row)
+
+    def flush(self):
+        if self.code and self.rows:
+            f = self.dir / outlet_file(self.code)
+            rows = self.rows
+            if self.code in self.done:
+                rows = json.loads(f.read_text(encoding="utf-8"))["rows"] + rows
+            f.write_text(json.dumps({"c": self.code, "rows": rows}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            self.done.add(self.code)
+        self.rows = []
 
 
 def log(msg):
@@ -176,7 +209,7 @@ def main():
         fingerprint = hashlib.sha256(json.dumps(sorted((f[3], f[2]) for f in picked)).encode()).hexdigest()[:20]
         try:
             old = json.loads(OUT.read_text(encoding="utf-8"))
-            if old.get("fingerprint") == fingerprint and old.get("schema") == 2 and OUT_RL.exists():
+            if old.get("fingerprint") == fingerprint and old.get("schema") == 2 and OUT_RL.exists() and (OUTLET_DIR.is_dir() or not OUTLET_FILES):
                 per = data_period(sum(o["t"][0] for o in old.get("outlets") or []), [f.get("modifiedIso", "") for f in old.get("source", {}).get("files", [])])
                 if per and per != old.get("period"):
                     old["period"] = per
@@ -198,6 +231,7 @@ def main():
         gain, drop = defaultdict(list), defaultdict(list)  # outlet -> bounded heaps of (diff, sku, vals)
         rows_read = bad = 0
         files_meta = []
+        ow = OutletWriter(OUT.parent / "sku-outlet.tmp")  # [sku, sales this, sales last, gp this, gp last, qty this, qty last]
         for path, name, mod, fid, hm in picked:
             n_file = 0
             it = xlsx_stream.rows(path)
@@ -239,6 +273,8 @@ def main():
                 sr = sku_rl[(s, rl)]
                 for i in range(6):
                     sr[i] += v[i]
+                if OUTLET_FILES and any(v):
+                    ow.add(code, [s, *[round(x) for x in v]])
                 d = v[0] - v[1]
                 if d > 0:
                     h = gain[code]
@@ -249,6 +285,7 @@ def main():
             rows_read += n_file
             files_meta.append({"name": name, "rows": n_file, "modified": mod, "modifiedIso": modified_iso(mod)})
             log(f"  read  {name}: {n_file} rows")
+        ow.flush()
 
     sku_ids = sorted(sku)
     sidx = {s: i for i, s in enumerate(sku_ids)}
@@ -290,6 +327,11 @@ def main():
         "outletTop": top,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
+    if OUTLET_FILES:
+        shutil.rmtree(OUTLET_DIR, ignore_errors=True)
+        os.replace(OUT.parent / "sku-outlet.tmp", OUTLET_DIR)
+    else:
+        shutil.rmtree(OUT.parent / "sku-outlet.tmp", ignore_errors=True)
     # [sku index, rl index, 6 sums]
     rl_payload = {"fingerprint": fingerprint, "skuRl": [[sidx[s], ridx[r], *rnd(v)] for (s, r), v in sku_rl.items()]}
     tmp_rl = OUT_RL.with_suffix(".tmp")
