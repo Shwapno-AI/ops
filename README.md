@@ -30,7 +30,7 @@ Rules: an outlet with no Core, KVI or Promo stock, or no Core, KVI or Promo sale
 
 ### Receiving
 
-The Receiving pages read `data/rcv.json`, built by `scripts/rcv/refresh.py`. The figures come from the public Power BI receiving report; the Receiving dashboard's own workflow reads that report every few minutes and publishes `snapshot.json`, which this step downloads each hour (set `RCV_SNAPSHOT_URL` to read a different snapshot). Outlets are joined to the outlet master for the sidebar filters. Over-receiving value is a non-additive Power BI measure, so it is shown for the company, a division, a category or one outlet, never summed.
+The Receiving pages read `data/rcv.json`, built by `scripts/rcv/refresh.py`. The figures come from the public Power BI receiving report; the Receiving dashboard's own workflow reads that report every few minutes and publishes `snapshot.json`, which this step downloads (set `RCV_SNAPSHOT_URL` to read a different snapshot). On the Docker/Coolify server it runs every 10 minutes (`RCV_MINUTES`), followed by `scripts/rcv/drill.mjs` (Node), which asks Power BI for the drill-down levels of the default view (business division, category, article, and article × outlet) one category at a time and writes `data/rcv-drill/` (not committed). The pages read those files instead of waiting for Power BI; anything the snapshot doesn't cover, and every other filter, is read live and kept for 10 minutes. Outlets are joined to the outlet master for the sidebar filters. Over-receiving value is a non-additive Power BI measure, so it is shown for the company, a division, a category or one outlet, never summed.
 
 ### Item performance
 

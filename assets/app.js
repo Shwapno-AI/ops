@@ -362,7 +362,7 @@
       if (RC_PAGES.has(S.page)) {
         const c = S.rcv, D = c && rcData();
         if (c) fresh(`Data to ${fdate((D?.range || c.range).end, true)}`, c.source?.snapshotAt || c.generatedAt);
-        $("#scope").textContent = c ? `${fdate((D?.range || c.range).start)} to ${fdate((D?.range || c.range).end)}. ${rcIsDefault() ? "Hourly snapshot; use the filters to query Power BI live." : "Live from Power BI for the chosen filters."}` : "";
+        $("#scope").textContent = c ? `${fdate((D?.range || c.range).start)} to ${fdate((D?.range || c.range).end)}. ${rcIsDefault() ? "Snapshot renewed every 10 minutes; other filters query Power BI live." : "Live from Power BI for the chosen filters (kept 10 minutes)."}` : "";
         return;
       }
       if (CW_PAGES.has(S.page)) {
@@ -3654,7 +3654,8 @@
   }
 
   // ------------------------------------------------------------------ receiving (Power BI)
-  // Default view: the hourly snapshot (data/rcv.json), so the pages open instantly. Any filter runs a live query
+  // Default view: the snapshot (data/rcv.json, plus data/rcv-drill/ for the drill-down), renewed every 10 minutes on
+  // the server, so the pages open instantly. Any other filter runs a live query
   // against the public Power BI report through assets/vendor/rcv-powerbi.js. Power BI cannot answer all six
   // business divisions in one query, so each division is asked separately and the answers are combined.
   // Over-receiving value is a Power BI measure: shown for the company, a division, a category or one outlet,
@@ -3663,22 +3664,58 @@
   S.rcf = { ...RC_DEF };
   const rcLive = new Map();
   let rcClientP = null;
+  // Everything on the Receiving pages is kept for 10 minutes. After that the page keeps showing what it has
+  // and fetches a fresh copy in the background, so nobody waits for data they have already seen.
+  const RC_TTL = 10 * 60 * 1000;
+  const rcStale = (e) => !e.loading && !e.refreshing && Date.now() - (e.at || 0) > RC_TTL;
   function loadRc() {
-    if (S.rcv || S.rcLoading) return;
+    const again = S.rcv && Date.now() - (S.rcvAt || 0) > RC_TTL;
+    if ((S.rcv && !again) || S.rcLoading) return;
     S.rcLoading = true; S.rcErr = null;
     fetch("data/rcv.json", { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { rcPrep(d); S.rcv = d; })
-      .catch((e) => { S.rcErr = e.message; })
-      .finally(() => { S.rcLoading = false; if (RC_PAGES.has(S.page)) render(); });
+      .then((d) => { rcPrep(d); if (!S.rcv || d.generatedAt !== S.rcv.generatedAt) { S.rcv = d; if (again && RC_PAGES.has(S.page)) render(); } })
+      .catch((e) => { if (!S.rcv) S.rcErr = e.message; })
+      .finally(() => { S.rcLoading = false; S.rcvAt = Date.now(); if (!again && RC_PAGES.has(S.page)) render(); });
+  }
+  // Drill snapshot (data/rcv-drill/), rebuilt on the server every 10 minutes for the default filters:
+  // business divisions, categories, articles and article x outlet rows, so those drill levels open instantly.
+  function rcDrill() {
+    const D = S.rcDrill;
+    if ((!D || Date.now() - D.at > RC_TTL) && !S.rcDrillLoading) {
+      S.rcDrillLoading = true;
+      fetch("data/rcv-drill/index.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        .then((ix) => { S.rcDrill = { at: Date.now(), ix, files: D?.files || {} }; })
+        .finally(() => { S.rcDrillLoading = false; if (RC_PAGES.has(S.page) && (!D || S.rcDrill.ix?.generatedAt !== D.ix?.generatedAt)) render(); });
+    }
+    return D?.ix ? D : null;
+  }
+  // A snapshot file, loaded once per version (the old copy is shown while a newer one loads).
+  function rcDrillGet(key, path, gen, quiet) {
+    const D = rcDrill();
+    if (!D || !gen) return null;
+    let e = D.files[key];
+    if (!e || e.gen !== gen) {
+      e = { gen, loading: true, data: e?.data };
+      D.files[key] = e;
+      e.p = fetch(`data/rcv-drill/${path}.json?v=${encodeURIComponent(gen)}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+        .then((d) => { e.data = d; }).catch(() => { e.error = true; })
+        .finally(() => { e.loading = false; if (!quiet && S.page === "rcx") render(); });
+    }
+    return e;
+  }
+  // One category's file: its articles and its article x outlet rows.
+  function rcDrillFile(mc, cat, quiet) {
+    const f = rcDrill()?.ix?.files?.[mc]?.[cat];
+    return f ? rcDrillGet(`${mc}|${cat}`, f.f, f.generatedAt, quiet) : null;
   }
   const rcMissing = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
   function rcPrep(d) {
     d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: rcMissing(o.rl), zn: rcMissing(o.zn), div: rcMissing(o.div), dis: rcMissing(o.dis), fmt: rcMissing(o.fmt), own: rcMissing(o.own), pnp: rcMissing(o.pnp), loc: rcMissing(o.loc) }; });
   }
   function rcGuard() {
-    if (S.rcv) return "";
     loadRc();
+    if (S.rcv) return "";
     return S.rcErr ? `<p class="empty">The receiving data could not be loaded (${esc(S.rcErr)}). Run the "Refresh data" workflow, then reload this page.</p>` : '<p class="empty">Loading receiving data…</p>';
   }
   const rcIsDefault = () => Object.keys(RC_DEF).every((k) => String(S.rcf[k] || "") === String(RC_DEF[k]));
@@ -3759,9 +3796,10 @@
     if (!S.rcv) return null;
     if (rcIsDefault()) return S.rcv;
     const key = JSON.stringify(rcQuery(S.rcf)), hit = rcLive.get(key);
-    if (hit) return hit.data || hit;
+    if (hit && !rcStale(hit)) return hit.data || hit;
+    // Stale: keep showing the old answer while a fresh one loads.
     const entry = { loading: true, started: Date.now() };
-    rcLive.set(key, entry);
+    if (hit?.data) hit.refreshing = true; else rcLive.set(key, entry);
     const q = rcQuery(S.rcf);
     rcPerDivision(q, async (c, qq) => {
       const [cores, outs] = await Promise.all([rcSafe(qq, (x) => c.load(x, { section: "core" })), rcSafe(qq, (x) => c.load(x, { section: "outlets" }))]);
@@ -3769,8 +3807,12 @@
     })
       .then((groups) => { const parts = groups.flat(); entry.data = rcCombine(parts, parts.find((p) => p.range)?.range || { start: "", endExclusive: "", days: 0 }); })
       .catch((e) => { entry.error = e.message || String(e); })
-      .finally(() => { entry.loading = false; if (RC_PAGES.has(S.page)) render(); });
-    return entry;
+      .finally(() => {
+        entry.loading = false; entry.at = Date.now();
+        if (hit?.data) { if (entry.data) rcLive.set(key, entry); else { hit.refreshing = false; hit.at = Date.now(); } }
+        if (RC_PAGES.has(S.page) && JSON.stringify(rcQuery(S.rcf)) === key) render();
+      });
+    return hit?.data || entry;
   }
   // Hideable filter bar, like the original Receiving dashboard.
   function rcBar() {
@@ -3781,7 +3823,7 @@
     const regions = [...new Set(d.regions.map((r) => r.k).filter((k) => k && k !== "Not set"))].sort(), cats = [...new Set(d.categories.map((c) => c.k))].sort();
     const parts = [f.dateFrom && f.dateTo ? `${fdate(f.dateFrom)} to ${fdate(f.dateTo)}` : `Last ${f.days} days`, f.masterCategory === "all" ? "All business divisions" : f.masterCategory,
       f.category, f.region, f.rho, f.zn, f.outlet, f.articleNo && `Article ${f.articleNo}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, f.movementCode !== "all" && `Movement ${f.movementCode}`].filter(Boolean);
-    const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${rcIsDefault() ? " (hourly snapshot)" : " (live from Power BI)"}</p></div>
+    const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${rcIsDefault() ? " (snapshot, renewed every 10 minutes)" : " (live from Power BI, kept 10 minutes)"}</p></div>
       <div class="panel-tools">${rcIsDefault() ? "" : '<button type="button" class="btn" data-rcreset>Reset</button>'}<button class="btn" data-uitoggle="rcBarOpen" aria-expanded="${!!UI.rcBarOpen}">${UI.rcBarOpen ? "Hide" : "Show"}</button></div></div>`;
     if (!UI.rcBarOpen) return `<section class="panel ui-slim">${head}</section>`;
     const inp = (k, label, ph) => `<label class="net-date">${label}<input type="text" data-rcf="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}"></label>`;
@@ -3836,18 +3878,48 @@
     { k: "ov", label: "Over-receiving value", num: 1, fmt: (x) => (isNum(x.ov) ? bdt(x.ov) : '<span class="muted" title="Not additive across outlets; see each outlet">—</span>'), csv: (x) => (isNum(x.ov) ? Math.round(x.ov) : "") }];
   // Drawer: article-level detail from Power BI for the current filters plus one extra condition (a division, category or outlet).
   const RC_METRICS = { Gap: "Received and sold", Receiving: "Received units", Sales: "Sold units", Inventory: "Inventory", OverValue: "Over-receiving value", OverIncidents: "Over-receiving incidents", UnderIncidents: "Under-receiving incidents" };
+  // Article rows for the drawer: from the 10-minute snapshot when it covers the question (default filters,
+  // all articles or one category), otherwise from Power BI, kept 10 minutes and refreshed in the background.
+  const rcArtCache = new Map();
+  async function rcArtSnap(f, metric) {
+    if (!["Gap", "Receiving", "Sales", "OverValue", "OverIncidents", "UnderIncidents"].includes(metric)) return null;
+    const { category = "", ...rest } = f;
+    if (Object.keys(RC_DEF).some((k) => k !== "category" && String(rest[k] || "") !== String(RC_DEF[k]))) return null;
+    if (!S.rcDrill && S.rcDrillLoading) await new Promise((r) => setTimeout(r, 400));
+    const e = rcDrillGet("articles", "articles", rcDrill()?.ix?.articles, true);
+    if (!e) return null;
+    if (!e.data) await e.p;
+    const d = e.data; if (!d) return null;
+    if ((d.missing || []).some(([, cat]) => !category || cat === category)) return null; // not all there: ask live
+    const has = metric === "Gap" ? (a) => a.Receiving || a.Sales : (a) => a[metric];
+    return d.rows.map(([di, ci, ...v]) => ({ MasterCategory: d.divisions[di], Category: d.categories[di][ci], ...Object.fromEntries(d.fields.map((f, i) => [f, v[i]])) }))
+      .filter((a) => (!category || a.Category === category) && has(a));
+  }
+  async function rcArtRows(f, metric) {
+    const snap = await rcArtSnap(f, metric);
+    if (snap) return snap;
+    const q = rcQuery(f), key = JSON.stringify([q, metric]), hit = rcArtCache.get(key);
+    const run = async () => {
+      const parts = (await rcPerDivision(q, (c, qq) => rcSafe(qq, (x) => c.loadArticleDetails(x, metric)))).flat();
+      const byArt = new Map();
+      parts.flatMap((p) => p.rows || []).forEach((a) => { const t = byArt.get(a.ArticleNo); if (!t) byArt.set(a.ArticleNo, { ...a }); else ["Receiving", "Sales", "Inventory", "OverValue", "OverIncidents", "UnderIncidents"].forEach((k) => { if (a[k] != null) t[k] = (rcNum(t[k]) || 0) + (rcNum(a[k]) || 0); }); });
+      const e = { at: Date.now(), rows: [...byArt.values()] };
+      rcArtCache.set(key, e);
+      return e.rows;
+    };
+    if (hit?.rows) { if (Date.now() - hit.at > RC_TTL && !hit.refreshing) { hit.refreshing = true; run().catch(() => { hit.refreshing = false; }); } return hit.rows; }
+    if (hit?.p) return hit.p;
+    const p = run(); rcArtCache.set(key, { p });
+    return p.catch((e) => { rcArtCache.delete(key); throw e; });
+  }
   async function rcArticles({ extra = {}, metric = "Gap", title = "" }) {
     S.lastFocus = document.activeElement; S.ageDrill = null;
     const f = { ...S.rcf, ...extra };
     $("#drawerTitle").textContent = `${title || RC_METRICS[metric]}: articles`;
-    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">Reading article detail from Power BI…</p>`;
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">Loading article detail…</p>`;
     showDrawer();
     try {
-      const q = rcQuery(f);
-      const parts = (await rcPerDivision(q, (c, qq) => rcSafe(qq, (x) => c.loadArticleDetails(x, metric)))).flat();
-      const byArt = new Map();
-      parts.flatMap((p) => p.rows || []).forEach((a) => { const t = byArt.get(a.ArticleNo); if (!t) byArt.set(a.ArticleNo, { ...a }); else ["Receiving", "Sales", "Inventory", "OverValue", "OverIncidents", "UnderIncidents"].forEach((k) => { if (a[k] != null) t[k] = (rcNum(t[k]) || 0) + (rcNum(a[k]) || 0); }); });
-      const rows = [...byArt.values()].map((a) => ({ code: a.ArticleNo, name: a.ArticleName || a.ArticleNo, div: a.MasterCategory, cat: a.Category, r: rcNum(a.Receiving), s: rcNum(a.Sales), inv: rcNum(a.Inventory), sd: rcNum(a.StockDay), ov: rcNum(a.OverValue), oi: rcNum(a.OverIncidents), ui: rcNum(a.UnderIncidents) }));
+      const rows = (await rcArtRows(f, metric)).map((a) => ({ code: a.ArticleNo, name: a.ArticleName || a.ArticleNo, div: a.MasterCategory, cat: a.Category, r: rcNum(a.Receiving), s: rcNum(a.Sales), inv: rcNum(a.Inventory), sd: rcNum(a.StockDay), ov: rcNum(a.OverValue), oi: rcNum(a.OverIncidents), ui: rcNum(a.UnderIncidents) }));
       const colsFor = { Gap: ["r", "s", "bal"], Receiving: ["r"], Sales: ["s"], Inventory: ["inv"], OverValue: ["ov"], OverIncidents: ["oi"], UnderIncidents: ["ui"] }[metric] || ["r", "s", "bal"];
       rows.forEach((x) => (x.bal = (x.r || 0) - (x.s || 0)));
       const sortKey = metric === "Gap" ? "bal" : colsFor[0];
@@ -3887,7 +3959,8 @@
   }
   function rcHead(d) {
     const src = S.rcv.source || {};
-    return `<p class="muted" style="margin:0">${fdate(d.range.start)} to ${fdate(d.range.end)} (${d.range.days} days). ${d.live ? "Live from" : "Hourly snapshot of"} the public Power BI receiving report${src.powerBiRefreshedAt ? `, refreshed ${new Date(src.powerBiRefreshedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" })}` : ""}. <a href="${esc(src.report || "#")}" target="_blank" rel="noopener">Open the report</a></p>`;
+    const hm = (t) => new Date(t).toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" });
+    return `<p class="muted" style="margin:0">${fdate(d.range.start)} to ${fdate(d.range.end)} (${d.range.days} days). ${d.snapAt ? `Snapshot taken at ${hm(d.snapAt)} (renewed every 10 minutes) of` : d.live ? "Live from" : "Snapshot of"} the public Power BI receiving report${src.powerBiRefreshedAt ? `, refreshed ${new Date(src.powerBiRefreshedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" })}` : ""}. <a href="${esc(src.report || "#")}" target="_blank" rel="noopener">Open the report</a></p>`;
   }
   // Loading / error states for a live query.
   function rcState(D) {
@@ -3971,8 +4044,8 @@
   const rcxCache = new Map();
   const rcxDate = (v) => (isNum(rcNum(v)) ? new Date(rcNum(v)).toISOString().slice(0, 10) : "");
   // What the current drill level needs, and how to ask Power BI for it.
-  function rcxLevel() {
-    const x = S.rcx, q = rcQuery(S.rcf);
+  function rcxLevel(x = S.rcx) {
+    const q = rcQuery(S.rcf);
     if (x.outlet) return { lvl: "lines", key: ["lines", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNo: x.art, outletCodes: [x.outlet] }, 5)).rows };
     if (x.art) return { lvl: "outlets", key: ["outlets", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNo: x.art }, 1)).rows.filter((r) => r.OutletCode) };
     const addUp = (lists, key) => { const by = new Map(); lists.flat().forEach((a) => { const k = a[key], t = by.get(k); if (!t) by.set(k, { ...a }); else ["Receiving", "Sales", "Inventory", "OverValue", "OverIncidents", "UnderIncidents"].forEach((f) => { if (a[f] != null) t[f] = (rcNum(t[f]) || 0) + (rcNum(a[f]) || 0); }); }); return [...by.values()]; };
@@ -3986,18 +4059,48 @@
     if (x.mc) return { lvl: "categories", key: ["categories", q, x], run: async (c) => addUp((await rcSafe({ ...q, masterCategory: x.mc }, (y) => c.load(y, { section: "snapshotBreakdowns" }))).map((r) => r.categories || []), "Category") };
     return { lvl: "divisions", key: ["divisions", q], run: async () => rcPerDivision(q, async (c, qq, mc) => ({ mc, ...addUp((await rcSafe(qq, (y) => c.load(y, { section: "kpis" }))).map((r) => (r.kpis || []).map((k) => ({ ...k, key: 1 }))), "key")[0] })) };
   }
+  // Live answer for a drill level, kept 10 minutes (then refreshed in the background, old rows still shown).
   function rcxFetch(L) {
     const key = JSON.stringify(L.key), hit = rcxCache.get(key);
-    if (hit) return hit;
+    if (hit && !rcStale(hit)) return hit;
     const entry = { loading: true, started: Date.now() };
-    rcxCache.set(key, entry);
-    rcClient().then((c) => L.run(c)).then((rows) => { entry.rows = rows; }).catch((e) => { entry.error = e.message || String(e); })
-      .finally(() => { entry.loading = false; if (S.page === "rcx") render(); });
-    return entry;
+    if (hit?.rows) hit.refreshing = true; else rcxCache.set(key, entry);
+    entry.p = rcClient().then((c) => L.run(c)).then((rows) => { entry.rows = rows; }).catch((e) => { entry.error = e.message || String(e); })
+      .finally(() => {
+        entry.loading = false; entry.at = Date.now();
+        if (hit?.rows) { if (entry.rows) rcxCache.set(key, entry); else { hit.refreshing = false; hit.at = Date.now(); } }
+        if (S.page === "rcx" && JSON.stringify(rcxLevel().key) === key && !rcxSnap(rcxLevel())) render();
+      });
+    return hit?.rows ? hit : entry;
+  }
+  // The same drill level from the server's 10-minute snapshot, when the filters are the default ones.
+  // Returns null when the snapshot doesn't cover it (the page then asks Power BI live).
+  function rcxSnap(L, x = S.rcx) {
+    if (!rcIsDefault() || L.lvl === "lines") return null;
+    const D = rcDrill();
+    if (!D) return !S.rcDrill && S.rcDrillLoading ? { loading: true, started: Date.now(), snap: 1 } : null;
+    const ix = D.ix;
+    if (L.lvl === "divisions") return ix.divisions ? { rows: ix.divisions, snap: 1 } : null;
+    if (L.lvl === "categories") return ix.categories?.[x.mc] ? { rows: ix.categories[x.mc], snap: 1 } : null;
+    const e = rcDrillFile(x.mc, x.cat);
+    if (!e) return null;
+    if (!e.data) return e.loading ? { loading: true, started: Date.now(), snap: 1 } : null;
+    if (L.lvl === "articles") return e.data.articles ? { rows: e.data.articles, snap: 1 } : null;
+    const d = e.data, F = d.outletFields, ai = F ? F.indexOf("ArticleNo") : -1;
+    if (!d.outlets) return null;
+    return { rows: F ? d.outlets.filter((r) => r[ai] === x.art).map((r) => Object.fromEntries(F.map((f, i) => [f, r[i]]))) : d.outlets.filter((a) => a.ArticleNo === x.art), snap: 1 };
+  }
+  // At the outlet level, read the receiving lines of the first outlets in the background, two at a time,
+  // so clicking one of them opens straight away.
+  function rcxPrefetchLines(rows) {
+    const todo = rows.slice(0, 10).map((y) => rcxLevel(y.set)).filter((L) => !rcxCache.has(JSON.stringify(L.key)));
+    let i = 0;
+    const next = () => { if (i >= todo.length || S.page !== "rcx") return; const e = rcxFetch(todo[i++]); (e.p || Promise.resolve()).then(next); };
+    next(); next();
   }
   function pageRCX() {
     const g = rcGuard(); if (g) return g;
-    const x = S.rcx, L = rcxLevel(), E = rcxFetch(L);
+    const x = S.rcx, L = rcxLevel(), E = rcxSnap(L) || rcxFetch(L);
     const master = new Map((S.data?.master?.outlets || []).map((m) => [m.c, m]));
     const days = rcQuery(S.rcf).days || (S.rcf.dateFrom && S.rcf.dateTo ? Math.round((Date.parse(S.rcf.dateTo) - Date.parse(S.rcf.dateFrom)) / 86400000) + 1 : 28);
     const crumb = (label, set, current) => (current ? `<strong>${esc(label)}</strong>` : `<button type="button" data-rcx="${esc(JSON.stringify(set))}">${esc(label)}</button>`);
@@ -4011,8 +4114,8 @@
       outlets: "Outlets where this article was over-received. Stock days above the standard, closing stock far above sales and a high over-receiving score point to the cause. Click an outlet for its receiving lines.",
       lines: "Every receiving line for this article at this outlet: which PO, when it was raised and received, the movement type and who created it." };
     if (E.loading || E.error) {
-      if (E.loading) setTimeout(() => S.page === "rcx" && rcxFetch(rcxLevel()).loading && render(), 1500);
-      return `${rcBar()}<section class="panel"><div class="panel-head"><div><h2>Receiving drill-down</h2><p>${esc(hints[L.lvl])}</p></div></div>${banner}<div class="panel-body"><p class="${E.error ? "empty" : "muted"}" style="margin:0">${E.error ? `Power BI did not answer (${esc(E.error)}). Try again or narrow the filters.` : `Reading from Power BI… (${Math.round((Date.now() - E.started) / 1000)} s)`}</p></div></section>`;
+      if (E.loading) setTimeout(() => S.page === "rcx" && render(), E.snap ? 300 : 1500);
+      return `${rcBar()}<section class="panel"><div class="panel-head"><div><h2>Receiving drill-down</h2><p>${esc(hints[L.lvl])}</p></div></div>${banner}<div class="panel-body"><p class="${E.error ? "empty" : "muted"}" style="margin:0">${E.error ? `Power BI did not answer (${esc(E.error)}). Try again or narrow the filters.` : E.snap ? "Loading…" : `Reading from Power BI… (${Math.round((Date.now() - E.started) / 1000)} s)`}</p></div></section>`;
     }
     const rows = E.rows || [];
     const setAttr = (set) => `data-rcx="${esc(JSON.stringify(set))}" tabindex="0" role="button"`;
@@ -4056,8 +4159,12 @@
     const table = mountTable("rcx-" + L.lvl, { title: spec.title, file: `receiving_drill_${L.lvl}`, stamp: (S.rcv.range || {}).end, banner, desc: (n) => `${int(n)} rows. ${hints[L.lvl]}`,
       rows: spec.rows, key: (y) => y.key, searchText: (y) => `${y.name || ""} ${y.sub || ""} ${y.po || ""} ${y.by || ""}`, defaultSort: spec.sort, defaultDir: spec.asc ? "asc" : "desc", pageSize: 50,
       rowAttr: (y) => (y.set ? setAttr(y.set) : ""), cols: spec.cols });
+    if (L.lvl === "outlets") { const top = [...spec.rows].sort((a, b) => (b.ov || 0) - (a.ov || 0)); AFTER.push(() => rcxPrefetchLines(top)); }
+    // On the category list, fetch the biggest categories' files in the background so the next click is instant.
+    if (L.lvl === "categories" && E.snap) AFTER.push(() => [...spec.rows].sort((a, b) => Math.abs(b.bal || 0) - Math.abs(a.bal || 0)).slice(0, 8).forEach((y) => rcDrillFile(x.mc, y.set.cat, true)));
     const end = S.rcf.dateTo || S.rcv.range.end, start = S.rcf.dateFrom || new Date(Date.parse(end + "T00:00:00Z") - (days - 1) * 86400000).toISOString().slice(0, 10);
-    return `${rcBar()}${rcHead({ range: { start, end, days }, live: true })}${table}`;
+    const snapAt = E.snap && S.rcDrill?.ix ? (x.cat ? S.rcDrill.ix.files?.[x.mc]?.[x.cat]?.generatedAt : S.rcDrill.ix.generatedAt) : null;
+    return `${rcBar()}${rcHead({ range: { start, end, days }, live: !snapAt, snapAt })}${table}`;
   }
 
   // ------------------------------------------------------------------ item performance (data/sku.json)
@@ -4297,14 +4404,18 @@
   // Full SKU list of one outlet: data/sku-outlet/<code>.json, built on the server (not in the repo).
   function ipOutletSkus(code) {
     const box = $("#ipAll"); if (!box || box.dataset.code !== code || $("#drawer").hidden) return;
-    const c = S.skuOut[code];
-    if (c === undefined) {
-      S.skuOut[code] = null;
-      fetch(`data/sku-outlet/${code.replace(/[^A-Za-z0-9_-]/g, "_")}.json`, { cache: "no-cache" })
+    let c = S.skuOut[code];
+    // A missing file is asked for again after a minute (the server may still be building the lists).
+    if (c === undefined || (c?.missing && Date.now() - c.missing > 60000)) {
+      c = S.skuOut[code] = null;
+      fetch(`data/sku-outlet/${code.replace(/[^A-Za-z0-9_-]/g, "_")}.json?v=${encodeURIComponent(S.sku.fingerprint || "")}`, { cache: "no-cache" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
-        .then((x) => { S.skuOut[code] = x.rows; }).catch(() => { S.skuOut[code] = false; }).finally(() => ipOutletSkus(code));
+        .then((x) => { S.skuOut[code] = x.rows; }).catch(() => { S.skuOut[code] = { missing: Date.now() }; }).finally(() => ipOutletSkus(code));
     }
-    if (!c) { box.innerHTML = `<p class="muted" style="margin:0">${c === false ? "The full SKU list is built on the live server (ops.shwapno.app) and is not available here." : "Loading every SKU of this outlet…"}</p>`; return; }
+    if (!Array.isArray(c)) {
+      box.innerHTML = `<p class="muted" style="margin:0">${c?.missing ? "This outlet's full SKU list isn't ready yet. The server rebuilds the per-outlet lists after each update of the item-performance data (about 15 minutes after a deploy); open the outlet again in a few minutes. The biggest growing and declining SKUs above are already complete." : "Loading every SKU of this outlet…"}</p>`;
+      return;
+    }
     const d = S.sku; if (!d.skuIdx) d.skuIdx = new Map(d.skus.map((s, i) => [s[0], i]));
     const all = c.map((r) => { const s = d.skus[d.skuIdx.get(r[0])] || [r[0], r[0], "", "", ""], x = ipRow(r.slice(1)); return { code: r[0], name: s[1], div: s[2], c1: s[3], c3: s[4], ...x, st: ipStatus(x.ns, x.nl) }; });
     NCSV.ipall = () => [`item_outlet_${code}_all_skus`, ["Outlet code", "SKU code", "SKU", "Division", "Cat 01", "Cat 03", "Sales", "Sales last year", "Change", "Growth %", "GP value", "GP value last year", "Quantity", "Quantity last year", "Status"],

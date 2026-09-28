@@ -25,12 +25,25 @@ export DRIVE_CACHE=/tmp/drive-cache
       python3 /app/scripts/network/refresh.py || echo "Outlet network refresh failed; keeping the last good data."
       python3 /app/scripts/cw/refresh.py || echo "Consumable and wastage refresh failed; keeping the last good data."
       python3 /app/scripts/av/refresh.py || echo "Availability refresh failed; keeping the last good data."
-      python3 /app/scripts/rcv/refresh.py || echo "Receiving refresh failed; keeping the last good data."
       python3 /app/scripts/sku/refresh.py || echo "Item performance refresh failed; keeping the last good data."
       find "$DRIVE_CACHE" -type f ! -newer /tmp/run-start -delete 2>/dev/null || true
     fi
     first=0
     sleep $(( ${REFRESH_MINUTES:-60} * 60 ))
+  done
+) &
+
+# Receiving loop: every RCV_MINUTES (10) around the clock, the receiving snapshot (rcv.json) and the
+# drill-down snapshot (data/rcv-drill/, read from Power BI) are renewed, so the Receiving pages never
+# wait for Power BI. A run that takes longer than the interval starts the next one right after it.
+(
+  sleep 20   # let the first Drive run write data.json (the outlet master) first
+  while true; do
+    start=$(date +%s)
+    python3 /app/scripts/rcv/refresh.py || echo "Receiving refresh failed; keeping the last good data."
+    node /app/scripts/rcv/drill.mjs || echo "Receiving drill snapshot failed; keeping the last good data."
+    left=$(( ${RCV_MINUTES:-10} * 60 - ($(date +%s) - start) ))
+    [ "$left" -gt 30 ] && sleep "$left" || sleep 30
   done
 ) &
 
