@@ -355,7 +355,7 @@
       }
       if (IP_PAGES.has(S.page)) {
         const k = S.sku;
-        if (k) fresh(`${int(k.source.files.length)} workbooks`, k.generatedAt);
+        if (k) { fresh(ipPeriod(k, true), k.generatedAt); if (k.period) $("#fresh").title = `Data period ${k.period.method}. Refreshed from ${k.source.files.length} workbooks.`; }
         $("#scope").textContent = k ? `This year vs same period last year. ${S.page === "ips" ? "Company-wide or one regional leader." : `${int(ipOutlets().length)} of ${int(baseList().length)} outlets in view${ipSame() ? ", same store" : ""}.`}` : "";
         return;
       }
@@ -4123,9 +4123,17 @@
       ${kpi({ label: "Outlets growing", value: `<span class="up">${int(up)}</span>`, sub: `Declining ${int(dn)}`, foot: `<span>${list.length ? pct(up / list.length, 0) : "—"} of outlets growing</span>`, accent: "var(--good)" })}
       </div>`;
   }
+  // "1–26 Sep 2026" (with "estimated" when the end date could not be matched to daily sales).
+  function ipPeriod(d, short) {
+    const p = d.period;
+    if (!p) return short ? `${int(d.source.files.length)} workbooks` : "";
+    const [ys, ms, ds] = p.start.split("-").map(Number), [ye, me, de] = p.end.split("-").map(Number);
+    const txt = ys === ye && ms === me ? `${ds}–${de} ${MON[me - 1]} ${ye}` : `${fdate(p.start)} – ${fdate(p.end)}`;
+    return `Data ${txt}${p.method.startsWith("estimated") ? " (estimated)" : ""}`;
+  }
   function ipHead() {
     const d = S.sku;
-    return `<p class="muted" style="margin:0">This year vs the same period last year, from ${int(d.source.files.length)} item-performance workbooks (${int(d.source.rows)} outlet × SKU rows). Sales is POS NSI; GP is POS GP value.</p>`;
+    return `<p class="muted" style="margin:0">${d.period ? `<strong>${esc(ipPeriod(d))}</strong> vs the same days last year` : "This year vs the same period last year"}, from ${int(d.source.files.length)} item-performance workbooks (${int(d.source.rows)} outlet × SKU rows). Sales is POS NSI; GP is POS GP value.</p>`;
   }
   function pageIPO() {
     const g = skuGuard(); if (g) return g;

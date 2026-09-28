@@ -41,7 +41,8 @@ import xlsx_stream  # noqa: E402
 FOLDER = (os.environ.get("SKU_FOLDER_ID") or "111qtlTIgOpvuYK7G4B_xrA8hRBpwjcj_").strip()
 OUT = Path(os.environ.get("SKU_OUT") or ROOT / "data" / "sku.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-OUT_RL = OUT.with_name("sku-rl.json")  # SKU x regional leader, loaded only when the SKUs page is set to one leader
+OUT_RL = OUT.with_name("sku-rl.json")
+CW = Path(os.environ.get("CW_OUT") or ROOT / "data" / "cw.json")  # SKU x regional leader, loaded only when the SKUs page is set to one leader
 TOP = 15  # gaining / declining SKUs kept per outlet
 
 
@@ -79,6 +80,13 @@ def header_map(row):
     return m if all(k in m for k in REQUIRED) else None
 
 
+def modified_iso(text):
+    """Drive's public listing gives '5:43 pm' for today or 'Sep 27' / 'Sep 27, 2025' for older files."""
+    import fetch_drive_data as drive
+    ts = drive.modified_sort_key({"modified": text})
+    return dt.datetime.fromtimestamp(ts, dt.timezone.utc).date().isoformat() if ts else ""
+
+
 def num(v):
     if isinstance(v, float):
         return v
@@ -86,6 +94,36 @@ def num(v):
         return float(str(v).replace(",", "")) if v not in (None, "") else 0.0
     except ValueError:
         return 0.0
+
+
+def data_period(total, modified_dates):
+    """The workbooks carry no dates. Find the day whose running total of daily POS NSI (from the
+    till-date sales file behind cw.json) equals the workbooks' total sales; fall back to the day
+    before the workbooks were last changed."""
+    try:
+        cw = json.loads(CW.read_text(encoding="utf-8"))
+        by = defaultdict(float)
+        for r in cw.get("daily") or []:
+            if r.get("sales"):
+                by[r["date"]] += r["sales"]
+        days = sorted(d for d in by if by[d])
+        if days and total > 0:
+            month = days[-1][:7]
+            cum, best = 0.0, None
+            for d in (x for x in days if x.startswith(month)):
+                cum += by[d]
+                err = abs(cum / total - 1)
+                if best is None or err < best[1]:
+                    best = (d, err)
+            if best and best[1] <= 0.01:
+                return {"start": month + "-01", "end": best[0], "method": "matched to daily sales"}
+    except (OSError, ValueError, KeyError):
+        pass
+    mods = [m for m in modified_dates if re.match(r"\d{4}-\d{2}-\d{2}", m or "")]
+    if mods:
+        end = (dt.date.fromisoformat(max(mods)[:10]) - dt.timedelta(days=1)).isoformat()
+        return {"start": end[:8] + "01", "end": end, "method": "estimated from file date"}
+    return None
 
 
 def sources(workdir):
@@ -139,7 +177,15 @@ def main():
         try:
             old = json.loads(OUT.read_text(encoding="utf-8"))
             if old.get("fingerprint") == fingerprint and old.get("schema") == 2 and OUT_RL.exists():
-                log("No workbook changed since the last build; sku.json left as is.")
+                per = data_period(sum(o["t"][0] for o in old.get("outlets") or []), [f.get("modifiedIso", "") for f in old.get("source", {}).get("files", [])])
+                if per and per != old.get("period"):
+                    old["period"] = per
+                    tmp = OUT.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(old, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                    os.replace(tmp, OUT)
+                    log(f"Workbooks unchanged; data period updated to {per['start']} to {per['end']} ({per['method']}).")
+                else:
+                    log("No workbook changed since the last build; sku.json left as is.")
                 return 0
         except (OSError, ValueError):
             pass
@@ -201,7 +247,7 @@ def main():
                     h = drop[code]
                     (heapq.heappush if len(h) < TOP else heapq.heappushpop)(h, (-d, s, v[:4]))
             rows_read += n_file
-            files_meta.append({"name": name, "rows": n_file, "modified": mod})
+            files_meta.append({"name": name, "rows": n_file, "modified": mod, "modifiedIso": modified_iso(mod)})
             log(f"  read  {name}: {n_file} rows")
 
     sku_ids = sorted(sku)
@@ -223,8 +269,12 @@ def main():
         m = master.get(code, {})
         outs.append({"c": code, "n": o["n"], "ss": code in same, "t": rnd(o["t"]), "rl": m.get("rl") or o["rlf"] or None, "zn": m.get("zn") or o["znf"] or None,
                      **{k: m.get(k) for k in ("div", "dis", "fmt", "own", "pnp", "loc")}})
+    total = sum(o["t"][0] for o in outs)
+    period = data_period(total, [f["modifiedIso"] for f in files_meta])
+    if period:
+        log(f"Data period {period['start']} to {period['end']} ({period['method']}).")
     payload = {
-        "schema": 2, "fingerprint": fingerprint,
+        "schema": 2, "fingerprint": fingerprint, "period": period,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "source": {"folder": FOLDER, "files": files_meta, "rows": rows_read, "badRows": bad,
                    "fields": ["sales this", "sales last", "GP this", "GP last", "qty this", "qty last"]},
