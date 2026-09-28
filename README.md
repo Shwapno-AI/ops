@@ -32,6 +32,10 @@ Rules: an outlet with no Core, KVI or Promo stock, or no Core, KVI or Promo sale
 
 The Receiving pages read `data/rcv.json`, built by `scripts/rcv/refresh.py`. The figures come from the public Power BI receiving report; the Receiving dashboard's own workflow reads that report every few minutes and publishes `snapshot.json`, which this step downloads each hour (set `RCV_SNAPSHOT_URL` to read a different snapshot). Outlets are joined to the outlet master for the sidebar filters. Over-receiving value is a non-additive Power BI measure, so it is shown for the company, a division, a category or one outlet, never summed.
 
+### Item performance
+
+The Item performance pages read `data/sku.json` (and `data/sku-rl.json` for one regional leader's SKUs), built by `scripts/sku/refresh.py` from the **Item Dashboard performance workbooks** Drive folder (set `SKU_FOLDER_ID` to use another folder). Each workbook holds one row per outlet and SKU with this-year and last-year POS sales (NSI), GP value and quantity; files are recognised by their columns, which may be named "POS NSI This" or "Sales This" and so on. The workbooks are large, so the build streams them and publishes summaries (outlet totals, outlet x division x Cat 01, SKU totals, SKU x regional leader and each outlet's biggest gaining and declining SKUs). It only rebuilds when a workbook changed. Same store uses the Business Performance Report's same-store list. Footfall and basket size are left out because in these files they are per SKU line and don't add up.
+
 ### Outlet network and Growth & momentum
 
 These two pages are built into this dashboard and read `data/network.json`, which the same hourly refresh builds from the mother folder. It needs these workbooks, anywhere under it:

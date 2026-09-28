@@ -16,7 +16,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       # One download of each Drive file, shared by the four builds and kept between runs.
       # Files are keyed by Drive id + last-modified, so only new or changed files are downloaded.
@@ -52,6 +52,10 @@ jobs:
       - name: Download the receiving snapshot and build rcv.json
         continue-on-error: true
         run: python scripts/rcv/refresh.py
+      - name: Download item-performance workbooks and build sku.json
+        # Rebuilds only when a workbook changed; about 4 minutes when it does.
+        continue-on-error: true
+        run: python scripts/sku/refresh.py
       - name: Drop cached files this run did not use
         if: always()
         run: find /tmp/drive-cache -type f ! -newer /tmp/run-start -delete; du -sh /tmp/drive-cache || true
@@ -65,10 +69,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json; then echo "No data changes."; exit 0; fi
+          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json; then echo "No data changes."; exit 0; fi
           git config user.name "ops-dashboard-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json
+          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
           # Someone may have pushed code while this run was busy: replay the data commit on top and retry.
           pushed=0

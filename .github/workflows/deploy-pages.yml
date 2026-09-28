@@ -11,6 +11,8 @@ on:
       - data/cw.json
       - data/av.json
       - data/rcv.json
+      - data/sku.json
+      - data/sku-rl.json
       - .nojekyll
       - .github/workflows/deploy-pages.yml
   workflow_dispatch:   # also started by the Refresh data workflow when the data changed

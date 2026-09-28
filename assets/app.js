@@ -12,18 +12,20 @@
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
+    { group: "Item performance", items: [["ipo", "Overview"], ["ipc", "Categories"], ["ips", "SKUs"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
-  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
+  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Item performance" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
   const SALES_PAGES = new Set(["overview", "achievement", "growth", "gp", "footfall", "ranking"]);
   const PERIOD_PAGES = new Set([...SALES_PAGES, "category"]);
   const NET_PAGES = new Set(["gm", "on"]);
   const CW_PAGES = new Set(["cw", "cwl", "cwx", "cwb", "cwm", "cwo"]);
   const AV_PAGES = new Set(["avs", "avk", "avc", "avp", "avv", "ave", "avb"]);
   const RC_PAGES = new Set(["rco", "rcu", "rcx"]);
-  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES]);
+  const IP_PAGES = new Set(["ipo", "ipc", "ips"]);
+  const FILTER_PAGES = new Set([...SALES_PAGES, "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, "ipo", "ipc"]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
@@ -46,7 +48,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, rcd: { lvl: "rl", rl: null, zn: null },
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "" }, ipd: { lvl: "rl", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -104,7 +106,7 @@
   }
   const rep = () => S.data?.[S.period];
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(o.dim[k]));
-  const baseList = () => (NET_PAGES.has(S.page) ? netRows() : CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
+  const baseList = () => (NET_PAGES.has(S.page) ? netRows() : CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
   const inView = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
   // Loss page outlet-age filter: open a year or more, or under a year (outlets without an opening date only under All).
   function lossAgeOk(o) {
@@ -349,6 +351,12 @@
         const a = S.av;
         if (a) { const st = (a.files || []).find((f) => f.kind === "stock"); fresh(st?.modified ? `Stock ${fdate(st.modified.slice(0, 10), true)}` : "", a.generatedAt); }
         $("#scope").textContent = a ? `${avDays()} day${avDays() === 1 ? "" : "s"} of cover. ${int(inView().length)} of ${int(baseList().length)} outlets in view.` : "";
+        return;
+      }
+      if (IP_PAGES.has(S.page)) {
+        const k = S.sku;
+        if (k) fresh(`${int(k.source.files.length)} workbooks`, k.generatedAt);
+        $("#scope").textContent = k ? `This year vs same period last year. ${S.page === "ips" ? "Company-wide or one regional leader." : `${int(ipOutlets().length)} of ${int(baseList().length)} outlets in view${ipSame() ? ", same store" : ""}.`}` : "";
         return;
       }
       if (RC_PAGES.has(S.page)) {
@@ -614,7 +622,7 @@
     });
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
     $$("[data-sel]", root).forEach((sel) => (sel.onchange = () => { S[sel.dataset.sel] = sel.value; changed(); }));
-    wireRc(root);
+    wireRc(root); wireIp(root);
     $$("[data-embed-reload]", root).forEach((b) => (b.onclick = () => { const f = b.closest(".embed")?.querySelector("iframe"); if (f) f.src = freshUrl(EMBEDS[S.page]?.url || f.src.split(/[?&]_=/)[0]); }));
     $$("[data-go]", root).forEach((b) => { b.onclick = () => (location.hash = b.dataset.go); if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") location.hash = b.dataset.go; }; });
     $$("[data-lpick]", root).forEach((tr) => {
@@ -4052,6 +4060,178 @@
     return `${rcBar()}${rcHead({ range: { start, end, days }, live: true })}${table}`;
   }
 
+  // ------------------------------------------------------------------ item performance (data/sku.json)
+  // This year vs same period last year by outlet x SKU, from the Item Dashboard performance workbooks.
+  // Sales = POS NSI, GP = POS GP value, Qty = POS sales quantity. Footfall and basket size are not
+  // shown: in the source they are per SKU line and don't add up across SKUs.
+  function loadSku() {
+    if (S.sku || S.skuLoading) return;
+    S.skuLoading = true; S.skuErr = null;
+    fetch("data/sku.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { skuPrep(d); S.sku = d; })
+      .catch((e) => { S.skuErr = e.message; })
+      .finally(() => { S.skuLoading = false; if (IP_PAGES.has(S.page)) render(); });
+  }
+  function skuPrep(d) {
+    const v = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
+    d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc) }; });
+    d.byCode = new Map(d.outlets.map((o) => [o.c, o]));
+    // category names are stored once and referred to by number
+    d.cube.forEach((r) => { r[1] = d.divs[r[1]]; r[2] = d.c1s[r[2]]; });
+    d.skus.forEach((r) => { r[2] = d.divs[r[2]]; r[3] = d.c1s[r[3]]; r[4] = d.c3s[r[4]]; });
+  }
+  // SKU x regional leader lives in its own file, loaded when the SKUs page is set to one leader.
+  function loadSkuRl() {
+    if (S.sku.skuRl || S.skuRlLoading) return;
+    S.skuRlLoading = true;
+    fetch("data/sku-rl.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((x) => { S.sku.skuRl = x.skuRl; }).catch((e) => { S.skuErr = e.message; }).finally(() => { S.skuRlLoading = false; if (IP_PAGES.has(S.page)) render(); });
+  }
+  function skuGuard() {
+    if (S.sku) return "";
+    loadSku();
+    return S.skuErr ? `<p class="empty">The item performance data could not be loaded (${esc(S.skuErr)}). Run the "Refresh data" workflow, then reload this page.</p>` : '<p class="empty">Loading item performance data…</p>';
+  }
+  const ipSame = () => S.ipv.scope === "same";
+  const ipOutlets = () => inView().filter((o) => !ipSame() || o.ss);
+  const ipAdd = (a, t) => { for (let i = 0; i < 6; i++) a[i] += t[i] || 0; return a; };
+  // Growth figures for six sums [sales this, sales last, gp this, gp last, qty this, qty last].
+  function ipRow(t) {
+    const [ns, nl, gs, gl, qs, ql] = t, gpm = ratio(gs, ns), gpml = ratio(gl, nl);
+    return { ns, nl, gs, gl, qs, ql, gy: growth(ns, nl), diff: ns - nl, gg: growth(gs, gl), gpm, gpml, gpd: isNum(gpm) && isNum(gpml) ? gpm - gpml : null, qg: growth(qs, ql) };
+  }
+  const ipCols = (first, withN) => [first, ...(withN ? [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }] : []),
+    { k: "ns", label: "Sales", num: 1, fmt: (x) => bdt(x.ns), csv: (x) => Math.round(x.ns) },
+    { k: "nl", label: "Sales last year", num: 1, fmt: (x) => bdt(x.nl), csv: (x) => Math.round(x.nl) },
+    { k: "gy", label: "Sales growth", num: 1, fmt: (x) => (isNum(x.gy) ? delta(x.gy) : x.ns > 0 ? '<span class="chip info">New</span>' : "—"), csv: (x) => pcsv(x.gy) },
+    { k: "diff", label: "Sales change", num: 1, fmt: (x) => `<span class="${x.diff < 0 ? "down" : "up"}">${bdt(x.diff)}</span>`, csv: (x) => Math.round(x.diff) },
+    { k: "gs", label: "GP value", num: 1, fmt: (x) => bdt(x.gs), csv: (x) => Math.round(x.gs) },
+    { k: "gg", label: "GP growth", num: 1, fmt: (x) => delta(x.gg), csv: (x) => pcsv(x.gg) },
+    { k: "gpm", label: "GP%", num: 1, fmt: (x) => pct(x.gpm), csv: (x) => pcsv(x.gpm) },
+    { k: "gpd", label: "GP% vs last year", num: 1, fmt: (x) => delta(x.gpd, "pp"), csv: (x) => pcsv(x.gpd) },
+    { k: "qg", label: "Qty growth", num: 1, fmt: (x) => delta(x.qg), csv: (x) => pcsv(x.qg) }];
+  const ipScopeSeg = () => `<div class="seg" role="group" aria-label="Stores">${[["all", "All stores"], ["same", "Same store"]].map(([k, t]) => `<button type="button" data-ipv="scope" data-val="${k}" aria-pressed="${S.ipv.scope === k}">${t}</button>`).join("")}</div>`;
+  function ipCards(list) {
+    const t = list.reduce((a, o) => ipAdd(a, o.t), [0, 0, 0, 0, 0, 0]), x = ipRow(t);
+    const up = list.filter((o) => o.t[0] > o.t[1]).length, dn = list.filter((o) => o.t[0] < o.t[1]).length;
+    return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      ${kpi({ label: "Sales vs last year", value: delta(x.gy), sub: `${int(list.length)} outlets${ipSame() ? ", same store" : ""}`, foot: `<span>${bdt(x.ns)}</span><span>last year ${bdt(x.nl)}</span>`, accent: `var(--${x.diff < 0 ? "bad" : "good"})` })}
+      ${kpi({ label: "GP value vs last year", value: delta(x.gg), sub: `Change ${bdt(x.gs - x.gl)}`, foot: `<span>${bdt(x.gs)}</span><span>last year ${bdt(x.gl)}</span>`, accent: "var(--series-3)" })}
+      ${kpi({ label: "GP margin", value: pct(x.gpm), sub: `${delta(x.gpd, "pp")} vs last year`, foot: `<span>last year ${pct(x.gpml)}</span>`, accent: "var(--series-2)" })}
+      ${kpi({ label: "Quantity vs last year", value: delta(x.qg), sub: `${units(x.qs)} units`, foot: `<span>last year ${units(x.ql)}</span>`, accent: "var(--series-1)" })}
+      ${kpi({ label: "Outlets growing", value: `<span class="up">${int(up)}</span>`, sub: `Declining ${int(dn)}`, foot: `<span>${list.length ? pct(up / list.length, 0) : "—"} of outlets growing</span>`, accent: "var(--good)" })}
+      </div>`;
+  }
+  function ipHead() {
+    const d = S.sku;
+    return `<p class="muted" style="margin:0">This year vs the same period last year, from ${int(d.source.files.length)} item-performance workbooks (${int(d.source.rows)} outlet × SKU rows). Sales is POS NSI; GP is POS GP value.</p>`;
+  }
+  function pageIPO() {
+    const g = skuGuard(); if (g) return g;
+    const list = ipOutlets();
+    const D = leaderDrill("ipd", "ip-out", list, "click an outlet for the SKUs behind its change"), at = D.at, inPath = list.filter(D.inPath);
+    let rows;
+    if (at === "outlet") rows = inPath.map((o) => ({ key: o.c, name: o.nm, sub: `${o.c}, ${o.dim.zn}`, o, n: 1, ...ipRow(o.t) }));
+    else {
+      const gm = new Map();
+      inPath.forEach((o) => { const k = o.dim[at]; if (!gm.has(k)) gm.set(k, []); gm.get(k).push(o); });
+      rows = [...gm].map(([k, os]) => ({ key: k, name: k, sub: at === "zn" ? D.zsub(k, `${int(os.length)} outlets`) : `${int(os.length)} outlets`, n: os.length, ...ipRow(os.reduce((a, o) => ipAdd(a, o.t), [0, 0, 0, 0, 0, 0])) }));
+    }
+    const table = mountTable("ip-out", {
+      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file("item_performance"), banner: D.crumbs, tools: `${D.tools}${ipScopeSeg()}`,
+      desc: (n) => `${int(n)} rows. Sales growth, GP and quantity against the same period last year. ${at === "outlet" ? "Click an outlet for the SKUs and categories behind its change." : "Click a row to go down a level."}`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "diff", defaultDir: "asc", pageSize: 25,
+      rowAttr: (x) => (x.o ? `data-ipout="${esc(x.o.c)}" tabindex="0" role="button"` : D.pick(x)),
+      cols: ipCols({ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet"),
+    });
+    return `${ipHead()}${ipCards(inPath)}${table}`;
+  }
+  function pageIPC() {
+    const g = skuGuard(); if (g) return g;
+    const list = ipOutlets(), codes = new Set(list.map((o) => o.c)), dv = S.ipv.div;
+    const gm = new Map();
+    S.sku.cube.forEach((r) => { if (!codes.has(r[0]) || (dv && r[1] !== dv)) return; const k = dv ? r[2] : r[1], a = gm.get(k) || { set: new Set(), t: [0, 0, 0, 0, 0, 0] }; a.set.add(r[0]); ipAdd(a.t, r.slice(3)); gm.set(k, a); });
+    const rows = [...gm].map(([k, a]) => ({ key: k, name: k, sub: `${int(a.set.size)} outlets`, n: a.set.size, ...ipRow(a.t) }));
+    const banner = dv ? `<div class="drill-banner"><button type="button" data-ipv="div" data-val="">All divisions</button> › <strong>${esc(dv)}</strong><span class="muted">· click a category for its SKUs</span></div>` : "";
+    const table = mountTable("ip-cat", {
+      title: dv ? `Categories in ${dv}` : "Divisions", file: dv ? `item_categories_${dv}` : "item_divisions", banner, tools: ipScopeSeg(),
+      desc: (n) => `${int(n)} ${dv ? "Cat 01 categories" : "product divisions"} for the ${int(list.length)} outlets in view. ${dv ? "Click a category for its SKUs." : "Click a division for its categories."}`,
+      rows, key: (x) => x.key, searchText: (x) => x.name, defaultSort: "diff", defaultDir: "asc", pageSize: 50,
+      rowAttr: (x) => (dv ? `data-ipc1="${esc(x.key)}" tabindex="0" role="button"` : `data-ipv="div" data-val="${esc(x.key)}" tabindex="0" role="button"`),
+      cols: ipCols({ k: "name", label: dv ? "Cat 01" : "Division", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, false),
+    });
+    return `${ipHead()}${ipCards(list)}${table}`;
+  }
+  // SKU rows for a scope: all stores, same store, or one regional leader.
+  function ipSkuRows(scope) {
+    const d = S.sku;
+    if (scope === "all" || scope === "same") return d.skus.map((r, i) => ({ i, t: scope === "same" ? r.slice(11, 17) : r.slice(5, 11) }));
+    const ri = d.rls.indexOf(scope);
+    if (!d.skuRl) { loadSkuRl(); return null; }
+    return d.skuRl.filter((r) => r[1] === ri).map((r) => ({ i: r[0], t: r.slice(2) }));
+  }
+  function pageIPS() {
+    const g = skuGuard(); if (g) return g;
+    const d = S.sku, v = S.ipv, sc = v.sku || "all";
+    const base = ipSkuRows(sc);
+    if (!base) return `${ipHead()}<section class="panel"><div class="panel-body"><p class="muted" style="margin:0">Loading ${esc(sc)}'s SKUs…</p></div></section>`;
+    const rows = base.map(({ i, t }) => { const s = d.skus[i]; return { key: s[0], code: s[0], name: s[1], div: s[2], c1: s[3], c3: s[4], ...ipRow(t) }; })
+      .filter((x) => (!v.sdiv || x.div === v.sdiv) && (!v.sc1 || x.c1 === v.sc1) && (x.ns || x.nl));
+    const divs = [...new Set(d.skus.map((s) => s[2]))].sort(), c1s = [...new Set(d.skus.filter((s) => !v.sdiv || s[2] === v.sdiv).map((s) => s[3]))].sort();
+    const sel = (k, opts, all, cur) => `<select class="sel" data-ipsel="${k}"><option value="">${esc(all)}</option>${opts.map((o) => `<option value="${esc(o)}" ${cur === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+    const scopeSel = `<select class="sel" data-ipsel="sku"><option value="all" ${sc === "all" ? "selected" : ""}>All stores</option><option value="same" ${sc === "same" ? "selected" : ""}>Same store</option>${d.rls.map((r) => `<option value="${esc(r)}" ${sc === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select>`;
+    const table = mountTable("ip-sku", {
+      title: "SKUs", file: `item_skus_${sc}`, tools: `${scopeSel}${sel("sdiv", divs, "All divisions", v.sdiv)}${sel("sc1", c1s, "All Cat 01", v.sc1)}`,
+      desc: (n) => `${int(n)} SKUs with sales this year or last, ${sc === "all" ? "all stores" : sc === "same" ? "same stores" : sc}. Sort by Sales change for the biggest decliners or gainers.`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.code} ${x.name} ${x.c1} ${x.c3}`, defaultSort: "diff", defaultDir: "asc", pageSize: 50,
+      cols: [{ k: "name", label: "SKU", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.code)} · ${esc(x.c1)} · ${esc(x.c3)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "code", label: "SKU code", hide: 1, csv: (x) => x.code }, { k: "div", label: "Division", hide: 1, csv: (x) => x.div }, { k: "c1", label: "Cat 01", hide: 1, csv: (x) => x.c1 }, { k: "c3", label: "Cat 03", hide: 1, csv: (x) => x.c3 },
+        ...ipCols(null, false).slice(1)],
+    });
+    return `${ipHead()}${table}`;
+  }
+  // Drawer: one outlet's change, its categories and the SKUs behind it.
+  function openIpOutlet(code) {
+    const d = S.sku, o = d.byCode.get(code); if (!o) return;
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    const x = ipRow(o.t);
+    const cats = new Map();
+    d.cube.forEach((r) => { if (r[0] !== code) return; const k = `${r[1]} · ${r[2]}`; cats.set(k, ipAdd(cats.get(k) || [0, 0, 0, 0, 0, 0], r.slice(3))); });
+    const catRows = [...cats].map(([k, t]) => ({ k, ...ipRow(t) })).sort((a, b) => a.diff - b.diff);
+    const tops = d.outletTop.filter((r) => r[0] === code).map((r) => { const s = d.skus[r[1]]; return { code: s[0], name: s[1], c1: s[3], ns: r[2], nl: r[3], gs: r[4], gl: r[5], diff: r[2] - r[3] }; });
+    const gains = tops.filter((t) => t.diff > 0).sort((a, b) => b.diff - a.diff), drops = tops.filter((t) => t.diff < 0).sort((a, b) => a.diff - b.diff);
+    const skuTbl = (rows, title) => `<h3 style="font-size:14px;margin:0">${title}</h3><div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>SKU</th><th class="num">Sales</th><th class="num">Last year</th><th class="num">Change</th></tr></thead><tbody>${rows.map((t) => `<tr><td><span class="cell-primary">${esc(t.name)}</span><span class="cell-secondary">${esc(t.code)} · ${esc(t.c1)}</span></td><td class="num">${bdt(t.ns)}</td><td class="num">${bdt(t.nl)}</td><td class="num"><span class="${t.diff < 0 ? "down" : "up"}">${bdt(t.diff)}</span></td></tr>`).join("") || '<tr><td colspan="4" class="empty">None</td></tr>'}</tbody></table></div>`;
+    NCSV.ipout = () => [`item_outlet_${code}`, ["Type", "Division · Cat 01 / SKU", "SKU code", "Sales", "Sales last year", "Change"], [...catRows.map((c) => ["Category", c.k, "", Math.round(c.ns), Math.round(c.nl), Math.round(c.diff)]), ...drops.concat(gains).map((t) => ["SKU", t.name, t.code, Math.round(t.ns), Math.round(t.nl), Math.round(t.diff)])], "latest"];
+    $("#drawerTitle").textContent = `${o.c} ${o.nm}`;
+    $("#drawerBody").innerHTML = `<div class="stat-grid three"><div class="stat"><small>Sales</small><strong>${bdt(x.ns)}</strong><div style="font-size:12px">${delta(x.gy)} vs ${bdt(x.nl)}</div></div>
+        <div class="stat"><small>GP value</small><strong>${bdt(x.gs)}</strong><div style="font-size:12px">GP% ${pct(x.gpm)} (${delta(x.gpd, "pp")})</div></div><div class="stat"><small>Quantity</small><strong>${units(x.qs)}</strong><div style="font-size:12px">${delta(x.qg)} vs last year</div></div></div>
+      <div class="lr-dtools"><span class="muted">${esc(o.dim.rl)} · ${esc(o.dim.zn)}${o.ss ? " · same store" : ""}</span>${csvBtn("ipout")}</div>
+      ${skuTbl(drops, "Biggest declining SKUs")}${skuTbl(gains, "Biggest growing SKUs")}
+      <h3 style="font-size:14px;margin:0">By category (biggest decline first)</h3><div class="table-wrap" style="max-height:360px"><table class="compact"><thead><tr><th>Division · Cat 01</th><th class="num">Sales</th><th class="num">Growth</th><th class="num">Change</th></tr></thead><tbody>
+      ${catRows.map((c) => `<tr><td>${esc(c.k)}</td><td class="num">${bdt(c.ns)}</td><td class="num">${delta(c.gy)}</td><td class="num"><span class="${c.diff < 0 ? "down" : "up"}">${bdt(c.diff)}</span></td></tr>`).join("")}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  function openIpCategory(c1) {
+    const d = S.sku, sc = ipSame() ? "same" : "all";
+    const rows = ipSkuRows(sc).map(({ i, t }) => ({ s: d.skus[i], x: ipRow(t) })).filter((r) => r.s[3] === c1 && (!S.ipv.div || r.s[2] === S.ipv.div) && (r.x.ns || r.x.nl)).sort((a, b) => a.x.diff - b.x.diff);
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    NCSV.ipcat = () => [`item_category_${c1}`, ["SKU code", "SKU", "Cat 03", "Sales", "Sales last year", "Change", "GP value"], rows.map((r) => [r.s[0], r.s[1], r.s[4], Math.round(r.x.ns), Math.round(r.x.nl), Math.round(r.x.diff), Math.round(r.x.gs)]), "latest"];
+    $("#drawerTitle").textContent = `${c1}: SKUs`;
+    $("#drawerBody").innerHTML = `<div class="lr-dtools"><span class="muted">${int(rows.length)} SKUs, ${sc === "same" ? "same stores" : "all stores"} company-wide; biggest decline first.</span>${csvBtn("ipcat")}</div>
+      <div class="table-wrap" style="max-height:600px"><table class="compact"><thead><tr><th>SKU</th><th class="num">Sales</th><th class="num">Growth</th><th class="num">Change</th><th class="num">GP%</th></tr></thead><tbody>
+      ${rows.slice(0, 500).map((r) => `<tr><td><span class="cell-primary">${esc(r.s[1])}</span><span class="cell-secondary">${esc(r.s[0])} · ${esc(r.s[4])}</span></td><td class="num">${bdt(r.x.ns)}</td><td class="num">${delta(r.x.gy)}</td><td class="num"><span class="${r.x.diff < 0 ? "down" : "up"}">${bdt(r.x.diff)}</span></td><td class="num">${pct(r.x.gpm)}</td></tr>`).join("")}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  function wireIp(root) {
+    $$("[data-ipv]", root).forEach((b) => { const go = () => { S.ipv[b.dataset.ipv] = b.dataset.val; changed(); }; b.onclick = go; if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    $$("[data-ipsel]", root).forEach((s) => (s.onchange = () => { S.ipv[s.dataset.ipsel] = s.value; if (s.dataset.ipsel === "sdiv") S.ipv.sc1 = ""; changed(); }));
+    $$("[data-ipout]", root).forEach((n) => { const go = () => openIpOutlet(n.dataset.ipout); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    $$("[data-ipc1]", root).forEach((n) => { const go = () => openIpCategory(n.dataset.ipc1); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+  }
+
   // ------------------------------------------------------------------ drawer
   function openOutlet(code) {
     const o = rep()?.outlets.find((x) => x.c === code);
@@ -4099,7 +4279,7 @@
     if (FILTER_PAGES.has(S.page)) renderFilters();
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ipo: pageIPO, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
@@ -4128,7 +4308,7 @@
     try { localStorage.setItem("opsdash-theme", t); } catch (e) {}
     if (NET_PAGES.has(S.page)) render(); // charts resolve colour tokens when drawn
   });
-  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
+  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });
