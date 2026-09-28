@@ -325,9 +325,12 @@ function continuationQuery(query, restartTokens) {
 }
 
 function commonWhere(range, scope, filters = {}, excluded = new Set()) {
-  const movementTypes = filters.movementCode && filters.movementCode !== "all"
-    ? [filters.movementCode]
-    : scope.movementTypes;
+  // ops dashboard: movementCodes (a list) as well as a single movementCode
+  const movementTypes = Array.isArray(filters.movementCodes) && filters.movementCodes.length
+    ? filters.movementCodes
+    : filters.movementCode && filters.movementCode !== "all"
+      ? [filters.movementCode]
+      : scope.movementTypes;
   const conditions = [
     {
       Condition: {
@@ -379,6 +382,17 @@ function commonWhere(range, scope, filters = {}, excluded = new Set()) {
         In: {
           Expressions: [field("a", "Category3")],
           Values: [[literal(stringLiteral(filters.category))]],
+        },
+      },
+    });
+  }
+  // ops dashboard: a list of categories (added to a single category when both are given, e.g. in a drill-down)
+  if (!excluded.has("category") && Array.isArray(filters.categories) && filters.categories.length) {
+    conditions.push({
+      Condition: {
+        In: {
+          Expressions: [field("a", "Category3")],
+          Values: filters.categories.map(value => [literal(stringLiteral(value))]),
         },
       },
     });

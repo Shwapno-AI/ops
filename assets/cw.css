@@ -262,3 +262,11 @@ section[id^="t-"]{scroll-margin-top:calc(var(--k-top,57px) + 12px)}
 tr[data-rcart]{cursor:pointer}tr[data-rcart]:hover td{background:var(--surface-2)}
 .rcx-trail button{all:unset;cursor:pointer;color:var(--info);text-decoration:underline}
 tr[data-rcx]{cursor:pointer}tr[data-rcx]:hover td{background:var(--surface-2)}
+/* Receiving filter bar: searchable multi-selects */
+.rc-ms{position:relative;min-width:190px;max-width:260px}
+.rc-ms .ms-btn{min-height:34px;align-items:center;font-size:13px}
+.rc-ms .ms-btn span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-ms-panel{position:absolute;z-index:40;top:100%;left:0;width:max(100%,300px);box-shadow:0 8px 24px rgba(0,0,0,.14);color:var(--ink)}
+.rc-ms-panel .ms-list{max-height:260px}
+.rc-ms-done{justify-content:flex-end;margin:6px 0 0}
+.rc-ms-done button{font-weight:600}

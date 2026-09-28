@@ -3692,7 +3692,10 @@
   // business divisions in one query, so each division is asked separately and the answers are combined.
   // Over-receiving value is a Power BI measure: shown for the company, a division, a category or one outlet,
   // never added up across outlets.
-  const RC_DEF = { days: "28", dateFrom: "", dateTo: "", masterCategory: "all", category: "", region: "", rho: "", zn: "", outlet: "", articleNo: "", poNumber: "", userCode: "", movementCode: "all" };
+  // masterCategory, category, region, rho, zn, outlet and movementCode are lists (multi-select); articleNo takes
+  // one or more codes separated by commas or spaces.
+  const RC_DEF = { days: "28", dateFrom: "", dateTo: "", masterCategory: [], category: [], region: [], rho: [], zn: [], outlet: [], articleNo: "", poNumber: "", userCode: "", movementCode: [] };
+  const RC_MULTI = ["masterCategory", "category", "region", "rho", "zn", "outlet", "movementCode"];
   S.rcf = { ...RC_DEF };
   const rcLive = new Map();
   let rcClientP = null;
@@ -3753,35 +3756,40 @@
   // Sidebar filters on Receiving: the By outlet page narrows its rows itself (instant); Overview and Drill-down
   // pass the outlets in view to Power BI (live, kept 10 minutes), since their totals are not stored per outlet.
   const rcSide = () => S.page !== "rcu" && dims().some(([k]) => S.filters[k].size);
-  const rcIsDefault = () => !rcSide() && Object.keys(RC_DEF).every((k) => String(S.rcf[k] || "") === String(RC_DEF[k]));
+  // Multi-select filters hold lists (empty = all); a drawer or drill can still pass a single value.
+  const rcArr = (v) => (Array.isArray(v) ? v : v && v !== "all" ? [v] : []);
+  const rcIsDefault = () => !rcSide() && Object.keys(RC_DEF).every((k) => (RC_MULTI.includes(k) ? !rcArr(S.rcf[k]).length : String(S.rcf[k] || "") === String(RC_DEF[k])));
   // Outlet codes picked by the RHO / Zonal / Outlet filters and the sidebar (null when none is set).
   function rcOutletCodes(f) {
-    const side = rcSide();
-    if (!f.rho && !f.zn && !f.outlet && !side) return null;
-    return S.rcv.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn) && (!f.outlet || o.c === f.outlet) && (!side || matches(o))).map((o) => o.c).sort();
+    const side = rcSide(), rho = rcArr(f.rho), zn = rcArr(f.zn), out = rcArr(f.outlet);
+    if (!rho.length && !zn.length && !out.length && !side) return null;
+    return S.rcv.outlets.filter((o) => (!rho.length || rho.includes(o.dim.rl)) && (!zn.length || zn.includes(o.dim.zn)) && (!out.length || out.includes(o.c)) && (!side || matches(o))).map((o) => o.c).sort();
   }
+  const rcArticleList = (v) => [...new Set(String(v || "").split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean))];
   function rcQuery(f) {
-    const q = { masterCategory: f.masterCategory || "all" };
+    const mcs = rcArr(f.masterCategory);
+    const q = { masterCategory: mcs.length === 1 ? mcs[0] : "all" };
+    if (mcs.length > 1) q.masterCategories = [...mcs].sort();
     if (f.dateFrom && f.dateTo) { q.dateFrom = f.dateFrom; q.dateTo = f.dateTo; } else q.days = Number(f.days) || 28;
-    if (f.category) q.category = f.category;
-    if (f.region) q.region = f.region;
+    const cats = rcArr(f.category); if (cats.length) q.categories = [...cats].sort();
+    const regs = rcArr(f.region); if (regs.length) q.regions = [...regs].sort();
     const codes = rcOutletCodes(f); if (codes) q.outletCodes = codes.length ? codes : ["(none)"]; // no outlet fits: ask for none
-    if (f.articleNo) q.articleNo = f.articleNo.trim();
+    const arts = rcArticleList(f.articleNo); if (arts.length) q.articleNos = arts;
     if (f.poNumber) q.poNumber = f.poNumber.trim();
     if (f.userCode) q.userCode = f.userCode.trim();
-    if (f.movementCode && f.movementCode !== "all") q.movementCode = f.movementCode;
+    const mv = rcArr(f.movementCode); if (mv.length) q.movementCodes = [...mv].sort();
     return q;
   }
   function rcClient() {
-    if (!rcClientP) rcClientP = import(new URL("assets/vendor/rcv-powerbi.js", document.baseURI).href).then(async (m) => { const c = new m.PowerBIDataClient(); await c.connect(); return c; }).catch((e) => { rcClientP = null; throw e; });
+    if (!rcClientP) rcClientP = import(new URL("assets/vendor/rcv-powerbi.js?v=2", document.baseURI).href).then(async (m) => { const c = new m.PowerBIDataClient(); await c.connect(); return c; }).catch((e) => { rcClientP = null; throw e; });
     return rcClientP;
   }
   // Run a job for each business division in scope, three at a time.
   async function rcPerDivision(q, job) {
     const c = await rcClient();
-    const divs = q.masterCategory && q.masterCategory !== "all" ? [q.masterCategory] : c.scope.masterCategories;
+    const divs = q.masterCategories?.length ? q.masterCategories : q.masterCategory && q.masterCategory !== "all" ? [q.masterCategory] : c.scope.masterCategories;
     const out = []; let i = 0;
-    const worker = async () => { while (i < divs.length) { const mc = divs[i++]; out.push(await job(c, { ...q, masterCategory: mc }, mc)); } };
+    const worker = async () => { while (i < divs.length) { const mc = divs[i++]; out.push(await job(c, { ...q, masterCategories: undefined, masterCategory: mc }, mc)); } };
     await Promise.all([worker(), worker(), worker()]);
     return out;
   }
@@ -3850,47 +3858,103 @@
       });
     return hit?.data || entry;
   }
-  // Hideable filter bar, like the original Receiving dashboard.
+  // Hideable filter bar, like the original Receiving dashboard. The list filters are searchable multi-selects;
+  // choices go into a draft and nothing is asked of Power BI until Apply.
+  function rcMs(key, label, opts, allText) {
+    const f = S.rcDraft || S.rcf, sel = rcArr(f[key]), open = S.rcOpen === key;
+    const txt = !sel.length ? allText : sel.length === 1 ? opts.find(([v]) => v === sel[0])?.[1] || sel[0] : `${sel.length} selected`;
+    return `<div class="net-date rc-ms" data-rcms="${key}"><span>${esc(label)}${sel.length ? ` <span class="ms-count">${sel.length}</span>` : ""}</span>
+      <button type="button" class="ms-btn${sel.length ? " active" : ""}" data-rcmsbtn="${key}" aria-expanded="${open}"><span>${esc(txt)}</span><span>▾</span></button>
+      ${open ? `<div class="ms-panel rc-ms-panel">
+        <input class="search" type="search" placeholder="Search ${esc(label.toLowerCase())}" aria-label="Search ${esc(label)}" data-rcmsq value="${esc(S.rcOpenQ || "")}">
+        <div class="ms-tools"><button type="button" data-rcmsall>Select all shown</button><button type="button" data-rcmsclear>Clear</button><span>${sel.length} of ${opts.length} selected</span></div>
+        <div class="ms-list" role="listbox" aria-multiselectable="true" aria-label="${esc(label)}">${opts.map(([v, t]) => `<label class="ms-opt" role="option" aria-selected="${sel.includes(v)}"><input type="checkbox" value="${esc(v)}" ${sel.includes(v) ? "checked" : ""}><span>${esc(t)}</span></label>`).join("") || '<span class="muted">Nothing to choose</span>'}</div>
+        <div class="ms-tools rc-ms-done"><button type="button" data-rcmsdone>Done</button></div></div>` : ""}</div>`;
+  }
+  // RHO, zonal and outlet lists follow each other: zonals of the chosen RHOs, outlets of the chosen RHOs and zonals.
+  function rcChoices(f) {
+    const d = S.rcv, rho = rcArr(f.rho), zn = rcArr(f.zn);
+    const rhos = [...new Set(d.outlets.map((o) => o.dim.rl))].sort();
+    const zns = [...new Set(d.outlets.filter((o) => !rho.length || rho.includes(o.dim.rl)).map((o) => o.dim.zn))].sort();
+    const outs = d.outlets.filter((o) => (!rho.length || rho.includes(o.dim.rl)) && (!zn.length || zn.includes(o.dim.zn))).sort((a, b) => a.c.localeCompare(b.c));
+    return { rhos, zns, outs };
+  }
   function rcBar() {
     const d = S.rcv, f = S.rcDraft || S.rcf, src = d.source || {};
-    const opt = (list, cur, all) => `<option value="">${esc(all)}</option>` + list.map((v) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(v)}</option>`).join("");
-    const rhos = [...new Set(d.outlets.map((o) => o.dim.rl))].sort(), zns = [...new Set(d.outlets.filter((o) => !f.rho || o.dim.rl === f.rho).map((o) => o.dim.zn))].sort();
-    const outs = d.outlets.filter((o) => (!f.rho || o.dim.rl === f.rho) && (!f.zn || o.dim.zn === f.zn)).sort((a, b) => a.c.localeCompare(b.c));
+    const { rhos, zns, outs } = rcChoices(f);
     const regions = [...new Set(d.regions.map((r) => r.k).filter((k) => k && k !== "Not set"))].sort(), cats = [...new Set(d.categories.map((c) => c.k))].sort();
-    const parts = [f.dateFrom && f.dateTo ? `${fdate(f.dateFrom)} to ${fdate(f.dateTo)}` : `Last ${f.days} days`, f.masterCategory === "all" ? "All business divisions" : f.masterCategory,
-      f.category, f.region, f.rho, f.zn, f.outlet, f.articleNo && `Article ${f.articleNo}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, f.movementCode !== "all" && `Movement ${f.movementCode}`, rcSide() && `${int(rcOutletCodes(f)?.length || 0)} outlets from the sidebar filters`].filter(Boolean);
-    const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${rcIsDefault() ? " (snapshot, renewed every 10 minutes)" : " (live from Power BI, kept 10 minutes)"}</p></div>
-      <div class="panel-tools">${rcIsDefault() ? "" : '<button type="button" class="btn" data-rcreset>Reset</button>'}<button class="btn" data-uitoggle="rcBarOpen" aria-expanded="${!!UI.rcBarOpen}">${UI.rcBarOpen ? "Hide" : "Show"}</button></div></div>`;
+    const lst = (k, many) => { const a = rcArr(f[k]); return !a.length ? "" : a.length <= 2 ? a.join(", ") : `${a.length} ${many}`; };
+    const parts = [f.dateFrom && f.dateTo ? `${fdate(f.dateFrom)} to ${fdate(f.dateTo)}` : `Last ${f.days} days`, lst("masterCategory", "business divisions") || "All business divisions",
+      lst("category", "categories"), lst("region", "divisions"), lst("rho", "RHOs"), lst("zn", "zonals"), lst("outlet", "outlets"),
+      f.articleNo && `Article ${rcArticleList(f.articleNo).join(", ")}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, lst("movementCode", "movements") && `Movement ${lst("movementCode", "movements")}`,
+      rcSide() && `${int(rcOutletCodes(f)?.length || 0)} outlets from the sidebar filters`].filter(Boolean);
+    const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${S.rcDraft ? " (not applied yet)" : rcIsDefault() ? " (snapshot, renewed every 10 minutes)" : " (live from Power BI, kept 10 minutes)"}</p></div>
+      <div class="panel-tools">${rcIsDefault() && !S.rcDraft ? "" : '<button type="button" class="btn" data-rcreset>Reset</button>'}<button class="btn" data-uitoggle="rcBarOpen" aria-expanded="${!!UI.rcBarOpen}">${UI.rcBarOpen ? "Hide" : "Show"}</button></div></div>`;
     if (!UI.rcBarOpen) return `<section class="panel ui-slim">${head}</section>`;
     const inp = (k, label, ph) => `<label class="net-date">${label}<input type="text" data-rcf="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}"></label>`;
+    const same = (a) => a.map((v) => [v, v]);
     return `<section class="panel">${head}<div class="panel-body rc-bar">
       <label class="net-date">Period<select class="sel" data-rcf="days">${[["7", "Last 7 days"], ["14", "Last 14 days"], ["28", "Last 28 days"], ["30", "Last 30 days"], ["60", "Last 60 days"], ["90", "Last 90 days"]].map(([v, t]) => `<option value="${v}" ${f.days === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="net-date">From<input type="date" data-rcf="dateFrom" value="${esc(f.dateFrom)}"></label><label class="net-date">To<input type="date" data-rcf="dateTo" value="${esc(f.dateTo)}"></label>
-      <label class="net-date">Business division<select class="sel" data-rcf="masterCategory"><option value="all">All business divisions</option>${(src.divisions || []).map((v) => `<option value="${esc(v)}" ${f.masterCategory === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>
-      <label class="net-date">Category<select class="sel" data-rcf="category">${opt(cats, f.category, "All categories")}</select></label>
-      <label class="net-date">Division / region<select class="sel" data-rcf="region">${opt(regions, f.region, "All divisions")}</select></label>
-      <label class="net-date">RHO<select class="sel" data-rcf="rho">${opt(rhos, f.rho, "All RHOs")}</select></label>
-      <label class="net-date">Zonal<select class="sel" data-rcf="zn">${opt(zns, f.zn, "All zonals")}</select></label>
-      <label class="net-date">Outlet<select class="sel" data-rcf="outlet"><option value="">All outlets</option>${outs.map((o) => `<option value="${esc(o.c)}" ${f.outlet === o.c ? "selected" : ""}>${esc(o.c)} · ${esc(o.nm)}</option>`).join("")}</select></label>
-      ${inp("articleNo", "Article code", "e.g. 2100001")}${inp("poNumber", "PO number", "Exact PO")}${inp("userCode", "User code", "Exact user")}
-      <label class="net-date">Movement<select class="sel" data-rcf="movementCode"><option value="all">All movements</option>${(src.movementTypes || []).map((v) => `<option value="${esc(v)}" ${f.movementCode === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>
-      <div class="rc-bar-go"><button type="button" class="btn primary" data-rcapply>Apply</button><button type="button" class="btn" data-rcreset>Reset</button><span class="muted">Filters other than the default read Power BI live; a query takes a few seconds per business division.</span></div>
+      ${rcMs("masterCategory", "Business division", same(src.divisions || []), "All business divisions")}
+      ${rcMs("category", "Category", same(cats), "All categories")}
+      ${rcMs("region", "Division / region", same(regions), "All divisions")}
+      ${rcMs("rho", "RHO", same(rhos), "All RHOs")}
+      ${rcMs("zn", "Zonal", same(zns), "All zonals")}
+      ${rcMs("outlet", "Outlet", outs.map((o) => [o.c, `${o.c} · ${o.nm}`]), "All outlets")}
+      ${inp("articleNo", "Article codes", "e.g. 2100001, 2100002")}${inp("poNumber", "PO number", "Exact PO")}${inp("userCode", "User code", "Exact user")}
+      ${rcMs("movementCode", "Movement", same(src.movementTypes || []), "All movements")}
+      <div class="rc-bar-go"><button type="button" class="btn primary" data-rcapply>Apply</button><button type="button" class="btn" data-rcreset>Reset</button><span class="muted">Pick several values in any list; type to search. Filters other than the default read Power BI live (a few seconds per business division) and are kept for 10 minutes.</span></div>
     </div></section>`;
+  }
+  // The draft: the applied filters plus whatever is typed or picked in the bar.
+  function rcReadDraft(root) {
+    const f = { ...(S.rcDraft || S.rcf) };
+    $$("[data-rcf]", root).forEach((el) => (f[el.dataset.rcf] = el.value));
+    return f;
+  }
+  // Drop zonals and outlets that no longer fit the chosen RHOs / zonals.
+  function rcPrune(f) {
+    const zns = rcChoices({ ...f, zn: [] }).zns;
+    f.zn = rcArr(f.zn).filter((z) => zns.includes(z));
+    const codes = new Set(rcChoices(f).outs.map((o) => o.c));
+    f.outlet = rcArr(f.outlet).filter((c) => codes.has(c));
+    return f;
   }
   function wireRc(root) {
     $$("[data-rcapply]", root).forEach((b) => (b.onclick = () => {
-      const f = { ...S.rcf };
-      $$("[data-rcf]", root).forEach((el) => (f[el.dataset.rcf] = el.value));
+      const f = rcPrune(rcReadDraft(root));
       if ((f.dateFrom && !f.dateTo) || (!f.dateFrom && f.dateTo) || (f.dateFrom && f.dateTo && f.dateFrom > f.dateTo)) { f.dateFrom = ""; f.dateTo = ""; }
-      S.rcf = f; S.rcDraft = null; changed();
+      S.rcf = f; S.rcDraft = null; S.rcOpen = null; changed();
     }));
-    $$("[data-rcreset]", root).forEach((b) => (b.onclick = () => { S.rcf = { ...RC_DEF }; S.rcDraft = null; changed(); }));
-    // RHO / Zonal narrow the next lists straight away (no query until Apply)
-    $$('[data-rcf="rho"],[data-rcf="zn"]', root).forEach((el) => (el.onchange = () => {
-      const f = { ...(S.rcDraft || S.rcf) }; $$("[data-rcf]", root).forEach((x) => (f[x.dataset.rcf] = x.value));
-      if (el.dataset.rcf === "rho") { f.zn = ""; f.outlet = ""; } else f.outlet = "";
-      S.rcDraft = f; render();
+    $$("[data-rcreset]", root).forEach((b) => (b.onclick = () => { S.rcf = { ...RC_DEF }; S.rcDraft = null; S.rcOpen = null; changed(); }));
+    // multi-selects: open / close, search, tick, select all shown, clear; a click elsewhere closes the open list
+    if (!wireRc.doc) {
+      wireRc.doc = true;
+      document.addEventListener("click", (e) => { if (S.rcOpen && document.contains(e.target) && !e.target.closest(".rc-ms")) { S.rcDraft = rcReadDraft(document); S.rcOpen = null; render(); } });
+    }
+    const reopen = (key) => {
+      const top = $(`[data-rcms="${key}"] .ms-list`)?.scrollTop || 0;
+      render();
+      const l2 = $(`[data-rcms="${key}"] .ms-list`); if (l2) l2.scrollTop = top;
+    };
+    $$("[data-rcmsbtn]", root).forEach((b) => (b.onclick = () => {
+      const k = b.dataset.rcmsbtn;
+      S.rcDraft = rcReadDraft(root); S.rcOpen = S.rcOpen === k ? null : k; S.rcOpenQ = "";
+      render();
+      $(`[data-rcms="${k}"] [data-rcmsq]`)?.focus();
     }));
+    $$(".rc-ms-panel", root).forEach((p) => {
+      const k = p.closest("[data-rcms]").dataset.rcms, q = $("[data-rcmsq]", p);
+      const applyQ = () => { const t = q.value.trim().toLowerCase(); S.rcOpenQ = q.value; $$(".ms-opt", p).forEach((o) => (o.hidden = !!t && !o.textContent.toLowerCase().includes(t))); };
+      q.oninput = applyQ; applyQ();
+      const set = (vals) => { const f = rcReadDraft(root); f[k] = vals; S.rcDraft = f; reopen(k); };
+      $$(".ms-opt input", p).forEach((c) => (c.onchange = () => { const cur = new Set(rcArr((S.rcDraft || S.rcf)[k])); if (c.checked) cur.add(c.value); else cur.delete(c.value); set([...cur]); }));
+      $("[data-rcmsall]", p).onclick = () => { const cur = new Set(rcArr((S.rcDraft || S.rcf)[k])); $$(".ms-opt", p).filter((o) => !o.hidden).forEach((o) => cur.add($("input", o).value)); set([...cur]); };
+      $("[data-rcmsclear]", p).onclick = () => set([]);
+      $("[data-rcmsdone]", p).onclick = () => { S.rcDraft = rcReadDraft(root); S.rcOpen = null; render(); };
+      q.onkeydown = (e) => { if (e.key === "Escape") { S.rcOpen = null; render(); } };
+    });
     $$("[data-rcx]", root).forEach((n) => { const go = () => { S.rcx = JSON.parse(n.dataset.rcx); render(); requestAnimationFrame(() => { const el = $("#view section[id^='t-rcx']"); if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" }); }); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-rcart]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); rcArticles(JSON.parse(n.dataset.rcart)); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(e); }; });
   }
@@ -3919,17 +3983,19 @@
   const rcArtCache = new Map();
   async function rcArtSnap(f, metric) {
     if (!["Gap", "Receiving", "Sales", "OverValue", "OverIncidents", "UnderIncidents"].includes(metric)) return null;
-    const { category = "", ...rest } = f;
-    if (rcSide() || Object.keys(RC_DEF).some((k) => k !== "category" && String(rest[k] || "") !== String(RC_DEF[k]))) return null;
+    // default filters apart from business division and category, which the snapshot can narrow by itself
+    const cats = rcArr(f.category), mcs = rcArr(f.masterCategory);
+    if (rcSide() || Object.keys(RC_DEF).some((k) => k !== "category" && k !== "masterCategory" && (RC_MULTI.includes(k) ? rcArr(f[k]).length : String(f[k] || "") !== String(RC_DEF[k])))) return null;
     if (!S.rcDrill && S.rcDrillLoading) await new Promise((r) => setTimeout(r, 400));
     const e = rcDrillGet("articles", "articles", rcDrill()?.ix?.articles, true);
     if (!e) return null;
     if (!e.data) await e.p;
     const d = e.data; if (!d) return null;
-    if ((d.missing || []).some(([, cat]) => !category || cat === category)) return null; // not all there: ask live
+    const want = (mc, cat) => (!mcs.length || mcs.includes(mc)) && (!cats.length || cats.includes(cat));
+    if ((d.missing || []).some(([mc, cat]) => want(mc, cat))) return null; // not all there: ask live
     const has = metric === "Gap" ? (a) => a.Receiving || a.Sales : (a) => a[metric];
     return d.rows.map(([di, ci, ...v]) => ({ MasterCategory: d.divisions[di], Category: d.categories[di][ci], ...Object.fromEntries(d.fields.map((f, i) => [f, v[i]])) }))
-      .filter((a) => (!category || a.Category === category) && has(a));
+      .filter((a) => want(a.MasterCategory, a.Category) && has(a));
   }
   async function rcArtRows(f, metric) {
     const snap = await rcArtSnap(f, metric);
@@ -4082,8 +4148,9 @@
   // What the current drill level needs, and how to ask Power BI for it.
   function rcxLevel(x = S.rcx) {
     const q = rcQuery(S.rcf);
-    if (x.outlet) return { lvl: "lines", key: ["lines", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNo: x.art, outletCodes: [x.outlet] }, 5)).rows };
-    if (x.art) return { lvl: "outlets", key: ["outlets", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNo: x.art }, 1)).rows.filter((r) => r.OutletCode) };
+    // the clicked article replaces any article-code list from the filters
+    if (x.outlet) return { lvl: "lines", key: ["lines", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNos: undefined, articleNo: x.art, outletCodes: [x.outlet] }, 5)).rows };
+    if (x.art) return { lvl: "outlets", key: ["outlets", q, x], run: async (c) => (await c.loadManagementTable({ ...q, masterCategory: x.mc, articleNos: undefined, articleNo: x.art }, 1)).rows.filter((r) => r.OutletCode) };
     const addUp = (lists, key) => { const by = new Map(); lists.flat().forEach((a) => { const k = a[key], t = by.get(k); if (!t) by.set(k, { ...a }); else ["Receiving", "Sales", "Inventory", "OverValue", "OverIncidents", "UnderIncidents"].forEach((f) => { if (a[f] != null) t[f] = (rcNum(t[f]) || 0) + (rcNum(a[f]) || 0); }); }); return [...by.values()]; };
     if (x.cat) return { lvl: "articles", key: ["articles", q, x], run: async (c) => {
       const qq = { ...q, masterCategory: x.mc, category: x.cat };
