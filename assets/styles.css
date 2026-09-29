@@ -45,6 +45,11 @@ h1,h2,h3{margin:0;font-weight:650}
 .filters{border-top:1px solid var(--line);padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
 .filters h2{font-size:15.6px;color:var(--info);font-weight:750}
 .rail-foot{margin-top:auto;padding:12px 18px 18px;color:var(--ink-3);font-size:11px;border-top:1px solid var(--line-soft)}
+.rail-foot:empty{padding:0;border:0}
+.rail-credit{display:flex;flex-direction:column;gap:1px;padding:10px 18px 16px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--ink-3);line-height:1.35}
+.rail-credit small{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+.rail-credit strong{color:var(--ink);font-size:12.5px}
+.rail-credit a{color:var(--info);text-decoration:none;word-break:break-all}.rail-credit a:hover{text-decoration:underline}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{position:sticky;top:0;z-index:5;background:var(--canvas);border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center;padding:12px 26px;padding-top:calc(12px + env(safe-area-inset-top,0px));flex-wrap:wrap}
 .title-block{flex:1;min-width:200px}
