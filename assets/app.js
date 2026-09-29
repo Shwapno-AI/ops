@@ -3871,13 +3871,14 @@
       });
     return hit?.data || entry;
   }
-  // Hideable filter bar, like the original Receiving dashboard. The list filters are searchable multi-selects;
-  // choices go into a draft and nothing is asked of Power BI until Apply.
+  // Receiving filter bar: period chips and three everyday lists in one row, the rest under "More filters",
+  // and the applied filters as removable chips. Lists are searchable multi-selects; choices go into a draft
+  // and nothing is asked of Power BI until Apply.
   function rcMs(key, label, opts, allText) {
     const f = S.rcDraft || S.rcf, sel = rcArr(f[key]), open = S.rcOpen === key;
-    const txt = !sel.length ? allText : sel.length === 1 ? opts.find(([v]) => v === sel[0])?.[1] || sel[0] : `${sel.length} selected`;
-    return `<div class="net-date rc-ms" data-rcms="${key}"><span>${esc(label)}${sel.length ? ` <span class="ms-count">${sel.length}</span>` : ""}</span>
-      <button type="button" class="ms-btn${sel.length ? " active" : ""}" data-rcmsbtn="${key}" aria-expanded="${open}"><span>${esc(txt)}</span><span>▾</span></button>
+    const txt = !sel.length ? allText : sel.length === 1 ? opts.find(([v]) => v === sel[0])?.[1] || sel[0] : sel.length === 2 ? sel.map((v) => opts.find(([x]) => x === v)?.[1] || v).join(", ") : `${sel.length} selected`;
+    return `<div class="rc-ms" data-rcms="${key}">
+      <button type="button" class="rc-dd${sel.length ? " set" : ""}" data-rcmsbtn="${key}" aria-expanded="${open}" aria-label="${esc(label)}: ${esc(txt)}"><span class="rc-dd-l">${esc(label)}</span><span class="rc-dd-v">${esc(txt)}</span><span aria-hidden="true">▾</span></button>
       ${open ? `<div class="ms-panel rc-ms-panel">
         <input class="search" type="search" placeholder="Search ${esc(label.toLowerCase())}" aria-label="Search ${esc(label)}" data-rcmsq value="${esc(S.rcOpenQ || "")}">
         <div class="ms-tools"><button type="button" data-rcmsall>Select all shown</button><button type="button" data-rcmsclear>Clear</button><span>${sel.length} of ${opts.length} selected</span></div>
@@ -3892,33 +3893,54 @@
     const outs = d.outlets.filter((o) => (!rho.length || rho.includes(o.dim.rl)) && (!zn.length || zn.includes(o.dim.zn))).sort((a, b) => a.c.localeCompare(b.c));
     return { rhos, zns, outs };
   }
+  const RC_LABEL = { masterCategory: "Division", category: "Category", movementCode: "Movement", region: "Region", rho: "RHO", zn: "Zonal", outlet: "Outlet", articleNo: "Article", poNumber: "PO", userCode: "User" };
+  const RC_MORE = ["region", "rho", "zn", "outlet", "articleNo", "poNumber", "userCode"];
+  const rcNorm = (k, v) => (RC_MULTI.includes(k) ? [...rcArr(v)].sort().join("|") : k === "articleNo" ? rcArticleList(v).join("|") : String(v || "").trim());
+  const rcChanges = (a, b) => Object.keys(RC_DEF).filter((k) => rcNorm(k, a[k]) !== rcNorm(k, b[k])).length;
+  const rcHm = (t) => (t ? new Date(t).toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" }) : "");
   function rcBar() {
-    const d = S.rcv, f = S.rcDraft || S.rcf, src = d.source || {};
+    const d = S.rcv, f = S.rcDraft || S.rcf, a = S.rcf, src = d.source || {};
     const { rhos, zns, outs } = rcChoices(f);
     const regions = [...new Set(d.regions.map((r) => r.k).filter((k) => k && k !== "Not set"))].sort(), cats = [...new Set(d.categories.map((c) => c.k))].sort();
-    const lst = (k, many) => { const a = rcArr(f[k]); return !a.length ? "" : a.length <= 2 ? a.join(", ") : `${a.length} ${many}`; };
-    const parts = [f.dateFrom && f.dateTo ? `${fdate(f.dateFrom)} to ${fdate(f.dateTo)}` : `Last ${f.days} days`, lst("masterCategory", "business divisions") || "All business divisions",
-      lst("category", "categories"), lst("region", "divisions"), lst("rho", "RHOs"), lst("zn", "zonals"), lst("outlet", "outlets"),
-      f.articleNo && `Article ${rcArticleList(f.articleNo).join(", ")}`, f.poNumber && `PO ${f.poNumber}`, f.userCode && `User ${f.userCode}`, lst("movementCode", "movements") && `Movement ${lst("movementCode", "movements")}`,
-      rcSide() && `${int(rcOutletCodes(f)?.length || 0)} outlets from the sidebar filters`].filter(Boolean);
-    const head = `<div class="panel-head"><div><h2>Filters</h2><p>${esc(parts.join(" · "))}${S.rcDraft ? " (not applied yet)" : rcIsDefault() ? " (snapshot, renewed every 10 minutes)" : " (live from Power BI, kept 10 minutes)"}</p></div>
-      <div class="panel-tools">${rcIsDefault() && !S.rcDraft ? "" : '<button type="button" class="btn" data-rcreset>Reset</button>'}<button class="btn" data-uitoggle="rcBarOpen" aria-expanded="${!!UI.rcBarOpen}">${UI.rcBarOpen ? "Hide" : "Show"}</button></div></div>`;
-    if (!UI.rcBarOpen) return `<section class="panel ui-slim">${head}</section>`;
-    const inp = (k, label, ph) => `<label class="net-date">${label}<input type="text" data-rcf="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}"></label>`;
-    const same = (a) => a.map((v) => [v, v]);
-    return `<section class="panel">${head}<div class="panel-body rc-bar">
-      <label class="net-date">Period<select class="sel" data-rcf="days">${[["7", "Last 7 days"], ["14", "Last 14 days"], ["28", "Last 28 days"], ["30", "Last 30 days"], ["60", "Last 60 days"], ["90", "Last 90 days"]].map(([v, t]) => `<option value="${v}" ${f.days === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-      <label class="net-date">From<input type="date" data-rcf="dateFrom" value="${esc(f.dateFrom)}"></label><label class="net-date">To<input type="date" data-rcf="dateTo" value="${esc(f.dateTo)}"></label>
-      ${rcMs("masterCategory", "Business division", same(src.divisions || []), "All business divisions")}
-      ${rcMs("category", "Category", same(cats), "All categories")}
-      ${rcMs("region", "Division / region", same(regions), "All divisions")}
-      ${rcMs("rho", "RHO", same(rhos), "All RHOs")}
-      ${rcMs("zn", "Zonal", same(zns), "All zonals")}
-      ${rcMs("outlet", "Outlet", outs.map((o) => [o.c, `${o.c} · ${o.nm}`]), "All outlets")}
-      ${inp("articleNo", "Article codes", "e.g. 2100001, 2100002")}${inp("poNumber", "PO number", "Exact PO")}${inp("userCode", "User code", "Exact user")}
-      ${rcMs("movementCode", "Movement", same(src.movementTypes || []), "All movements")}
-      <div class="rc-bar-go"><button type="button" class="btn primary" data-rcapply>Apply</button><button type="button" class="btn" data-rcreset>Reset</button><span class="muted">Pick several values in any list; type to search. Filters other than the default read Power BI live (a few seconds per business division) and are kept for 10 minutes.</span></div>
-    </div></section>`;
+    const same = (x) => x.map((v) => [v, v]);
+    const custom = !!(f.custom || f.dateFrom || f.dateTo);
+    const chips = `<div class="rc-per" role="group" aria-label="Period">${["7", "14", "28", "60", "90"].map((v) => `<button type="button" data-rcper="${v}" aria-pressed="${!custom && String(f.days) === v}">${v}d</button>`).join("")}<button type="button" data-rcper="custom" aria-pressed="${custom}">Custom</button></div>
+      ${custom ? `<span class="rc-dates"><input type="date" data-rcf="dateFrom" value="${esc(f.dateFrom)}" aria-label="From"><span class="muted">to</span><input type="date" data-rcf="dateTo" value="${esc(f.dateTo)}" aria-label="To"></span>` : ""}`;
+    const moreSet = RC_MORE.filter((k) => rcNorm(k, f[k])).length, more = UI.rcMore || S.rcOpen && RC_MORE.includes(S.rcOpen);
+    const n = S.rcDraft ? rcChanges(S.rcDraft, a) : 0;
+    const inp = (k, label, ph) => `<label class="rc-inp"><span>${label}</span><input type="text" data-rcf="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}"></label>`;
+    // applied filters as chips (each removable), and whether the page shows the snapshot or a live answer
+    const outName = (c) => { const o = d.outlets.find((x) => x.c === c); return o ? `${c} ${o.nm}` : c; };
+    const pills = [];
+    if (a.dateFrom && a.dateTo) pills.push(["period", "", `Period: ${fdate(a.dateFrom)} to ${fdate(a.dateTo)}`]);
+    else if (String(a.days) !== RC_DEF.days) pills.push(["period", "", `Period: last ${a.days} days`]);
+    ["masterCategory", "category", "movementCode", "region", "rho", "zn", "outlet"].forEach((k) => {
+      const v = rcArr(a[k]);
+      if (v.length > 3) pills.push([k, "", `${RC_LABEL[k]}: ${v.length} selected`]);
+      else v.forEach((x) => pills.push([k, x, `${RC_LABEL[k]}: ${k === "outlet" ? outName(x) : x}`]));
+    });
+    ["articleNo", "poNumber", "userCode"].forEach((k) => { if (rcNorm(k, a[k])) pills.push([k, "", `${RC_LABEL[k]}: ${k === "articleNo" ? rcArticleList(a[k]).join(", ") : a[k]}`]); });
+    const snapAt = S.rcDrill?.ix?.generatedAt || src.snapshotAt || d.generatedAt;
+    const status = rcIsDefault() ? `<span class="rc-status snap">Snapshot · ${rcHm(snapAt)}, renews every 10 min</span>` : `<span class="rc-status live">Live from Power BI · kept 10 min</span>`;
+    return `<section class="panel rc-fb"><div class="rc-row">
+        ${chips}
+        ${rcMs("masterCategory", "Division", same(src.divisions || []), "All")}
+        ${rcMs("category", "Category", same(cats), "All")}
+        ${rcMs("movementCode", "Movement", same(src.movementTypes || []), "All")}
+        <button type="button" class="rc-more-btn${more ? " on" : ""}" data-rcmore aria-expanded="${!!more}">${more ? "Fewer filters" : "More filters"}${moreSet ? ` <span class="ms-count">${moreSet}</span>` : ""}</button>
+        <span class="rc-spacer"></span>
+        ${rcIsDefault() && !n && !S.rcDraft ? "" : '<button type="button" class="btn ghost" data-rcreset>Reset</button>'}
+        <button type="button" class="btn primary" data-rcapply>${n ? `Apply ${n} change${n === 1 ? "" : "s"}` : "Apply"}</button>
+      </div>
+      ${more ? `<div class="rc-more">
+        ${rcMs("region", "Region", same(regions), "All")}
+        ${rcMs("rho", "RHO", same(rhos), "All")}
+        ${rcMs("zn", "Zonal", same(zns), "All")}
+        ${rcMs("outlet", "Outlet", outs.map((o) => [o.c, `${o.c} · ${o.nm}`]), "All")}
+        ${inp("articleNo", "Article codes", "2100001, 2100002")}${inp("poNumber", "PO number", "Exact PO")}${inp("userCode", "User code", "Exact user")}
+      </div>` : ""}
+      <div class="rc-row rc-applied">${status}${pills.map(([k, v, t]) => `<span class="rc-pill">${esc(t)}<button type="button" data-rcdrop="${esc(k)}" data-val="${esc(v)}" aria-label="Remove ${esc(t)}">×</button></span>`).join("")}${pills.length > 1 ? '<button type="button" class="rc-clear" data-rcreset>Clear all</button>' : ""}${rcSide() ? `<span class="muted">+ sidebar filters (${int(rcOutletCodes(a)?.length || 0)} outlets)</span>` : ""}${S.rcDraft && n ? '<span class="muted">Changes not applied yet</span>' : ""}</div>
+    </section>`;
   }
   // The draft: the applied filters plus whatever is typed or picked in the bar.
   function rcReadDraft(root) {
@@ -3938,9 +3960,25 @@
     $$("[data-rcapply]", root).forEach((b) => (b.onclick = () => {
       const f = rcPrune(rcReadDraft(root));
       if ((f.dateFrom && !f.dateTo) || (!f.dateFrom && f.dateTo) || (f.dateFrom && f.dateTo && f.dateFrom > f.dateTo)) { f.dateFrom = ""; f.dateTo = ""; }
+      if (!f.dateFrom) delete f.custom;
       S.rcf = f; S.rcDraft = null; S.rcOpen = null; changed();
     }));
     $$("[data-rcreset]", root).forEach((b) => (b.onclick = () => { S.rcf = { ...RC_DEF }; S.rcDraft = null; S.rcOpen = null; changed(); }));
+    // period chips (a number of days, or Custom for from/to dates); applied with the rest
+    $$("[data-rcper]", root).forEach((b) => (b.onclick = () => {
+      const f = rcReadDraft(root), v = b.dataset.rcper;
+      if (v === "custom") f.custom = true; else { f.days = v; f.dateFrom = ""; f.dateTo = ""; delete f.custom; }
+      S.rcDraft = f; render();
+    }));
+    $$("[data-rcmore]", root).forEach((b) => (b.onclick = () => { S.rcDraft = rcReadDraft(root); UI.rcMore = !UI.rcMore; saveUI(); render(); }));
+    // removing an applied chip takes effect straight away
+    $$("[data-rcdrop]", root).forEach((b) => (b.onclick = () => {
+      const k = b.dataset.rcdrop, v = b.dataset.val, f = { ...S.rcf };
+      if (k === "period") { f.days = RC_DEF.days; f.dateFrom = ""; f.dateTo = ""; delete f.custom; }
+      else if (RC_MULTI.includes(k) && v) f[k] = rcArr(f[k]).filter((x) => x !== v);
+      else f[k] = RC_DEF[k];
+      S.rcf = rcPrune(f); S.rcDraft = null; S.rcOpen = null; changed();
+    }));
     // multi-selects: open / close, search, tick, select all shown, clear; a click elsewhere closes the open list
     if (!wireRc.doc) {
       wireRc.doc = true;
