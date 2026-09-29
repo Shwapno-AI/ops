@@ -123,7 +123,13 @@
   const dimVal = (o, k) => (k !== "age" ? o.dim[k] : S.data?.master ? (o.dim.age ||= outletAgeBand(o.c)) : AGE_NA);
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)));
   const baseList = () => (S.page === "performance" ? kpiPeople() : NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
-  const inView = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
+  // Sales pages also follow the Stores switch (same store = the report's list vs last year, or vs last month
+  // on pages compared with last month).
+  const scopeCmp = () => (["growth", "footfall", "ranking"].includes(S.page) ? S.cmp : "y");
+  const scopeName = () => { const n = SCOPES.find((x) => x[0] === S.scope)[1]; return S.scope === "own" || S.scope === "fran" ? `${n.toLowerCase()} outlets` : n.toLowerCase(); };
+  const storesOk = (o) => !SALES_PAGES.has(S.page) || inScope(o, S.scope, scopeCmp());
+  const inViewAllStores = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
+  const inView = () => inViewAllStores().filter(storesOk);
   // Loss page outlet-age filter: open a year or more, or under a year (outlets without an opening date only under All).
   function lossAgeOk(o) {
     if (S.lage === "all") return true;
@@ -354,6 +360,12 @@
     $("#pageTitle").textContent = TITLES[S.page] || "Overview";
     const d = S.data, showP = PERIOD_PAGES.has(S.page);
     $("#periodSeg").hidden = !showP;
+    // Stores switch on every Sales page: all stores, same store, own or franchise outlets.
+    $("#storeSeg").hidden = !SALES_PAGES.has(S.page);
+    if (SALES_PAGES.has(S.page)) {
+      $("#storeSeg").innerHTML = SCOPES.map(([k, t]) => `<button aria-pressed="${S.scope === k}" data-store="${k}" title="${k === "same" ? `Outlets in the report's same-store list (${scopeCmp() === "m" ? "vs last month" : "vs last year"})` : ""}">${esc(t)}</button>`).join("");
+      $$("#storeSeg button").forEach((b) => b.addEventListener("click", () => { S.scope = b.dataset.store; changed(); }));
+    }
     $("#resetBtn").hidden = !FILTER_PAGES.has(S.page);
     if (d) {
       const opts = [["tilldate", d.tilldate && `Till ${fdate(d.tilldate.date, true)}`], ["monthend", d.monthend && `Last month, ${fmonth(d.monthend.date)}`]].filter((o) => o[1]);
@@ -394,7 +406,7 @@
         return;
       }
       const r = rep();
-      $("#scope").textContent = S.page === "loss" && d.pnl ? `Outlet P&L for ${S.pm === "ytd" ? "the year to date" : fmonth(S.pm || d.pnl.months[d.pnl.months.length - 1])}. ${int(inView().filter((o) => o.s >= 1).length)} trading outlets in view${S.lage === "old" ? ", open 1 year or more" : S.lage === "new" ? ", open under 1 year" : ""}.` : showP && r ? `${r.closed ? "Closed month" : "Month to date"}, ${r.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(r.date)}.${SALES_PAGES.has(S.page) ? ` ${int(inView().length)} outlets in view.` : " Company-wide figures."}` : "";
+      $("#scope").textContent = S.page === "loss" && d.pnl ? `Outlet P&L for ${S.pm === "ytd" ? "the year to date" : fmonth(S.pm || d.pnl.months[d.pnl.months.length - 1])}. ${int(inView().filter((o) => o.s >= 1).length)} trading outlets in view${S.lage === "old" ? ", open 1 year or more" : S.lage === "new" ? ", open under 1 year" : ""}.` : showP && r ? `${r.closed ? "Closed month" : "Month to date"}, ${r.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(r.date)}.${SALES_PAGES.has(S.page) ? ` ${int(inView().length)} outlets in view${S.scope === "all" ? "" : `, ${scopeName()}`}.` : " Company-wide figures."}` : "";
     }
   }
   function changed() {
@@ -514,10 +526,10 @@
     return `
       <div class="kpis ov-kpis">
         ${heroAchievement(a, r)}
-        ${kpi({ label: "Sales growth vs last year", value: delta(a.gy), sub: "All stores", foot: `<span>${bdt(a.s)}</span><span>last year ${bdt(a.sy)}</span>`, accent: "var(--series-2)" })}
+        ${kpi({ label: "Sales growth vs last year", value: delta(a.gy), sub: SCOPES.find((x) => x[0] === S.scope)[1], foot: `<span>${bdt(a.s)}</span><span>last year ${bdt(a.sy)}</span>`, accent: "var(--series-2)" })}
         ${kpi({ label: "Same-store growth vs last year", value: delta(a.gss), sub: `${int(a.ssn)} same stores`, foot: `<span>${bdt(a.ssS)}</span><span>last year ${bdt(a.ssY)}</span>`, accent: "var(--series-2)" })}
-        ${kpi({ label: "Sales growth vs last month", value: delta(a.gm), sub: "All stores, same days", foot: `<span>${bdt(a.s)}</span><span>last month ${bdt(a.sm)}</span>`, accent: "var(--series-3)" })}
-        ${kpi({ label: "Footfall vs last year", value: delta(growth(a.f, a.fy)), sub: "Customers, all stores", foot: `<span>${int(a.f)}</span><span>last year ${int(a.fy)}</span>`, accent: "var(--series-1)" })}
+        ${kpi({ label: "Sales growth vs last month", value: delta(a.gm), sub: `${SCOPES.find((x) => x[0] === S.scope)[1]}, same days`, foot: `<span>${bdt(a.s)}</span><span>last month ${bdt(a.sm)}</span>`, accent: "var(--series-3)" })}
+        ${kpi({ label: "Footfall vs last year", value: delta(growth(a.f, a.fy)), sub: `Customers, ${scopeName()}`, foot: `<span>${int(a.f)}</span><span>last year ${int(a.fy)}</span>`, accent: "var(--series-1)" })}
         ${kpi({ label: "Average bill value", value: bdt(a.bk), sub: delta(growth(a.bk, a.bky)) + " vs last year", foot: `<span>${bdt(a.bk)}</span><span>last year ${bdt(a.bky)}</span>`, accent: "var(--series-1)" })}
         ${kpi({ label: "Gross profit margin", value: pct(a.gp), sub: `${delta(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")} vs last year ${pct(a.gpy)}`, foot: `<span>GP ${bdt(a.gv)}</span><span>last year ${bdt(a.gvy)}</span>`, accent: "var(--series-3)" })}
       </div>
@@ -729,7 +741,8 @@
 
   function pageGrowth() {
     const r = rep(); if (!r) return noData();
-    const c = S.cmp, list = inView();
+    // the four cards break the outlets in view down by store type, whatever the Stores switch says
+    const c = S.cmp, list = inViewAllStores();
     const card = (label, scope, accent) => {
       const a = cagg(list.filter((o) => inScope(o, scope, c)), c);
       return kpi({ label, value: delta(a.gs), sub: `${int(a.n)} outlets`, foot: `<span>${bdt(a.s)}</span><span>${CMP[c]} ${bdt(a.s0)}</span>`, accent });
@@ -748,7 +761,7 @@
       title: `Growth ${CMP[c] === "last year" ? "vs last year" : "vs last month"}, ${scopeName}`, file: `growth_${c}_${S.scope}_${S.level}`,
       desc: (n) => `${int(n)} rows. ${cmpLabel(r)}.${S.scope === "same" ? " Same store follows the report's own same-store list." : ""}${lv === "outlet" ? " Click a row for the outlet profile." : " Click a row to list its outlets."}`,
       rows, cols, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "gs", rowAttr: gpickAttr("growth", S.level), banner: gBanner("growth", gd),
-      tools: `${cmpSeg()}${seg("scope", SCOPES, "Stores")}${levelSel()}`,
+      tools: `${cmpSeg()}${levelSel()}`,
     });
     return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
       ${card("All stores", "all", "var(--series-2)")}${card("Same store", "same", "var(--series-2)")}${card("Own outlets", "own", "var(--series-3)")}${card("Franchise outlets", "fran", "var(--series-3)")}
@@ -774,7 +787,7 @@
       title: `Footfall and bill value ${S.cmp === "y" ? "vs last year" : "vs last month"}`, file: `footfall_${c}_${S.scope}_${S.level}`,
       desc: (n) => `${int(n)} rows. Bill value is sales divided by customers. ${cmpLabel(r)}.${lv === "outlet" ? " Click a row for the outlet profile." : " Click a row to list its outlets."}`,
       rows, cols, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "gf", rowAttr: gpickAttr("footfall", S.level), banner: gBanner("footfall", fd),
-      tools: `${cmpSeg()}${seg("scope", SCOPES, "Stores")}${levelSel()}`,
+      tools: `${cmpSeg()}${levelSel()}`,
     });
     return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
       ${kpi({ label: "Footfall growth", value: delta(a.gf), sub: `${int(a.f)} customers`, foot: `<span>${CMP[c]} ${int(a.f0)}</span>`, accent: "var(--series-1)" })}
@@ -806,7 +819,7 @@
       title: "Outlet ranking", file: `growth_ranking_${c}_${S.trend}`, banner: gBanner("rank", rd),
       desc: (n) => `${int(n)} comparable outlets (sales in both periods). Main driver is whichever of footfall or bill value moved sales more. Click a row for the outlet profile.`,
       rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "gs", defaultDir: S.trend === "down" ? "asc" : "desc", rowAttr: outletAttr,
-      tools: `${cmpSeg()}${seg("trend", [["all", "All"], ["up", "Growing"], ["down", "Declining"]], "Trend")}${seg("scope", SCOPES, "Stores")}`,
+      tools: `${cmpSeg()}${seg("trend", [["all", "All"], ["up", "Growing"], ["down", "Declining"]], "Trend")}`,
       cols: [nameCol("outlet"),
         { k: "s", label: "Sales", num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s) },
         { k: "s0", label: `Sales ${CMP[c]}`, num: 1, fmt: (x) => bdt(x.s0), csv: (x) => Math.round(x.s0) },
