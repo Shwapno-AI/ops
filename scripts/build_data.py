@@ -709,7 +709,7 @@ def build(root):
             if rep:
                 miss = sorted(o["c"] for o in rep["outlets"] if o["c"] not in mcodes and o.get("s"))
                 if miss:
-                    issue("info", rep["file"], f"{name}: {len(miss)} outlets with sales are not in the outlet master (shown as 'Not in outlet master'): {', '.join(miss[:12])}{'…' if len(miss) > 12 else ''}")
+                    issue("info", rep["file"], f"{name}: {len(miss)} outlets with sales are not in the outlet master (shown as 'New outlets (Not Distributed)'): {', '.join(miss[:12])}{'…' if len(miss) > 12 else ''}")
 
     def rep_out(b):
         if not b:

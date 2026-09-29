@@ -248,7 +248,7 @@ def main():
                 v = [num(g(k)) for k in VALS]
                 n_file += 1
                 m = master.get(code, {})
-                rl = m.get("rl") or str(g("rl") or "").strip() or "Not in outlet master"
+                rl = m.get("rl") or str(g("rl") or "").strip() or "New outlets (Not Distributed)"
                 o = outlets.get(code)
                 if o is None:
                     oname = str(g("oname") or code)

@@ -50,7 +50,7 @@ FLAGS = ("core", "promo", "kvi", "ecom")
 ZONE_HEADERS = {"code", "outlet name", "format", "division", "district", "pnp non pnp status", "status"}
 DOS_HEADERS = {"outlet code", "article code", "sales qty", "per day"}
 ECOM_HEADERS = {"code", "monthly average sales (ecom)", "dos 2 days", "assortment for outlet"}
-MISS = "Not in outlet master"
+MISS = "New outlets (Not Distributed)"
 
 
 def log(msg):

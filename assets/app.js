@@ -34,6 +34,9 @@
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
     vc: { url: "https://aftabz-lab.github.io/visit-compliance-dashboard/", desc: "Outlet visit schedules and compliance." },
   };
+  // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.
+  const MISS = "New outlets (Not Distributed)", LEGACY_MISS = "Not in outlet master";
+  const fixMiss = (x) => (x === LEGACY_MISS ? MISS : x); // data files built before the rename
   const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"], ["age", "Outlet age"]];
   // Extra outlet-master fields, filterable on the outlet network pages only.
   const NET_DIMS = [["area", "Area"], ["city", "Location type (Dv, Ds, T)"], ["floor", "Floor type"], ["shape", "Layout shape"]];
@@ -96,11 +99,11 @@
     ["tilldate", "monthend"].forEach((k) => {
       if (!d[k]) return;
       d[k].outlets.forEach((o) => {
-        mkDim(o, M[o.c], o.s > 0 || o.t > 0 ? "Not in outlet master" : "Closed outlets");
+        mkDim(o, M[o.c], o.s > 0 || o.t > 0 ? MISS : "Closed outlets");
         o.nm = o.m?.n || String(o.name || o.c).replace(new RegExp("^" + o.c + "\\s*-\\s*"), "");
       });
     });
-    Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], o.s >= 1 ? "Not in outlet master" : "Closed outlets"); o.nm = o.n || o.m?.n || o.c; }));
+    Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], o.s >= 1 ? MISS : "Closed outlets"); o.nm = o.n || o.m?.n || o.c; }));
   }
   function mkDim(o, m, miss) {
     o.m = m;
@@ -478,7 +481,7 @@
   const levelName = (level) => (LEVELS.find((l) => l[0] === level) || [, CW_LEVELS[level] || NET_LEVELS[level] || AV_LEVELS[level] || level])[1];
   function gdrill(id, level) { const d = S.gdrill[id]; return d && d.level === level && level !== "outlet" ? d : null; }
   const gpickAttr = (id, level) => (x) => (x.o ? outletAttr(x) : `data-gpick="${esc(id)}" data-glevel="${esc(level)}" data-gkey="${esc(x.key)}" tabindex="0" title="List ${esc(x.name)}'s outlets"`);
-  const gBanner = (id, d) => (d ? `<div class="drill-banner">Showing the outlets of <strong>${esc(AV_PAGES.has(S.page) ? AV_LEVELS[d.level] || levelName(d.level) : levelName(d.level))}: ${esc(d.key === "Not in outlet master" ? "Unassigned" : d.key)}</strong> within the sidebar filters. <button type="button" data-gclear="${esc(id)}">Back to all ${esc(AV_PAGES.has(S.page) && d.level === "rl" ? "RHOs" : (AV_PAGES.has(S.page) ? AV_LEVELS[d.level] || levelName(d.level) : levelName(d.level)).toLowerCase() + "s")}</button></div>` : "");
+  const gBanner = (id, d) => (d ? `<div class="drill-banner">Showing the outlets of <strong>${esc(AV_PAGES.has(S.page) ? AV_LEVELS[d.level] || levelName(d.level) : levelName(d.level))}: ${esc(d.key)}</strong> within the sidebar filters. <button type="button" data-gclear="${esc(id)}">Back to all ${esc(AV_PAGES.has(S.page) && d.level === "rl" ? "RHOs" : (AV_PAGES.has(S.page) ? AV_LEVELS[d.level] || levelName(d.level) : levelName(d.level)).toLowerCase() + "s")}</button></div>` : "");
 
   // Drill for leader tables, two paths: regional leader > zonal > outlet, and division > district > outlet.
   // st is the state key in S ({ lvl, rl, zn, div, dis }), id the table id, list the rows (each with .dim, or read
@@ -942,7 +945,7 @@
   // come from the zonals in the KPI file (each with its RHO from the outlet master).
   function kpiPeople() {
     const K = S.data?.kpi; if (!K) return [];
-    const zr = zonalRl(), miss = "Not in outlet master";
+    const zr = zonalRl(), miss = MISS;
     return [...new Set((K.zonal || []).map((r) => r.head))].filter((h) => h !== "National").map((h) => ({ c: h, dim: { rl: zr[h] || miss, zn: h, age: "" } }));
   }
   // Keeps a leader's row when it fits the sidebar filters. Ranks stay the company-wide ranks.
@@ -1325,7 +1328,7 @@
       spsf: lmed(every.map((o) => (o.sft > 0 ? o.s / o.sft : null))), sales: lmed(every.map((o) => o.s)) });
   }
   function lossReason(o) {
-    const fmt = o.dim.fmt !== "Not in outlet master" ? o.dim.fmt : null, own = o.dim.own === "Own" || o.dim.own === "Franchise" ? o.dim.own : null;
+    const fmt = o.dim.fmt !== MISS ? o.dim.fmt : null, own = o.dim.own === "Own" || o.dim.own === "Franchise" ? o.dim.own : null;
     // Same format and ownership when there are enough profitable peers, otherwise the whole format.
     let pe = lossPeers(fmt, own), peerOwn = own;
     if (pe.n < 5) { pe = lossPeers(fmt, null); peerOwn = null; }
@@ -1529,7 +1532,7 @@
     const det = detailFor(code);
     let costHtml = '<p class="muted" style="margin:0">No cost breakdown for this outlet in the P&L file.</p>';
     if (det) {
-      const fmt = o.dim.fmt !== "Not in outlet master" ? o.dim.fmt : null;
+      const fmt = o.dim.fmt !== MISS ? o.dim.fmt : null;
       const peers = peerMedians(fmt);
       const items = P.lines.map((l, i) => ({ l, v: det[i] || 0, sp: o.s > 0 ? (det[i] || 0) / o.s : null, pm: peers.med[i] }))
         .filter((c) => c.v !== 0).sort((a, b) => b.v - a.v);
@@ -1651,7 +1654,7 @@
   }
   function prepNet(d) {
     const rows = Array.isArray(d.rows) ? d.rows : [];
-    const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : String(x).trim());
+    const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
     const all = new Set(), act = new Set();
     rows.forEach((r) => {
       const st = String(r.status || "").trim();
@@ -2675,7 +2678,7 @@
       .finally(() => { S.cwLoading = false; if (CW_PAGES.has(S.page) || S.page === "dq") render(); });
   }
   function prepCw(d) {
-    const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : String(x).trim());
+    const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
     d.outlets.forEach((o) => {
       const own = /^own/i.test(o.ownership || "") ? "Own" : /^fr/i.test(o.ownership || "") ? "Franchise" : o.ownership;
       o.c = o.code; o.nm = o.name;
@@ -3213,7 +3216,7 @@
       .finally(() => { S.avLoading = false; if (AV_PAGES.has(S.page) || S.page === "dq") render(); });
   }
   function prepAv(d) {
-    const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : String(x).trim());
+    const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
     d.outlets.forEach((o, i) => { o.i = i; o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc), area: v(o.area) }; });
     d.skus.forEach((s, i) => (s.i = i));
     d.S = d.skus.length;
@@ -3381,9 +3384,9 @@
   }
   const avBandIdx = (r) => { const x = Math.round(r * 100); return x >= 91 ? 0 : x >= 81 ? 1 : x >= 71 ? 2 : x >= 61 ? 3 : 4; };
   const AV_KINDS = [["core", "Core"], ["promo", "Promo"], ["kvi", "KVI"], ["all", "Overall"]];
-  // Outlets missing from Zone Distribution (the build labels them "Not in outlet master") read as Unassigned.
-  const avIsMiss = (v) => v === NET_MISS || v === "Not in outlet master";
-  const avUnassigned = (v) => (avIsMiss(v) ? "Unassigned" : v);
+  // Outlets missing from Zone Distribution (new outlets not yet distributed) read as MISS.
+  const avIsMiss = (v) => v === NET_MISS || v === MISS || v === LEGACY_MISS;
+  const avUnassigned = (v) => (avIsMiss(v) ? MISS : v);
   function avRhoStats(outs, scans) {
     const x = { n: outs.length };
     AV_KINDS.forEach(([k]) => {
@@ -3776,7 +3779,7 @@
     const f = rcDrill()?.ix?.files?.[mc]?.[cat];
     return f ? rcDrillGet(`${mc}|${cat}`, f.f, f.generatedAt, quiet) : null;
   }
-  const rcMissing = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
+  const rcMissing = (x) => (x == null || String(x).trim() === "" ? MISS : String(x).trim());
   function rcPrep(d) {
     d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: rcMissing(o.rl), zn: rcMissing(o.zn), div: rcMissing(o.div), dis: rcMissing(o.dis), fmt: rcMissing(o.fmt), own: rcMissing(o.own), pnp: rcMissing(o.pnp), loc: rcMissing(o.loc) }; });
   }
@@ -4369,7 +4372,7 @@
   }
   function saPrep(d) {
     const M = new Map((S.data?.master?.outlets || []).map((m) => [m.c, m]));
-    const miss = "Not in outlet master", v = (x) => (x == null || String(x).trim() === "" ? miss : String(x).trim());
+    const miss = MISS, v = (x) => (x == null || String(x).trim() === "" ? miss : String(x).trim());
     d.catMax = d.cats.map((_, ci) => d.questions.filter((q) => q[1] === ci).reduce((t, q) => t + q[4], 0));
     d.dimOf = (c) => { const m = M.get(c); return { rl: v(m?.rl), zn: v(m?.zn), div: v(m?.div), dis: v(m?.dis), fmt: v(m?.fmt), own: v(m?.own), pnp: v(m?.pnp), loc: v(m?.loc) }; };
     d.nameOf = (c) => M.get(c)?.n || c;
@@ -4812,7 +4815,8 @@
       .finally(() => { S.skuLoading = false; if (IP_PAGES.has(S.page)) render(); });
   }
   function skuPrep(d) {
-    const v = (x) => (x == null || String(x).trim() === "" ? "Not in outlet master" : String(x).trim());
+    const v = (x) => (x == null || String(x).trim() === "" ? MISS : fixMiss(String(x).trim()));
+    d.rls = d.rls.map(fixMiss);
     d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc) }; });
     d.byCode = new Map(d.outlets.map((o) => [o.c, o]));
     // category names are stored once and referred to by number
