@@ -2,7 +2,7 @@
   "folderId": "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "folderUrl": "https://drive.google.com/drive/folders/1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "method": "public-link",
-  "syncedAt": "2026-09-28T12:35:50Z",
+  "syncedAt": "2026-09-29T06:21:21Z",
   "files": {
     "outletMaster": {
       "driveName": "Performance final & Zone distribution file/Zone Distribution Sep 2026 w location type.xlsx",
@@ -19,11 +19,11 @@
       "sha256": "7b9bfa8c2ab4c3096b73de6e7700ba16c3a9ec3f44450c9eaf17aa355c1fadd5"
     },
     "dayWiseSales": {
-      "driveName": "Daily/Sales (1).xlsx",
-      "driveId": "1avNtJQjpaD8Izeg_S_V6LVmfmUlooCgi",
-      "driveModified": "3:59 am",
-      "bytes": 3633442,
-      "sha256": "2f2490e5c6526425028688aeaceb3c866d4d308dc13e5afc3c9fd28b8db7ebc6"
+      "driveName": "Daily/Sales (2).xlsx",
+      "driveId": "1wAWK1-8_bIxeaUZpeGIZm-B62V3jZBem",
+      "driveModified": "11:20 pm",
+      "bytes": 3766872,
+      "sha256": "1a9ee9e97454bcf3abbfad3be6be903c5e6ff945916c29c2c6f71bb9a83da7c9"
     },
     "lastMonth": {
       "driveName": "Month-end/260831 Business Performance Report V 0- Till 31 Aug 2026.xlsx",
