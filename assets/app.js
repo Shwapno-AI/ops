@@ -37,6 +37,7 @@
   // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.
   const MISS = "New outlets (Not Distributed)", LEGACY_MISS = "Not in outlet master";
   const fixMiss = (x) => (x === LEGACY_MISS ? MISS : x); // data files built before the rename
+  const missLast = (a, b) => (a === MISS) - (b === MISS) || String(a).localeCompare(String(b));
   const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"], ["age", "Outlet age"]];
   // Extra outlet-master fields, filterable on the outlet network pages only.
   const NET_DIMS = [["area", "Area"], ["city", "Location type (Dv, Ds, T)"], ["floor", "Floor type"], ["shape", "Layout shape"]];
@@ -219,6 +220,12 @@
         return (t.dir === "asc" ? c : -c) || String(sp.key(x)).localeCompare(String(sp.key(y)));
       });
     }
+    // The "New outlets (Not Distributed)" group stays at the bottom until the user sorts the table themselves.
+    if (!t.userSorted) {
+      const isMiss = (r) => r.key === MISS || r.name === MISS || (sp.key && sp.key(r) === MISS);
+      const miss = rows.filter(isMiss);
+      if (miss.length) rows = rows.filter((r) => !isMiss(r)).concat(miss);
+    }
     return rows;
   }
   function drawTable(id) {
@@ -245,6 +252,7 @@
       ${rows.length > size ? `<div class="pager"><span>Showing ${int((t.page - 1) * size + 1)}–${int(Math.min(t.page * size, rows.length))} of ${int(rows.length)}</span><div><button class="btn" data-pg="-1" ${t.page === 1 ? "disabled" : ""}>Previous</button><span>Page ${t.page} of ${pages}</span><button class="btn" data-pg="1" ${t.page === pages ? "disabled" : ""}>Next</button></div></div>` : ""}`;
     $$("[data-sort]", el).forEach((b) => b.addEventListener("click", () => {
       const k = b.dataset.sort;
+      t.userSorted = true; // from now on the "New outlets" row sorts like any other
       if (t.sort === k) t.dir = t.dir === "asc" ? "desc" : "asc"; else { t.sort = k; t.dir = sp.cols.find((c) => c.k === k)?.firstDir || "desc"; }
       drawTable(id);
     }));
@@ -325,7 +333,7 @@
       const counts = new Map();
       base.forEach((o) => { if (matches(o, k)) { const v = dimVal(o, k); counts.set(v, (counts.get(v) || 0) + 1); } });
       S.filters[k].forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
-      const opts = [...counts.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      const opts = [...counts.entries()].sort((a, b) => (a[0] === MISS) - (b[0] === MISS) || String(a[0]).localeCompare(String(b[0]))); // new outlets last
       const sel = S.filters[k];
       const btnTxt = !sel.size ? "All" : sel.size === 1 ? [...sel][0] : sel.size + " selected";
       const open = S.openDim === k;
@@ -3910,8 +3918,8 @@
   // RHO, zonal and outlet lists follow each other: zonals of the chosen RHOs, outlets of the chosen RHOs and zonals.
   function rcChoices(f) {
     const d = S.rcv, rho = rcArr(f.rho), zn = rcArr(f.zn);
-    const rhos = [...new Set(d.outlets.map((o) => o.dim.rl))].sort();
-    const zns = [...new Set(d.outlets.filter((o) => !rho.length || rho.includes(o.dim.rl)).map((o) => o.dim.zn))].sort();
+    const rhos = [...new Set(d.outlets.map((o) => o.dim.rl))].sort(missLast);
+    const zns = [...new Set(d.outlets.filter((o) => !rho.length || rho.includes(o.dim.rl)).map((o) => o.dim.zn))].sort(missLast);
     const outs = d.outlets.filter((o) => (!rho.length || rho.includes(o.dim.rl)) && (!zn.length || zn.includes(o.dim.zn))).sort((a, b) => a.c.localeCompare(b.c));
     return { rhos, zns, outs };
   }
