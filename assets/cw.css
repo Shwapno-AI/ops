@@ -325,3 +325,18 @@ tr[data-rcx]{cursor:pointer}tr[data-rcx]:hover td{background:var(--surface-2)}
 .sa-rem small{color:var(--ink-3);font-size:11px}.sa-rem p{margin:2px 0 0;font-size:12.5px;white-space:pre-line}
 .sa-yn{font-size:11.5px;white-space:nowrap}
 @media (max-width:640px){.sa-cat{grid-template-columns:1fr 56px 70px}.sa-cat .sa-bar{grid-column:1/-1;order:5}}
+/* Store assessment: since last visit */
+.sa-vcats{display:flex;flex-direction:column;gap:6px}
+.sa-vcat{all:unset;cursor:pointer;display:grid;grid-template-columns:minmax(150px,1.3fr) 3fr 90px 110px;align-items:center;gap:10px;padding:5px 6px;border-radius:8px}
+.sa-vcat:hover,.sa-vcat:focus-visible,.sa-vcat.on{background:var(--line-soft)}
+.sa-vcat.on{outline:1px solid var(--info)}
+.sa-div{position:relative;height:12px;background:var(--line-soft);border-radius:6px}
+.sa-div::after{content:"";position:absolute;left:50%;top:-3px;width:1px;height:18px;background:var(--ink-3)}
+.sa-div i{position:absolute;top:0;bottom:0;border-radius:6px}
+.sa-div i.pos{left:50%;background:var(--good)}.sa-div i.neg{right:50%;background:var(--bad)}
+.sa-updn{font-size:12px;text-align:right;white-space:nowrap}
+.sa-vs{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center}
+.sa-vs>div:not(.sa-vs-arrow){display:flex;flex-direction:column;gap:3px;padding:8px 10px;border:1px solid var(--line-soft);border-radius:8px}
+.sa-vs small{font-size:11px;color:var(--ink-3)}.sa-vs span{font-size:11.5px;color:var(--ink-2)}
+.sa-vs-arrow{display:flex;flex-direction:column;align-items:center;font-size:13px;font-weight:600}
+@media (max-width:640px){.sa-vcat{grid-template-columns:1fr 80px 100px}.sa-vcat .sa-div{grid-column:1/-1;order:5}}
