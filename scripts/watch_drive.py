@@ -24,13 +24,14 @@ import fetch_drive_data as drive  # noqa: E402
 
 MOTHER = "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l"
 SKU = "111qtlTIgOpvuYK7G4B_xrA8hRBpwjcj_"
+SA = "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF"  # Store Assessment audit exports
 STATE = Path(os.environ.get("WATCH_STATE") or "/tmp/drive-watch.json")
 
 
 def folders():
     env = lambda k: (os.environ.get(k) or "").strip()  # noqa: E731
     data = env("DATA_FOLDER_ID") or MOTHER
-    return sorted({data, env("NETWORK_FOLDER_ID") or data, env("CW_FOLDER_ID") or data, env("AV_FOLDER_ID") or data, env("SKU_FOLDER_ID") or SKU})
+    return sorted({data, env("NETWORK_FOLDER_ID") or data, env("CW_FOLDER_ID") or data, env("AV_FOLDER_ID") or data, env("SKU_FOLDER_ID") or SKU, env("SA_FOLDER_ID") or SA})
 
 
 def listing():

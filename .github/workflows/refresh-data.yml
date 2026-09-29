@@ -58,6 +58,10 @@ jobs:
         env:
           SKU_OUTLET_FILES: "0"   # per-outlet SKU lists are built only on the Coolify server
         run: python scripts/sku/refresh.py
+      - name: Download store assessment audits and build sa.json
+        # Only months whose file changed are downloaded again.
+        continue-on-error: true
+        run: python scripts/sa/refresh.py
       - name: Drop cached files this run did not use
         if: always()
         run: find /tmp/drive-cache -type f ! -newer /tmp/run-start -delete; du -sh /tmp/drive-cache || true
@@ -71,10 +75,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json; then echo "No data changes."; exit 0; fi
+          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json; then echo "No data changes."; exit 0; fi
           git config user.name "ops-dashboard-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json
+          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
           # Someone may have pushed code while this run was busy: replay the data commit on top and retry.
           pushed=0

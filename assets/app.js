@@ -9,6 +9,7 @@
   const NAV = [
     { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
+    { group: "Store assessment", items: [["sao", "Overview"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
@@ -17,7 +18,7 @@
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
-  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Item performance" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
+  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Item performance" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
   const SALES_PAGES = new Set(["overview", "achievement", "growth", "gp", "footfall", "ranking"]);
   const PERIOD_PAGES = new Set([...SALES_PAGES, "category"]);
   const NET_PAGES = new Set(["gm", "on"]);
@@ -25,8 +26,9 @@
   const AV_PAGES = new Set(["avs", "avk", "avc", "avp", "avv", "ave", "avb"]);
   const RC_PAGES = new Set(["rco", "rcu", "rcx"]);
   const IP_PAGES = new Set(["ipo", "ipt", "ipc", "ips"]);
+  const SA_PAGES = new Set(["sao", "sas", "saq", "sac"]);
   // Every page whose data can be narrowed by outlet (or, for KPI performance, by leader) shows the sidebar filters.
-  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES]);
+  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
@@ -49,7 +51,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "" }, sad: { lvl: "rl", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -122,7 +124,7 @@
   }
   const dimVal = (o, k) => (k !== "age" ? o.dim[k] : S.data?.master ? (o.dim.age ||= outletAgeBand(o.c)) : AGE_NA);
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)));
-  const baseList = () => (S.page === "performance" ? kpiPeople() : NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
+  const baseList = () => (S.page === "performance" ? kpiPeople() : SA_PAGES.has(S.page) ? (S.sa ? saRows() : []) :NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
   // Sales pages also follow the Stores switch (same store = the report's list vs last year, or vs last month
   // on pages compared with last month).
   const scopeCmp = () => (["growth", "footfall", "ranking"].includes(S.page) ? S.cmp : "y");
@@ -381,6 +383,12 @@
         $("#scope").textContent = a ? `${avDays()} day${avDays() === 1 ? "" : "s"} of cover. ${int(inView().length)} of ${int(baseList().length)} outlets in view.` : "";
         return;
       }
+      if (SA_PAGES.has(S.page)) {
+        const a = S.sa;
+        if (a) { const m = saMonth(); fresh(`Audits ${saRange(saMonths().slice(-1)[0])}`, a.generatedAt); $("#scope").textContent = `${fmonth(m)}: ${int(saInView(m).length)} outlets audited in view. Latest audit per outlet.`; }
+        else $("#scope").textContent = "";
+        return;
+      }
       if (IP_PAGES.has(S.page)) {
         const k = S.sku;
         if (k) { fresh(ipPeriod(k, true), k.generatedAt); if (k.period) $("#fresh").title = `Data period ${k.period.method}. Refreshed from ${k.source.files.length} workbooks.`; }
@@ -583,6 +591,7 @@
       ${netFilesPanel()}
       ${cwQualityPanel()}
       ${avQualityPanel()}
+      ${saQualityPanel()}
       <section class="panel"><div class="panel-head"><div><h2>How updates work</h2></div></div>
         <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The server checks the Drive folders every 5 minutes, day and night, and refreshes as soon as a file is added, replaced, renamed or removed; new figures usually show within 5 to 15 minutes (item-performance workbooks take about 10 minutes more to process). It also does a full refresh every hour between 8 am and 11 pm. Receiving is renewed from Power BI every 10 minutes. If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
   }
@@ -650,7 +659,7 @@
     });
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
     $$("[data-sel]", root).forEach((sel) => (sel.onchange = () => { S[sel.dataset.sel] = sel.value; changed(); }));
-    wireRc(root); wireIp(root);
+    wireRc(root); wireIp(root); wireSa(root);
     $$("[data-embed-reload]", root).forEach((b) => (b.onclick = () => { const f = b.closest(".embed")?.querySelector("iframe"); if (f) f.src = freshUrl(EMBEDS[S.page]?.url || f.src.split(/[?&]_=/)[0]); }));
     $$("[data-go]", root).forEach((b) => { b.onclick = () => (location.hash = b.dataset.go); if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") location.hash = b.dataset.go; }; });
     $$("[data-lpick]", root).forEach((tr) => {
@@ -4321,6 +4330,338 @@
     return `${rcBar()}${rcHead({ range: { start, end, days }, live: !snapAt, snapAt })}${table}`;
   }
 
+  // ------------------------------------------------------------------ store assessment (data/sa.json)
+  // Store Operations Compliance Audit: each audit scores one outlet on 41 questions in 6 categories (290 points).
+  // An outlet's score for a month is its latest audit that month; every audit stays visible in the outlet drawer.
+  const SA_GRADES = [
+    { k: "a", label: "Excellent", min: 0.85, cls: "good" },
+    { k: "b", label: "Good", min: 0.75, cls: "info" },
+    { k: "c", label: "Needs work", min: 0.65, cls: "warn" },
+    { k: "d", label: "Critical", min: -Infinity, cls: "bad" },
+  ];
+  const saGrade = (p) => (isNum(p) ? SA_GRADES.find((g) => p >= g.min) : { k: "none", label: "—", cls: "idle" });
+  const saHeat = (p) => (isNum(p) ? `<span class="sa-heat sa-${saGrade(p).k}">${(p * 100).toFixed(0)}%</span>` : '<span class="muted">—</span>');
+  const saPct = (p) => (isNum(p) ? `${(p * 100).toFixed(1)}%` : "—");
+  function loadSa() {
+    if (S.sa || S.saLoading) return;
+    S.saLoading = true; S.saErr = null;
+    fetch("data/sa.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { saPrep(d); S.sa = d; })
+      .catch((e) => { S.saErr = e.message; })
+      .finally(() => { S.saLoading = false; if (SA_PAGES.has(S.page) || S.page === "dq") render(); });
+  }
+  function saGuard() {
+    if (S.sa) return "";
+    if (!S.data) return '<p class="empty">Loading…</p>'; // the outlet master comes first
+    loadSa();
+    return S.saErr ? `<p class="empty">The store assessment data could not be loaded (${esc(S.saErr)}).</p>` : '<p class="empty">Loading store assessment data…</p>';
+  }
+  function saPrep(d) {
+    const M = new Map((S.data?.master?.outlets || []).map((m) => [m.c, m]));
+    const miss = "Not in outlet master", v = (x) => (x == null || String(x).trim() === "" ? miss : String(x).trim());
+    d.catMax = d.cats.map((_, ci) => d.questions.filter((q) => q[1] === ci).reduce((t, q) => t + q[4], 0));
+    d.dimOf = (c) => { const m = M.get(c); return { rl: v(m?.rl), zn: v(m?.zn), div: v(m?.div), dis: v(m?.dis), fmt: v(m?.fmt), own: v(m?.own), pnp: v(m?.pnp), loc: v(m?.loc) }; };
+    d.nameOf = (c) => M.get(c)?.n || c;
+    // visits as objects, with the score and each category as a share of its maximum
+    d.vis = d.visits.map(([rid, , date, time, c, a, total, possible, answered, q]) => {
+      const cats = d.catMax.map((mx, ci) => { let s = 0; d.questions.forEach((qq, i) => { if (qq[1] === ci) s += q[i] || 0; }); return mx ? s / mx : null; });
+      return { rid, date, time, c, m: date.slice(0, 7), aud: d.auditors[a], total, possible, answered, q, p: isNum(total) && possible ? total / possible : null, cats };
+    });
+    d.byMonth = new Map();
+    d.months.forEach((mo) => d.byMonth.set(mo.m, { visits: [], rows: null }));
+    d.vis.forEach((x) => d.byMonth.get(x.m)?.visits.push(x));
+    // one row per outlet and month: the latest audit, plus how many audits there were
+    d.byMonth.forEach((B) => {
+      const by = new Map();
+      B.visits.forEach((x) => { const r = by.get(x.c); if (!r) by.set(x.c, { c: x.c, nm: d.nameOf(x.c), dim: d.dimOf(x.c), v: x, n: 1, list: [x] }); else { r.n++; r.list.push(x); if (`${x.date} ${x.time}` >= `${r.v.date} ${r.v.time}`) r.v = x; } });
+      B.rows = [...by.values()].map((r) => ({ ...r, p: r.v.p, cats: r.v.cats, grade: saGrade(r.v.p) }));
+      B.byCode = new Map(B.rows.map((r) => [r.c, r]));
+    });
+    d.masterRows = [...M.values()].map((m) => ({ c: m.c, nm: m.n || m.c, dim: d.dimOf(m.c) }));
+  }
+  const saMonths = () => S.sa.months.map((x) => x.m);
+  function saMonth() {
+    const ms = saMonths();
+    if (!ms.includes(S.sav.m)) S.sav.m = ms[ms.length - 1];
+    return S.sav.m;
+  }
+  const saPrevMonth = (m) => { const ms = saMonths(), i = ms.indexOf(m); return i > 0 ? ms[i - 1] : null; };
+  const saRows = (m = saMonth()) => S.sa.byMonth.get(m)?.rows || [];
+  const saRange = (m) => { const mo = S.sa.months.find((x) => x.m === m); if (!mo) return ""; const [, , ds] = mo.start.split("-").map(Number), [ye, me, de] = mo.end.split("-").map(Number); return `${ds}–${de} ${MON[me - 1]} ${ye}`; };
+  // outlets in view (sidebar filters) for a month, and the same outlets' rows in another month
+  const saInView = (m) => saRows(m).filter((o) => matches(o));
+  const saAvg = (rows, f = (r) => r.p) => { const xs = rows.map(f).filter(isNum); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
+  const saCatAvg = (rows, ci) => saAvg(rows, (r) => r.cats[ci]);
+  const saWeakest = (cats) => { let bi = -1; cats.forEach((v, i) => { if (isNum(v) && (bi < 0 || v < cats[bi])) bi = i; }); return bi; };
+  function saHead() {
+    const m = saMonth(), pm = saPrevMonth(m);
+    const sel = `<select class="sel" data-sasel="m" aria-label="Month">${saMonths().slice().reverse().map((x) => `<option value="${x}" ${x === m ? "selected" : ""}>${fmonth(x)}${x === saMonths().slice(-1)[0] ? " (till date)" : ""}</option>`).join("")}</select>`;
+    return `<div class="sa-head">${sel}<span class="muted">${esc(saRange(m))}${pm ? ` · compared with ${fmonth(pm)}` : ""} · an outlet's score is its latest audit of the month; grades: Excellent 85%+, Good 75–84%, Needs work 65–74%, Critical below 65%</span></div>`;
+  }
+  // Group rows for the leaders table (regional leader / zonal / outlet), this month vs the previous one.
+  function saGroup(rows, prevRows, at) {
+    const prevBy = new Map(prevRows.map((r) => [r.c, r]));
+    if (at === "outlet") return rows.map((r) => { const pr = prevBy.get(r.c); return { key: r.c, name: r.nm, sub: `${r.c}, ${r.dim.zn}`, o: r, n: 1, audits: r.n, p: r.p, pp: pr?.p ?? null, d: isNum(r.p) && isNum(pr?.p) ? r.p - pr.p : null, grade: r.grade, weak: saWeakest(r.cats), last: r.v.date, aud: r.v.aud }; });
+    const g = new Map();
+    rows.forEach((r) => { const k = r.dim[at]; if (!g.has(k)) g.set(k, []); g.get(k).push(r); });
+    return [...g].map(([k, rs]) => {
+      const p = saAvg(rs), pr = saAvg(rs.map((r) => prevBy.get(r.c)).filter(Boolean)), cats = S.sa.cats.map((_, ci) => saCatAvg(rs, ci));
+      const gc = Object.fromEntries(SA_GRADES.map((x) => [x.k, rs.filter((r) => r.grade.k === x.k).length]));
+      return { key: k, name: k, sub: `${int(rs.length)} outlets`, n: rs.length, audits: rs.reduce((t, r) => t + r.n, 0), p, pp: pr, d: isNum(p) && isNum(pr) ? p - pr : null, grade: saGrade(p), weak: saWeakest(cats), gc };
+    });
+  }
+  function pageSAO() {
+    const g = saGuard(); if (g) return g;
+    const d = S.sa, m = saMonth(), pm = saPrevMonth(m), rows = saInView(m), prev = pm ? saInView(pm) : [];
+    const p = saAvg(rows), pp0 = saAvg(prev), audits = rows.reduce((t, r) => t + r.n, 0);
+    const audited = new Set(rows.map((r) => r.c)), notAud = d.masterRows.filter((o) => matches(o) && !audited.has(o.c)).length;
+    const gc = Object.fromEntries(SA_GRADES.map((x) => [x.k, rows.filter((r) => r.grade.k === x.k).length]));
+    const cats = d.cats.map((_, ci) => saCatAvg(rows, ci)), pcats = d.cats.map((_, ci) => saCatAvg(prev, ci)), weak = saWeakest(cats);
+    const gradeCard = `<div class="kpi kpi-grades" style="--accent:var(--series-2)"><div class="label">Outlets by grade</div><div class="sa-grades">${SA_GRADES.map((x) => `<button type="button" class="sa-grade sa-${x.k}" data-sagrade="${x.k}" title="List the ${x.label.toLowerCase()} outlets"><strong>${int(gc[x.k])}</strong><span>${x.label}</span></button>`).join("")}</div><div class="foot"><span>${int(rows.length)} outlets audited</span></div></div>`;
+    const cards = `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      ${kpi({ label: `Store score, ${fmonth(m)}`, value: saPct(p), sub: `${chip(saGrade(p))} <span>${pm ? `${delta(isNum(p) && isNum(pp0) ? p - pp0 : null, "pp")} vs ${fmonth(pm)}` : ""}</span>`, foot: `<span>Average of ${int(rows.length)} outlets' latest audits</span>`, accent: `var(--${saGrade(p).cls === "info" ? "series-2" : saGrade(p).cls})` })}
+      ${kpi({ label: "Audits done", value: int(audits), sub: `${rows.length ? (audits / rows.length).toFixed(1) : "—"} per outlet`, foot: `<span>${esc(saRange(m))}</span>`, accent: "var(--series-1)" })}
+      ${kpi({ label: "Outlets not audited", value: int(notAud), sub: `of ${int(notAud + rows.length)} outlets in the master`, foot: "<span>Open coverage and auditors</span>", accent: `var(--${notAud ? "warn" : "good"})` }).replace('<div class="kpi"', '<div class="kpi kpi-click" data-go="sac" tabindex="0" role="link" title="Open coverage and auditors"')}
+      ${kpi({ label: "Weakest category", value: weak >= 0 ? `<span style="font-size:20px">${esc(d.cats[weak])}</span>` : "—", sub: weak >= 0 ? `${saPct(cats[weak])} of its points` : "", foot: weak >= 0 && isNum(pcats[weak]) ? `<span>${fmonth(pm)}: ${saPct(pcats[weak])}</span>` : "<span></span>", accent: "var(--bad)" })}
+      ${gradeCard}
+    </div>`;
+    const catPanel = `<section class="panel"><div class="panel-head"><div><h2>Score by category, ${fmonth(m)}</h2><p>Share of each category's points${pm ? `; the mark shows ${fmonth(pm)}` : ""}. Click a category for its questions.</p></div></div>
+      <div class="panel-body sa-cats">${d.cats.map((c, ci) => `<button type="button" class="sa-cat" data-sacat="${ci}"><span class="sa-cat-name">${esc(c)}<small>${int(d.catMax[ci])} points</small></span><span class="sa-bar"><i class="sa-${saGrade(cats[ci]).k}" style="width:${Math.round((cats[ci] || 0) * 100)}%"></i>${isNum(pcats[ci]) ? `<b style="left:${Math.round(pcats[ci] * 100)}%" title="${fmonth(pm)}: ${saPct(pcats[ci])}"></b>` : ""}</span><span class="sa-cat-v">${saPct(cats[ci])}</span><span class="sa-cat-d">${pm ? delta(isNum(cats[ci]) && isNum(pcats[ci]) ? cats[ci] - pcats[ci] : null, "pp") : ""}</span></button>`).join("")}</div></section>`;
+    const trend = `<section class="panel"><div class="panel-head"><div><h2>Store score by month</h2><p>Average of the outlets' latest audits each month, for the outlets in view.</p></div></div><div class="panel-body"><div class="chart" id="saTrend"></div></div></section>`;
+    AFTER.push(saTrendChart);
+    const D = leaderDrill("sad", "sa-league", rows, "click an outlet for its audits"), at = D.at;
+    const lrows = saGroup(rows.filter(D.inPath), prev, at).map((x) => (at === "zn" ? { ...x, sub: D.zsub(x.key, x.sub) } : x));
+    const league = mountTable("sa-league", {
+      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file(`store_assessment_${m}`), banner: D.crumbs, tools: D.tools,
+      desc: (n) => `${int(n)} rows, ${fmonth(m)}${pm ? ` vs ${fmonth(pm)}` : ""}. ${at === "outlet" ? "Click an outlet for its audits, points lost and remarks." : "Click a row to go down a level."}`,
+      rows: lrows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "p", defaultDir: "asc", pageSize: 25,
+      rowAttr: (x) => (x.o ? `data-saout="${esc(x.o.c)}" tabindex="0" role="button"` : D.pick(x)),
+      cols: [{ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "code", label: "Outlet code", hide: 1, csv: (x) => (x.o ? x.o.c : "") },
+        ...(at === "outlet" ? [] : [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }]),
+        { k: "audits", label: "Audits", num: 1, fmt: (x) => int(x.audits) },
+        { k: "p", label: "Score", num: 1, fmt: (x) => `<strong>${saPct(x.p)}</strong>`, csv: (x) => pcsv(x.p) },
+        { k: "grade", label: "Grade", fmt: (x) => chip(x.grade), csv: (x) => x.grade.label, val: (x) => x.p },
+        ...(pm ? [{ k: "pp", label: fmonth(pm), num: 1, fmt: (x) => saPct(x.pp), csv: (x) => pcsv(x.pp) }, { k: "d", label: "Change", num: 1, fmt: (x) => delta(x.d, "pp"), csv: (x) => pcsv(x.d) }] : []),
+        ...(at === "outlet" ? [{ k: "last", label: "Latest audit", fmt: (x) => fdate(x.last, true), csv: (x) => x.last }, { k: "aud", label: "Auditor", fmt: (x) => esc(x.aud), csv: (x) => x.aud }]
+          : SA_GRADES.map((gg) => ({ k: "g" + gg.k, label: gg.label, num: 1, fmt: (x) => int(x.gc[gg.k]), csv: (x) => x.gc[gg.k], val: (x) => x.gc[gg.k] }))),
+        { k: "weak", label: "Weakest category", fmt: (x) => esc(d.cats[x.weak] || "—"), csv: (x) => d.cats[x.weak] || "", val: (x) => d.cats[x.weak] || "" }],
+    });
+    return `${saHead()}${cards}<div class="grid-2">${catPanel}${trend}</div>${league}`;
+  }
+  // Month-by-month average score (outlets in view), as a small line chart.
+  function saTrendChart() {
+    const host = $("#saTrend"); if (!host || !S.sa) return;
+    const pts = saMonths().map((m) => ({ m, p: saAvg(saInView(m)) })).filter((x) => isNum(x.p));
+    if (!pts.length) { host.innerHTML = '<p class="net-empty">No audits.</p>'; return; }
+    const W = Math.round(Math.max(280, Math.min(900, host.clientWidth || 600))), H = 190, ml = 44, mr = 16, mt = 14, mb = 28;
+    const lo = Math.max(0, Math.floor((Math.min(...pts.map((x) => x.p)) - 0.05) * 20) / 20), hi = Math.min(1, Math.ceil((Math.max(...pts.map((x) => x.p)) + 0.03) * 20) / 20);
+    const X = (i) => ml + (pts.length === 1 ? (W - ml - mr) / 2 : (i / (pts.length - 1)) * (W - ml - mr)), Y = (v) => mt + (1 - (v - lo) / (hi - lo || 1)) * (H - mt - mb);
+    let svg = "";
+    for (let k = 0; k <= 4; k++) { const v = lo + ((hi - lo) * k) / 4, y = Y(v); svg += `<line x1="${ml}" x2="${W - mr}" y1="${y}" y2="${y}" style="stroke:var(--grid)"/><text x="${ml - 6}" y="${y + 3.5}" text-anchor="end" class="cw-axis">${(v * 100).toFixed(0)}%</text>`; }
+    SA_GRADES.slice(0, 3).forEach((gg) => { if (gg.min > lo && gg.min < hi) svg += `<line x1="${ml}" x2="${W - mr}" y1="${Y(gg.min)}" y2="${Y(gg.min)}" style="stroke:var(--ink-3)" stroke-dasharray="3 4"/><text x="${W - mr}" y="${Y(gg.min) - 4}" text-anchor="end" class="cw-axis">${gg.label} ${gg.min * 100}%</text>`; });
+    svg += `<path d="${pts.map((x, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(x.p).toFixed(1)}`).join(" ")}" fill="none" style="stroke:var(--series-2)" stroke-width="2.4"/>`;
+    pts.forEach((x, i) => { svg += `<circle cx="${X(i)}" cy="${Y(x.p)}" r="4" style="fill:var(--series-2)"><title>${fmonth(x.m)}: ${saPct(x.p)}</title></circle><text x="${X(i)}" y="${Y(x.p) - 9}" text-anchor="middle" class="cw-axis" style="font-weight:600">${saPct(x.p)}</text><text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="cw-axis">${fmonth(x.m)}</text>`; });
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Store score by month">${svg}</svg>`;
+  }
+  // Scorecard: leaders or outlets against the 6 categories, or all 41 questions.
+  function pageSAS() {
+    const g = saGuard(); if (g) return g;
+    const d = S.sa, m = saMonth(), rows = saInView(m), qm = S.sav.view === "q";
+    const D = leaderDrill("sas", "sa-card", rows, "click an outlet for its audits"), at = D.at, inPath = rows.filter(D.inPath);
+    const avgQ = (rs, i) => saAvg(rs, (r) => (isNum(r.v.q[i]) && d.questions[i][4] ? r.v.q[i] / d.questions[i][4] : null));
+    let data;
+    if (at === "outlet") data = inPath.map((r) => ({ key: r.c, name: r.nm, sub: `${r.c}, ${r.dim.zn}`, o: r, n: 1, p: r.p, cats: r.cats, qs: d.questions.map((q, i) => (isNum(r.v.q[i]) && q[4] ? r.v.q[i] / q[4] : null)) }));
+    else {
+      const gm = new Map(); inPath.forEach((r) => { const k = r.dim[at]; if (!gm.has(k)) gm.set(k, []); gm.get(k).push(r); });
+      data = [...gm].map(([k, rs]) => ({ key: k, name: k, sub: at === "zn" ? D.zsub(k, `${int(rs.length)} outlets`) : `${int(rs.length)} outlets`, n: rs.length, p: saAvg(rs), cats: d.cats.map((_, ci) => saCatAvg(rs, ci)), qs: qm ? d.questions.map((_, i) => avgQ(rs, i)) : [] }));
+    }
+    const short = (t) => (t.length > 18 ? t.slice(0, 17) + "…" : t);
+    const cols = [{ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+      { k: "code", label: "Outlet code", hide: 1, csv: (x) => (x.o ? x.o.c : "") },
+      ...(at === "outlet" ? [] : [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }]),
+      { k: "p", label: "Score", num: 1, fmt: (x) => saHeat(x.p), csv: (x) => pcsv(x.p) },
+      ...(qm ? d.questions.map((q, i) => ({ k: "q" + i, label: short(q[2]), title: `${d.cats[q[1]]}: ${q[2]} (${q[4]} points)`, num: 1, fmt: (x) => saHeat(x.qs[i]), csv: (x) => pcsv(x.qs[i]), val: (x) => x.qs[i] }))
+        : d.cats.map((c, ci) => ({ k: "c" + ci, label: c, num: 1, fmt: (x) => saHeat(x.cats[ci]), csv: (x) => pcsv(x.cats[ci]), val: (x) => x.cats[ci] })))];
+    const viewSeg = `<div class="seg" role="group" aria-label="Columns">${[["cat", "Categories"], ["q", "All 41 questions"]].map(([k, t]) => `<button type="button" data-saset="view" data-val="${k}" aria-pressed="${(S.sav.view || "cat") === k}">${t}</button>`).join("")}</div>`;
+    const table = mountTable("sa-card-" + (qm ? "q" : "c"), {
+      title: `Scorecard, ${fmonth(m)}`, file: D.file(`store_scorecard_${qm ? "questions" : "categories"}_${m}`), banner: D.crumbs, tools: `${D.tools}${viewSeg}`,
+      desc: (n) => `${int(n)} rows. Each cell is the share of points scored (latest audit per outlet; leaders are averaged over their outlets). Colours follow the grades: green 85%+, blue 75–84%, amber 65–74%, red below 65%.`,
+      rows: data, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "p", defaultDir: "asc", pageSize: 50,
+      rowAttr: (x) => (x.o ? `data-saout="${esc(x.o.c)}" tabindex="0" role="button"` : D.pick(x)), cols,
+    });
+    return `${saHead()}${table}`;
+  }
+  // Questions: every question's share of points, this month vs last, and who lost points on it.
+  function pageSAQ() {
+    const g = saGuard(); if (g) return g;
+    const d = S.sa, m = saMonth(), pm = saPrevMonth(m), rows = saInView(m), prev = pm ? saInView(pm) : [], cf = S.sav.qcat;
+    const share = (rs, i) => saAvg(rs, (r) => (isNum(r.v.q[i]) ? r.v.q[i] / d.questions[i][4] : null));
+    const data = d.questions.map((q, i) => {
+      const lost = rows.filter((r) => isNum(r.v.q[i]) && r.v.q[i] < q[4]).length, s = share(rows, i), ps = pm ? share(prev, i) : null;
+      const mcq = q[3] === "mcq" ? { y: rows.filter((r) => r.v.q[i] === q[4]).length, mb: rows.filter((r) => isNum(r.v.q[i]) && r.v.q[i] > 0 && r.v.q[i] < q[4]).length, no: rows.filter((r) => r.v.q[i] === 0).length } : null;
+      return { key: q[0], i, cat: d.cats[q[1]], ci: q[1], title: q[2], type: q[3], max: q[4], s, ps, dd: isNum(s) && isNum(ps) ? s - ps : null, lost, n: rows.length, mcq };
+    }).filter((x) => cf === "" || cf == null || String(x.ci) === String(cf));
+    const catSeg = `<select class="sel" data-sasel="qcat" aria-label="Category"><option value="">All categories</option>${d.cats.map((c, ci) => `<option value="${ci}" ${String(cf) === String(ci) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+    const yn = (x) => (x.mcq ? `<span class="sa-yn"><span class="up">Yes ${int(x.mcq.y)}</span> · <span class="flat">Maybe ${int(x.mcq.mb)}</span> · <span class="down">No ${int(x.mcq.no)}</span></span>` : '<span class="muted">Scored 0 to ' + x.max + "</span>");
+    const table = mountTable("sa-q", {
+      title: `Questions, ${fmonth(m)}`, file: `store_questions_${m}`, tools: catSeg,
+      desc: (n) => `${int(n)} questions, weakest first. Score is the share of the question's points across the outlets' latest audits. Click a question for the outlets that lost points on it.`,
+      rows: data, key: (x) => x.key, searchText: (x) => `${x.cat} ${x.title}`, defaultSort: "s", defaultDir: "asc", pageSize: 50,
+      rowAttr: (x) => `data-saq="${x.i}" tabindex="0" role="button"`,
+      cols: [{ k: "title", label: "Question", fmt: (x) => `<span class="cell-primary">${esc(x.title)}</span><span class="cell-secondary">${esc(x.cat)} · ${x.max} points</span>`, csv: (x) => x.title, val: (x) => x.title },
+        { k: "cat", label: "Category", hide: 1, csv: (x) => x.cat }, { k: "max", label: "Max points", hide: 1, csv: (x) => x.max },
+        { k: "s", label: "Score", num: 1, fmt: (x) => saHeat(x.s), csv: (x) => pcsv(x.s) },
+        ...(pm ? [{ k: "ps", label: fmonth(pm), num: 1, fmt: (x) => saPct(x.ps), csv: (x) => pcsv(x.ps) }, { k: "dd", label: "Change", num: 1, fmt: (x) => delta(x.dd, "pp"), csv: (x) => pcsv(x.dd) }] : []),
+        { k: "lost", label: "Outlets losing points", num: 1, fmt: (x) => `${int(x.lost)} <small class="muted">of ${int(x.n)}</small>`, csv: (x) => x.lost },
+        { k: "yn", label: "Yes / Maybe / No", fmt: yn, csv: (x) => (x.mcq ? `${x.mcq.y}/${x.mcq.mb}/${x.mcq.no}` : ""), val: (x) => (x.mcq ? x.mcq.no : -1) }],
+    });
+    return `${saHead()}${table}`;
+  }
+  // Coverage and auditors: who was not audited, who was audited unusually often, and how each auditor scores.
+  function pageSAC() {
+    const g = saGuard(); if (g) return g;
+    const d = S.sa, m = saMonth(), rows = saInView(m), audited = new Set(rows.map((r) => r.c));
+    const lastBefore = (c) => { for (const mm of saMonths().filter((x) => x < m).reverse()) { const r = S.sa.byMonth.get(mm).byCode.get(c); if (r) return r; } return null; };
+    const missing = d.masterRows.filter((o) => matches(o) && !audited.has(o.c)).map((o) => { const lb = lastBefore(o.c); return { key: o.c, name: o.nm, sub: `${o.c}, ${o.dim.zn}`, o, rl: o.dim.rl, zn: o.dim.zn, last: lb?.v.date || "", lp: lb?.p ?? null }; });
+    const often = rows.map((r) => ({ key: r.c, name: r.nm, sub: `${r.c}, ${r.dim.zn}`, o: r, n: r.n, auds: new Set(r.list.map((x) => x.aud)).size, first: r.list.reduce((a, x) => (x.date < a ? x.date : a), "9999"), last: r.v.date, p: r.p, spread: Math.max(...r.list.map((x) => x.p || 0)) - Math.min(...r.list.map((x) => x.p || 0)) }));
+    const visits = rows.flatMap((r) => r.list), coP = saAvg(visits, (x) => x.p);
+    const byA = new Map(); visits.forEach((x) => { if (!byA.has(x.aud)) byA.set(x.aud, []); byA.get(x.aud).push(x); });
+    const aud = [...byA].map(([a, vs]) => { const p = saAvg(vs, (x) => x.p); return { key: a, name: a, n: vs.length, outlets: new Set(vs.map((x) => x.c)).size, days: new Set(vs.map((x) => x.date)).size, p, d: isNum(p) && isNum(coP) ? p - coP : null, exc: vs.filter((x) => x.p >= 0.85).length / vs.length }; });
+    const many = often.filter((x) => x.n >= 10).length;
+    const cards = `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      ${kpi({ label: "Outlets audited", value: int(rows.length), sub: `${int(visits.length)} audits`, foot: `<span>${esc(saRange(m))}</span>`, accent: "var(--good)" })}
+      ${kpi({ label: "Not audited", value: int(missing.length), sub: "In the outlet master, no audit this month", foot: "<span>Listed below</span>", accent: `var(--${missing.length ? "warn" : "good"})` })}
+      ${kpi({ label: "Audited 10 or more times", value: int(many), sub: "Unusually often; worth a check", foot: `<span>Most: ${often.length ? int(Math.max(...often.map((x) => x.n))) : "—"} audits</span>`, accent: "var(--series-3)" })}
+      ${kpi({ label: "Auditors active", value: int(aud.length), sub: `Average score given ${saPct(coP)}`, foot: "<span>Per audit, all outlets in view</span>", accent: "var(--series-1)" })}
+    </div>`;
+    const t1 = mountTable("sa-miss", {
+      title: `Not audited in ${fmonth(m)}`, file: `store_not_audited_${m}`, desc: (n) => `${int(n)} outlets in the outlet master with no audit this month (sidebar filters apply). Last audit is from an earlier month, if any.`,
+      rows: missing, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub} ${x.rl}`, defaultSort: "zn", defaultDir: "asc", pageSize: 25,
+      cols: [{ k: "name", label: "Outlet", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.o.c)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "code", label: "Outlet code", hide: 1, csv: (x) => x.o.c },
+        { k: "rl", label: "Regional leader", fmt: (x) => esc(x.rl), csv: (x) => x.rl, val: (x) => x.rl }, { k: "zn", label: "Zonal", fmt: (x) => esc(x.zn), csv: (x) => x.zn, val: (x) => x.zn },
+        { k: "last", label: "Last audit", fmt: (x) => (x.last ? fdate(x.last) : '<span class="muted">Never in these months</span>'), csv: (x) => x.last },
+        { k: "lp", label: "Last score", num: 1, fmt: (x) => saHeat(x.lp), csv: (x) => pcsv(x.lp) }] });
+    const t2 = mountTable("sa-often", {
+      title: "How often each outlet was audited", file: `store_audit_frequency_${m}`, desc: (n) => `${int(n)} outlets, most audited first. Spread is the gap between the outlet's highest and lowest audit this month. Click an outlet for every audit.`,
+      rows: often, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "n", pageSize: 25, rowAttr: (x) => `data-saout="${esc(x.o.c)}" tabindex="0" role="button"`,
+      cols: [{ k: "name", label: "Outlet", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "code", label: "Outlet code", hide: 1, csv: (x) => x.o.c },
+        { k: "n", label: "Audits", num: 1, fmt: (x) => `<strong>${int(x.n)}</strong>` }, { k: "auds", label: "Auditors", num: 1, fmt: (x) => int(x.auds) },
+        { k: "first", label: "First", fmt: (x) => fdate(x.first, true), csv: (x) => x.first }, { k: "last", label: "Latest", fmt: (x) => fdate(x.last, true), csv: (x) => x.last },
+        { k: "p", label: "Latest score", num: 1, fmt: (x) => saHeat(x.p), csv: (x) => pcsv(x.p) }, { k: "spread", label: "Spread", num: 1, fmt: (x) => (x.n > 1 ? `${(x.spread * 100).toFixed(0)} pp` : "—"), csv: (x) => pcsv(x.spread) }] });
+    const t3 = mountTable("sa-aud", {
+      title: "Auditors", file: `store_auditors_${m}`, desc: (n) => `${int(n)} auditors. "vs average" compares the average score an auditor gives with all audits of the outlets in view: far above may mean lenient scoring, far below strict. Click an auditor for their audits.`,
+      rows: aud, key: (x) => x.key, searchText: (x) => x.name, defaultSort: "n", pageSize: 25, rowAttr: (x) => `data-saaud="${esc(x.key)}" tabindex="0" role="button"`,
+      cols: [{ k: "name", label: "Auditor", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "n", label: "Audits", num: 1, fmt: (x) => int(x.n) }, { k: "outlets", label: "Outlets", num: 1, fmt: (x) => int(x.outlets) }, { k: "days", label: "Days active", num: 1, fmt: (x) => int(x.days) },
+        { k: "p", label: "Average score given", num: 1, fmt: (x) => saHeat(x.p), csv: (x) => pcsv(x.p) }, { k: "d", label: "vs average", num: 1, fmt: (x) => delta(x.d, "pp"), csv: (x) => pcsv(x.d) },
+        { k: "exc", label: "Excellent audits", num: 1, fmt: (x) => pct(x.exc, 0), csv: (x) => pcsv(x.exc) }] });
+    return `${saHead()}${cards}${t1}${t2}${t3}`;
+  }
+  // Drawer: one outlet's audits, month history, category and question breakdown, and the auditors' remarks.
+  function openSaOutlet(code) {
+    const d = S.sa, m = saMonth(), pm = saPrevMonth(m), r = S.sa.byMonth.get(m)?.byCode.get(code) || [...saMonths()].reverse().map((x) => S.sa.byMonth.get(x).byCode.get(code)).find(Boolean);
+    if (!r) return;
+    const pr = pm ? S.sa.byMonth.get(pm).byCode.get(code) : null;
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    const hist = saMonths().map((x) => ({ m: x, r: S.sa.byMonth.get(x).byCode.get(code) })).filter((x) => x.r);
+    const lost = d.questions.map((q, i) => ({ q, i, s: r.v.q[i] })).filter((x) => isNum(x.s) && x.s < x.q[4]).sort((a, b) => (a.s / a.q[4]) - (b.s / b.q[4]));
+    const visits = [...r.list].sort((a, b) => (`${b.date} ${b.time}` > `${a.date} ${a.time}` ? 1 : -1));
+    NCSV.saout = () => [`store_assessment_${code}_${r.v.m}`, ["Outlet code", "Outlet", "Date", "Time", "Auditor", "Score", "Score %", ...d.questions.map((q) => `${d.cats[q[1]]}: ${q[2]} (${q[4]})`)],
+      visits.map((x) => [code, r.nm, x.date, x.time, x.aud, x.total, pcsv(x.p), ...x.q.map((s) => (isNum(s) ? s : ""))]), "latest"];
+    $("#drawerTitle").textContent = `${code} ${r.nm}`;
+    $("#drawerBody").innerHTML = `<div class="stat-grid three">
+        <div class="stat"><small>Score, ${fmonth(r.v.m)}</small><strong>${saPct(r.p)}</strong><div style="font-size:12px">${chip(r.grade)} ${pr ? `${delta(isNum(r.p) && isNum(pr.p) ? r.p - pr.p : null, "pp")} vs ${fmonth(pm)}` : ""}</div></div>
+        <div class="stat"><small>Latest audit</small><strong style="font-size:18px">${fdate(r.v.date)}</strong><div style="font-size:12px">${esc(r.v.aud)} · ${esc(r.v.time)}</div></div>
+        <div class="stat"><small>Audits this month</small><strong>${int(r.n)}</strong><div style="font-size:12px">${int(r.v.total)} of ${int(r.v.possible)} points in the latest</div></div></div>
+      <div class="lr-dtools"><span class="muted">${esc(r.dim.rl)} · ${esc(r.dim.zn)}</span>${csvBtn("saout")}</div>
+      <h3 style="font-size:14px;margin:0">Score by month</h3>
+      <div class="sa-hist">${hist.map((x) => `<div class="${x.m === r.v.m ? "on" : ""}"><small>${fmonth(x.m)}</small>${saHeat(x.r.p)}<span class="muted">${int(x.r.n)} audit${x.r.n === 1 ? "" : "s"}</span></div>`).join("")}</div>
+      <h3 style="font-size:14px;margin:0">By category (latest audit${pr ? ` vs ${fmonth(pm)}` : ""})</h3>
+      <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Category</th><th class="num">Points</th><th class="num">Score</th>${pr ? `<th class="num">${fmonth(pm)}</th><th class="num">Change</th>` : ""}</tr></thead><tbody>
+      ${d.cats.map((c, ci) => `<tr><td>${esc(c)}</td><td class="num">${int(r.cats[ci] * d.catMax[ci])} / ${int(d.catMax[ci])}</td><td class="num">${saHeat(r.cats[ci])}</td>${pr ? `<td class="num">${saPct(pr.cats[ci])}</td><td class="num">${delta(isNum(r.cats[ci]) && isNum(pr.cats[ci]) ? r.cats[ci] - pr.cats[ci] : null, "pp")}</td>` : ""}</tr>`).join("")}</tbody></table></div>
+      <h3 style="font-size:14px;margin:0">Points lost in the latest audit (${int(lost.length)} questions)</h3>
+      <div class="table-wrap" style="max-height:320px"><table class="compact"><thead><tr><th>Question</th><th class="num">Scored</th><th class="num">Share</th></tr></thead><tbody>
+      ${lost.map((x) => `<tr><td><span class="cell-primary">${esc(x.q[2])}</span><span class="cell-secondary">${esc(d.cats[x.q[1]])}</span></td><td class="num">${x.s} / ${x.q[4]}</td><td class="num">${saHeat(x.s / x.q[4])}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">Full marks on every question.</td></tr>'}</tbody></table></div>
+      <h3 style="font-size:14px;margin:0">Audits in ${fmonth(r.v.m)}</h3>
+      <div class="table-wrap" style="max-height:260px"><table class="compact"><thead><tr><th>Date</th><th>Auditor</th><th class="num">Score</th><th class="num">Answered</th></tr></thead><tbody>
+      ${visits.map((x) => `<tr><td>${fdate(x.date, true)} <small class="muted">${esc(x.time)}</small></td><td>${esc(x.aud)}</td><td class="num">${saHeat(x.p)}</td><td class="num">${int(x.answered)}</td></tr>`).join("")}</tbody></table></div>
+      <h3 style="font-size:14px;margin:0">Auditors' remarks</h3><div id="saRem" data-code="${esc(code)}"><p class="muted" style="margin:0">Loading remarks…</p></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+    saRemarks(code, visits);
+  }
+  function saRemarks(code, visits) {
+    const box = $("#saRem"); if (!box || box.dataset.code !== code) return;
+    if (!S.saRem) {
+      if (!S.saRemP) S.saRemP = fetch("data/sa-remarks.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : {})).catch(() => ({})).then((x) => { S.saRem = x; });
+      S.saRemP.then(() => saRemarks(code, visits));
+      return;
+    }
+    const items = visits.flatMap((x) => (S.saRem[String(x.rid)] || []).map(([ci, t]) => ({ x, ci, t })));
+    box.innerHTML = items.length ? `<div class="sa-rem">${items.map(({ x, ci, t }) => `<div><small>${fdate(x.date, true)} · ${esc(x.aud)} · ${esc(S.sa.cats[ci] || "")}</small><p>${esc(t)}</p></div>`).join("")}</div>` : '<p class="muted" style="margin:0">No remarks this month.</p>';
+  }
+  // Drawer: outlets that lost points on one question.
+  function openSaQuestion(i) {
+    const d = S.sa, q = d.questions[i], m = saMonth(), rows = saInView(m).filter((r) => isNum(r.v.q[i]) && r.v.q[i] < q[4]).sort((a, b) => a.v.q[i] - b.v.q[i]);
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    NCSV.saq = () => [`store_question_${q[0]}_${m}`, ["Outlet code", "Outlet", "Regional leader", "Zonal", "Scored", "Max", "Audit date", "Auditor"], rows.map((r) => [r.c, r.nm, r.dim.rl, r.dim.zn, r.v.q[i], q[4], r.v.date, r.v.aud]), "latest"];
+    $("#drawerTitle").textContent = `${q[2]}: outlets losing points`;
+    $("#drawerBody").innerHTML = `<div class="lr-dtools"><span class="muted">${esc(d.cats[q[1]])} · ${q[4]} points · ${int(rows.length)} outlets below full marks in their latest ${fmonth(m)} audit, lowest first.</span>${csvBtn("saq")}</div>
+      <div class="table-wrap" style="max-height:600px"><table class="compact"><thead><tr><th>Outlet</th><th class="num">Scored</th><th>Audit</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr data-saout="${esc(r.c)}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(r.c)} ${esc(r.nm)}</span><span class="cell-secondary">${esc(r.dim.rl)}, ${esc(r.dim.zn)}</span></td><td class="num">${saHeat(r.v.q[i] / q[4])} <small class="muted">${r.v.q[i]} / ${q[4]}</small></td><td>${fdate(r.v.date, true)} · ${esc(r.v.aud)}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">Every outlet scored full marks.</td></tr>'}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  // Drawer: one grade's outlets, or one auditor's audits.
+  function openSaList(kind, val) {
+    const d = S.sa, m = saMonth(), rows = saInView(m);
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    let title, list, head, csvRows, csvHead;
+    if (kind === "grade") {
+      const gg = SA_GRADES.find((x) => x.k === val); title = `${gg.label} outlets, ${fmonth(m)}`;
+      list = rows.filter((r) => r.grade.k === val).sort((a, b) => a.p - b.p).map((r) => ({ c: r.c, a: `${r.c} ${r.nm}`, b: `${r.dim.rl}, ${r.dim.zn}`, p: r.p, e: `${fdate(r.v.date, true)} · ${r.v.aud}` }));
+      csvHead = ["Outlet code", "Outlet", "Regional leader", "Zonal", "Score %", "Latest audit", "Auditor"];
+      csvRows = rows.filter((r) => r.grade.k === val).map((r) => [r.c, r.nm, r.dim.rl, r.dim.zn, pcsv(r.p), r.v.date, r.v.aud]);
+      head = `${int(list.length)} outlets graded ${gg.label.toLowerCase()} by their latest audit.`;
+    } else {
+      const vs = rows.flatMap((r) => r.list).filter((x) => x.aud === val).sort((a, b) => (`${b.date}${b.time}` > `${a.date}${a.time}` ? 1 : -1));
+      title = `${val}: audits in ${fmonth(m)}`;
+      list = vs.map((x) => ({ c: x.c, a: `${x.c} ${d.nameOf(x.c)}`, b: d.dimOf(x.c).zn, p: x.p, e: `${fdate(x.date, true)} ${x.time}` }));
+      csvHead = ["Outlet code", "Outlet", "Zonal", "Date", "Time", "Score %"];
+      csvRows = vs.map((x) => [x.c, d.nameOf(x.c), d.dimOf(x.c).zn, x.date, x.time, pcsv(x.p)]);
+      head = `${int(vs.length)} audits at ${int(new Set(vs.map((x) => x.c)).size)} outlets.`;
+    }
+    NCSV.salist = () => [`store_${kind}_${String(val).toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${m}`, csvHead, csvRows, "latest"];
+    $("#drawerTitle").textContent = title;
+    $("#drawerBody").innerHTML = `<div class="lr-dtools"><span class="muted">${esc(head)} Click an outlet for its audits.</span>${csvBtn("salist")}</div>
+      <div class="table-wrap" style="max-height:620px"><table class="compact"><thead><tr><th>Outlet</th><th class="num">Score</th><th>${kind === "grade" ? "Latest audit" : "Audit"}</th></tr></thead><tbody>
+      ${list.map((x) => `<tr data-saout="${esc(x.c)}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(x.a)}</span><span class="cell-secondary">${esc(x.b)}</span></td><td class="num">${saHeat(x.p)}</td><td>${esc(x.e)}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">None.</td></tr>'}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  function saQualityPanel() {
+    const head = `<div class="panel-head"><div><h2>Store assessment files</h2><p>From the Store Assessment Drive folder, recognised by their columns (Response Summary and Answer Details). Each month comes from the audit dates.</p></div></div>`;
+    if (!S.sa) { loadSa(); return `<section class="panel">${head}<div class="panel-body"><p class="muted" style="margin:0">${S.saErr ? `sa.json could not be loaded (${esc(S.saErr)}).` : "Loading…"}</p></div></section>`; }
+    const d = S.sa, lvl = { warn: "warn", info: "info", error: "bad" };
+    return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th>Months</th><th class="num">Audits</th><th>Updated in Drive</th></tr></thead><tbody>
+      ${d.source.files.map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td>${(f.months || []).map(fmonth).join(", ")}</td><td class="num">${int(f.audits)}</td><td>${f.modifiedIso ? fdate(f.modifiedIso) : esc(f.modified || "—")}</td></tr>`).join("")}</tbody></table></div>
+      <div class="panel-body">${(d.issues || []).map((i) => `<div class="issue"><span>${chip({ cls: lvl[i.level] || "info", label: i.level === "warn" ? "Warning" : "Note" })}</span><div>${esc(i.message)}</div></div>`).join("") || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
+  }
+  function wireSa(root) {
+    $$("[data-sasel]", root).forEach((s) => (s.onchange = () => { S.sav[s.dataset.sasel] = s.value; changed(); }));
+    $$("[data-saset]", root).forEach((b) => (b.onclick = () => { S.sav[b.dataset.saset] = b.dataset.val; changed(); }));
+    const click = (sel, fn) => $$(sel, root).forEach((n) => { n.onclick = (e) => { e.stopPropagation(); fn(n); }; n.onkeydown = (e) => { if (e.key === "Enter") fn(n); }; });
+    click("[data-saout]", (n) => openSaOutlet(n.dataset.saout));
+    click("[data-saq]", (n) => openSaQuestion(Number(n.dataset.saq)));
+    click("[data-sagrade]", (n) => openSaList("grade", n.dataset.sagrade));
+    click("[data-saaud]", (n) => openSaList("auditor", n.dataset.saaud));
+    click("[data-sacat]", (n) => { S.sav.qcat = n.dataset.sacat; location.hash = "saq"; });
+  }
+
   // ------------------------------------------------------------------ item performance (data/sku.json)
   // This year vs same period last year by outlet x SKU, from the Item Dashboard performance workbooks.
   // Sales = POS NSI, GP = POS GP value, Qty = POS sales quantity. Footfall and basket size are not
@@ -4663,7 +5004,7 @@
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, sao: pageSAO, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
@@ -4692,7 +5033,7 @@
     try { localStorage.setItem("opsdash-theme", t); } catch (e) {}
     if (NET_PAGES.has(S.page)) render(); // charts resolve colour tokens when drawn
   });
-  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
+  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });
