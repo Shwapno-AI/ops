@@ -154,12 +154,20 @@ def list_public(folder_id: str) -> list[dict]:
     return items
 
 
+# Sub-folders that other scripts read on their own and that hold large files nobody else needs (the Store
+# Assessment audit exports, about 100 MB each): skipped when walking a parent folder, so the sales,
+# consumable, availability and network refreshes don't download them just to ignore them.
+SKIP_SUBFOLDERS = {s.strip() for s in (os.environ.get("WALK_SKIP_FOLDERS") or "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF").split(",") if s.strip()}
+
+
 def walk(folder_id: str, path: str = "", depth: int = 0) -> list[dict]:
     items = list_with_api(folder_id) if API_KEY else list_public(folder_id)
     found: list[dict] = []
     for item in items:
         item["path"] = f"{path}{item['name']}"
         if item["mimeType"] == FOLDER_MIME:
+            if item["id"] in SKIP_SUBFOLDERS:
+                continue
             if depth < MAX_DEPTH:
                 found.extend(walk(item["id"], item["path"] + "/", depth + 1))
         else:

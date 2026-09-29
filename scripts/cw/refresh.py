@@ -44,7 +44,10 @@ OUT = Path(os.environ.get("CW_OUT") or ROOT / "data" / "cw.json")
 DATA_SUFFIXES = (".xlsx", ".xlsm", ".xls", ".txt", ".csv", ".tsv")
 WASTAGE_MOVES = {"551", "552"}
 CONSUMABLE_MOVES = {"Z21", "Z22", "201", "202"}
-SALES_LAYOUTS = ({"outlet code", "date", "division", "pos nsi"}, {"outlet", "date", "article division", "pos nsi"})
+def is_sales(heads):
+    """A sales till-date header: an outlet, a date, a division and POS NSI column, under any of the names the
+    reader accepts (e.g. "Outlet Code" with "Article Division", or "Outlet" with "Division")."""
+    return all(heads & aliases for aliases in bd.SALES_ALIASES.values())
 ZONE_HEADERS = {"code", "outlet name", "format", "division", "district", "pnp non pnp status", "status"}
 TARGET_HEADERS = {"final criteria", *(h.casefold() for h in bd.TARGET_COLUMNS.values())}
 
@@ -105,7 +108,7 @@ def classify(path):
     for cells, heads in sheet_headers(path):
         if bd.locate_sap_header(cells) is not None:
             return sap_kind(path)
-        if any(layout <= heads for layout in SALES_LAYOUTS):
+        if is_sales(heads):
             return "sales", sales_latest(path)
         if ZONE_HEADERS <= heads:
             return "zones", None
@@ -119,7 +122,7 @@ def table_kind(path):
     data = path.read_bytes()
     if data[:4] == b"PK\x03\x04":
         for ws, i, heads in sheet_headers(path):
-            if any(layout <= heads for layout in SALES_LAYOUTS):
+            if is_sales(heads):
                 return "sales", sales_latest(path)
             if ZONE_HEADERS <= heads:
                 return "zones", None
