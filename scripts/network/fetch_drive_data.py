@@ -374,8 +374,11 @@ def main() -> int:
             # before the target month wins (the month-end report, not the till-date one).
             options.sort(key=lambda f: (period_match(role, f, candidates), modified_sort_key(f)), reverse=True)
             if len(options) > 1:
-                log(f"::warning::{len(options)} {spec['label']} workbooks found; using {options[0]['path']}. "
-                    f"Others: {', '.join(o['path'] for o in options[1:])}")
+                # Month-end and till-date reports both carry an SPLY sheet. When exactly one of them covers
+                # the month before the target month, the choice is certain: say so without a warning.
+                clear = role == "lastMonth" and period_match(role, options[0], candidates) and not any(period_match(role, o, candidates) for o in options[1:])
+                log(f"{'  ' if clear else '::warning::'}{len(options)} {spec['label']} workbooks found; using {options[0]['path']}"
+                    f"{' (its SPLY period is last month)' if clear else ''}. Others: {', '.join(o['path'] for o in options[1:])}")
             chosen[role] = options[0]
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
