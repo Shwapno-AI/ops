@@ -584,7 +584,7 @@
       ${cwQualityPanel()}
       ${avQualityPanel()}
       <section class="panel"><div class="panel-head"><div><h2>How updates work</h2></div></div>
-        <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The dashboard checks the folders every hour between 8 am and 11 pm and refreshes on its own. To refresh straight away, open the repository on GitHub, go to Actions, choose "Refresh data" and press "Run workflow". If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
+        <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The server checks the Drive folders every 5 minutes, day and night, and refreshes as soon as a file is added, replaced, renamed or removed; new figures usually show within 5 to 15 minutes (item-performance workbooks take about 10 minutes more to process). It also does a full refresh every hour between 8 am and 11 pm. Receiving is renewed from Power BI every 10 minutes. If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
   }
 
   // A fresh query string on each load, so the browser can't reuse an old cached copy of the connected dashboard.

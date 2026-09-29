@@ -58,13 +58,13 @@ Without a last-month workbook every last-month figure shows as —. The month-en
 
 ## Deploy on Coolify (private)
 
-The same repository deploys to Coolify with the included `Dockerfile`. The container serves the site and downloads the Drive files itself every hour, so it doesn't depend on GitHub Actions.
+The same repository deploys to Coolify with the included `Dockerfile`. The container serves the site and downloads the Drive files itself, so it doesn't depend on GitHub Actions. It checks the Drive folders every 5 minutes (`scripts/watch_drive.py`, names and modified times only) and refreshes as soon as a file is added, replaced, renamed or removed, plus a full refresh every hour.
 
 1. In Coolify: **New resource → Application**, pick the GitHub repository (public or private).
 2. Build pack: **Dockerfile**. Port: **80**.
 3. Environment variables (optional):
    - `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` put a login on the whole site. Leave them empty for no login.
-   - `REFRESH_MINUTES` sets how often Drive is checked (default 60).
+   - `WATCH_MINUTES` sets how often the Drive folders are checked for changes (default 5, day and night); `REFRESH_MINUTES` sets the full backstop refresh (default 60).
    - `REFRESH_FROM` and `REFRESH_TO` set the Dhaka-time hours when refreshes run (default 8 to 23); the first refresh always runs at start-up.
 4. Add your domain, then **Deploy**. The first refresh runs as soon as the container starts.
 
@@ -84,4 +84,4 @@ Coolify: press **Restart** on the application; the refresh runs at start-up.
 - `scripts/cw/refresh.py` — downloads the Consumable & Wastage Control folder (Target.txt, Sales-Till, Zone Distribution, CONSUMABLE, WASTAGE) and builds `data/cw.json`
 - `.github/workflows/refresh-data.yml` — the hourly refresh
 - `data/data.json`, `data/network.json`, `data/network-sync.json`, `data/cw.json`, `data/av.json` — generated data (don't edit by hand)
-- `Dockerfile`, `deploy/` — Coolify / Docker packaging (nginx + hourly refresh + optional login)
+- `Dockerfile`, `deploy/` — Coolify / Docker packaging (nginx + Drive watch every 5 minutes + hourly refresh + optional login)
