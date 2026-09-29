@@ -480,22 +480,31 @@
   const gpickAttr = (id, level) => (x) => (x.o ? outletAttr(x) : `data-gpick="${esc(id)}" data-glevel="${esc(level)}" data-gkey="${esc(x.key)}" tabindex="0" title="List ${esc(x.name)}'s outlets"`);
   const gBanner = (id, d) => (d ? `<div class="drill-banner">Showing the outlets of <strong>${esc(AV_PAGES.has(S.page) ? AV_LEVELS[d.level] || levelName(d.level) : levelName(d.level))}: ${esc(d.key === "Not in outlet master" ? "Unassigned" : d.key)}</strong> within the sidebar filters. <button type="button" data-gclear="${esc(id)}">Back to all ${esc(AV_PAGES.has(S.page) && d.level === "rl" ? "RHOs" : (AV_PAGES.has(S.page) ? AV_LEVELS[d.level] || levelName(d.level) : levelName(d.level)).toLowerCase() + "s")}</button></div>` : "");
 
-  // Three-level drill for leader tables: regional leader > zonal > outlet.
-  // st is the state key in S ({ lvl, rl, zn }), id the table id, list the outlets (each with .dim) used to map zonals to leaders.
-  function leaderDrill(st, id, list, hint, get = { rl: (o) => o.dim.rl, zn: (o) => o.dim.zn }) {
-    const V = S[st], rlOf = {};
-    list.forEach((o) => { const z = get.zn(o); if (z && !rlOf[z]) rlOf[z] = get.rl(o); });
-    const at = V.zn ? "outlet" : V.rl ? "zn" : V.lvl;
+  // Drill for leader tables, two paths: regional leader > zonal > outlet, and division > district > outlet.
+  // st is the state key in S ({ lvl, rl, zn, div, dis }), id the table id, list the rows (each with .dim, or read
+  // through `get`) used to map zonals to leaders and districts to divisions.
+  const LVL_ONE = { rl: "Regional leader", zn: "Zonal", div: "Division", dis: "District", outlet: "Outlet" };
+  const LVL_MANY = { rl: "Regional leaders", zn: "Zonal leaders", div: "Divisions", dis: "Districts", outlet: "Outlets" };
+  function leaderDrill(st, id, list, hint, get = {}) {
+    const g = { rl: (o) => o.dim.rl, zn: (o) => o.dim.zn, div: (o) => o.dim.div, dis: (o) => o.dim.dis, ...get };
+    const V = S[st], rlOf = {}, divOf = {};
+    list.forEach((o) => { const z = g.zn(o); if (z && !rlOf[z]) rlOf[z] = g.rl(o); const t = g.dis(o); if (t && !divOf[t]) divOf[t] = g.div(o); });
+    const at = V.zn || V.dis ? "outlet" : V.rl ? "zn" : V.div ? "dis" : V.lvl;
+    const geo = !!(V.div || V.dis);
     const d = `data-dst="${st}" data-dtab="${id}"`;
-    const btn = (k, t) => `<button type="button" ${d} data-dlvl="${k}" aria-pressed="${!V.rl && !V.zn && V.lvl === k}">${t}</button>`;
+    const btn = (k) => `<button type="button" ${d} data-dlvl="${k}" aria-pressed="${!V.rl && !V.zn && !V.div && !V.dis && V.lvl === k}">${LVL_MANY[k]}</button>`;
+    const crumb = (label, go, last) => (last ? `<strong>${esc(label)}</strong>` : `<button type="button" ${d} data-dgo="${go}">${esc(label)}</button>`);
+    const trail = geo ? [crumb(V.lvl === "dis" ? "Districts" : "Divisions", "top"), V.div && crumb(V.div, "div", !V.dis), V.dis && crumb(V.dis, "", true)]
+      : [crumb(V.lvl === "zn" ? "Zonal leaders" : "Regional leaders", "top"), V.rl && crumb(V.rl, "rl", !V.zn), V.zn && crumb(V.zn, "", true)];
     return {
-      V, at, rlOf,
-      inPath: (o) => (!V.rl || get.rl(o) === V.rl) && (!V.zn || get.zn(o) === V.zn),
-      tools: `<div class="seg" role="group" aria-label="Level">${btn("rl", "Regional leaders")}${btn("zn", "Zonal leaders")}${btn("outlet", "Outlets")}</div>`,
-      crumbs: V.rl || V.zn ? `<div class="drill-banner"><button type="button" ${d} data-dgo="top">${V.lvl === "zn" ? "Zonal leaders" : "Regional leaders"}</button>${V.rl ? ` › ${V.zn ? `<button type="button" ${d} data-dgo="rl">${esc(V.rl)}</button>` : `<strong>${esc(V.rl)}</strong>`}` : ""}${V.zn ? ` › <strong>${esc(V.zn)}</strong>` : ""}<span class="muted">· ${at === "zn" ? "click a zonal for its outlets" : hint}</span></div>` : "",
-      pick: (x) => `${d} data-dpick="${at}" data-dkey="${esc(x.key)}" tabindex="0" title="${at === "rl" ? `See ${esc(x.name)}'s zonals` : `List ${esc(x.name)}'s outlets`}"`,
+      V, at, rlOf, divOf,
+      inPath: (o) => (!V.rl || g.rl(o) === V.rl) && (!V.zn || g.zn(o) === V.zn) && (!V.div || g.div(o) === V.div) && (!V.dis || g.dis(o) === V.dis),
+      tools: `<div class="seg" role="group" aria-label="Level">${["rl", "zn", "div", "dis", "outlet"].map(btn).join("")}</div>`,
+      crumbs: V.rl || V.zn || V.div || V.dis ? `<div class="drill-banner">${trail.filter(Boolean).join(" › ")}<span class="muted">· ${at === "zn" ? "click a zonal for its outlets" : at === "dis" ? "click a district for its outlets" : hint}</span></div>` : "",
+      pick: (x) => `${d} data-dpick="${at}" data-dkey="${esc(x.key)}" tabindex="0" title="${at === "rl" ? `See ${esc(x.name)}'s zonals` : at === "div" ? `See the districts of ${esc(x.name)}` : `List ${esc(x.name)}'s outlets`}"`,
       zsub: (key, sub) => (V.rl ? sub : `${rlOf[key] || "—"} · ${sub}`),
-      file: (base) => (V.zn ? `${base}_outlets_${V.zn}` : V.rl ? `${base}_zonals_${V.rl}` : `${base}_${{ rl: "regional_leaders", zn: "zonal_leaders", outlet: "outlets" }[at]}`).toLowerCase().replace(/[^a-z0-9_]+/g, "_"),
+      title: (outletsOf = "Outlets of") => (V.zn ? `${outletsOf} ${V.zn}` : V.dis ? `${outletsOf} ${V.dis}` : V.rl ? `Zonals of ${V.rl}` : V.div ? `Districts of ${V.div}` : LVL_MANY[at]),
+      file: (base) => (V.zn ? `${base}_outlets_${V.zn}` : V.dis ? `${base}_outlets_${V.dis}` : V.rl ? `${base}_zonals_${V.rl}` : V.div ? `${base}_districts_${V.div}` : `${base}_${{ rl: "regional_leaders", zn: "zonal_leaders", div: "divisions", dis: "districts", outlet: "outlets" }[at]}`).toLowerCase().replace(/[^a-z0-9_]+/g, "_"),
     };
   }
 
@@ -525,7 +534,7 @@
     let lrows = levelRows(list.filter(D.inPath), at);
     if (at === "zn") lrows = lrows.map((x) => ({ ...x, sub: D.zsub(x.key, x.sub) }));
     const league = mountTable("ov-league", {
-      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file("sales"), banner: D.crumbs, tools: D.tools,
+      title: D.title(), file: D.file("sales"), banner: D.crumbs, tools: D.tools,
       desc: (n) => (at === "outlet" ? `${n} outlet${n === 1 ? "" : "s"}. Click an outlet for its profile.` : at === "zn" ? `${n} zonal${n === 1 ? "" : "s"}. Achievement and growth for the outlets in view. Click a zonal to list its outlets.` : `${n} regional leaders. Achievement and growth for the outlets in view. Click a leader to see their zonals.`),
       rows: lrows, cols: achCols(r, at), key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "a", pageSize: 25,
       rowAttr: (x) => (x.o ? outletAttr(x) : D.pick(x)),
@@ -694,12 +703,13 @@
       if (!follow) return;
       requestAnimationFrame(() => { const el = $("#t-" + id), top = $(".topbar")?.offsetHeight || 0; if (el && el.getBoundingClientRect().top < top) scrollTo(0, scrollY + el.getBoundingClientRect().top - top - 12); });
     };
-    $$("[data-dlvl]", root).forEach((b) => (b.onclick = () => { S[b.dataset.dst] = { lvl: b.dataset.dlvl, rl: null, zn: null }; dGo(b); }));
+    $$("[data-dlvl]", root).forEach((b) => (b.onclick = () => { S[b.dataset.dst] = { lvl: b.dataset.dlvl, rl: null, zn: null, div: null, dis: null }; dGo(b); }));
     $$("[data-dpick]", root).forEach((tr) => {
-      const go = () => { const V = S[tr.dataset.dst]; if (tr.dataset.dpick === "rl") V.rl = tr.dataset.dkey; else V.zn = tr.dataset.dkey; dGo(tr, true); };
+      const go = () => { const V = S[tr.dataset.dst]; V[tr.dataset.dpick] = tr.dataset.dkey; dGo(tr, true); };
       tr.onclick = go; tr.onkeydown = (e) => { if (e.key === "Enter") go(); };
     });
-    $$("[data-dgo]", root).forEach((b) => (b.onclick = () => { const V = S[b.dataset.dst]; if (b.dataset.dgo === "top") { V.rl = null; V.zn = null; } else V.zn = null; dGo(b, true); }));
+    // breadcrumb: "top" clears the drill, "rl" goes back to a leader's zonals, "div" back to a division's districts
+    $$("[data-dgo]", root).forEach((b) => (b.onclick = () => { const V = S[b.dataset.dst], g = b.dataset.dgo; if (g === "top") Object.assign(V, { rl: null, zn: null, div: null, dis: null }); else if (g === "div") V.dis = null; else V.zn = null; dGo(b, true); }));
     $$("[data-uitoggle]", root).forEach((b) => (b.onclick = () => { UI[b.dataset.uitoggle] = !UI[b.dataset.uitoggle]; saveUI(); render(); }));
     wireNet(root);
     wireCw(root);
@@ -1439,11 +1449,11 @@
       inPath.forEach((x) => { const k = x.o.dim[at]; if (!g.has(k)) g.set(k, []); g.get(k).push(x); });
       grpRows = [...g.entries()].map(([k, xs]) => { const l = xs.filter((x) => x.loss); return { key: k, name: k, sub: (() => { const t = `${int(xs.length)} outlet${xs.length === 1 ? "" : "s"}`; return at === "zn" ? D.zsub(k, t) : t; })(), n: xs.length, l: l.length, share: l.length / xs.length, loss: sum(l, "pl"), net: sum(xs, "pl"), s: xs.reduce((t, x) => t + (x.o.s || 0), 0) }; });
     }
-    const nameLbl = { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at];
+    const nameLbl = LVL_ONE[at];
     const grp = mountTable("loss-grp", {
-      title: V.zn ? `Loss-making outlets of ${V.zn}` : V.rl ? `Loss by zonal under ${V.rl}` : { rl: "Loss by regional leader", zn: "Loss by zonal", outlet: "Loss-making outlets" }[at], file: D.file(`loss_${S.pm}`), pageSize: 25,
+      title: V.zn || V.dis ? `Loss-making outlets of ${V.zn || V.dis}` : V.rl ? `Loss by zonal under ${V.rl}` : V.div ? `Loss by district in ${V.div}` : { rl: "Loss by regional leader", zn: "Loss by zonal", div: "Loss by division", dis: "Loss by district", outlet: "Loss-making outlets" }[at], file: D.file(`loss_${S.pm}`), pageSize: 25,
       banner: D.crumbs, tools: D.tools,
-      desc: (n) => (at === "outlet" ? `${int(n)} loss-making outlet${n === 1 ? "" : "s"}, P&L ${basisLbl}, biggest loss first. Click an outlet for its cost breakdown.` : `${int(n)} ${at === "zn" ? "zonals" : "regional leaders"}, P&L ${basisLbl}. Click ${at === "zn" ? "a zonal to list its outlets" : "a leader to see their zonals"}. The loss-making list below follows your selection.`),
+      desc: (n) => (at === "outlet" ? `${int(n)} loss-making outlet${n === 1 ? "" : "s"}, P&L ${basisLbl}, biggest loss first. Click an outlet for its cost breakdown.` : `${int(n)} ${LVL_MANY[at].toLowerCase()}, P&L ${basisLbl}. Click ${at === "rl" ? "a leader to see their zonals" : at === "div" ? "a division to see its districts" : "a row to list its outlets"}. The loss-making list below follows your selection.`),
       rows: grpRows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "l", defaultDir: "desc",
       rowAttr: (x) => (at === "outlet" ? `data-pnl="${esc(x.key)}" tabindex="0"` : D.pick(x)),
       cols: at === "outlet"
@@ -2841,15 +2851,15 @@
   // Group table used by the overview comparison and the league tables. Clicking a group lists its outlets.
   function cwGroupTable(id, v, dim, metric, extraTools, title, D) {
     const def = CWM[metric], gd = D ? null : gdrill(id, dim);
-    const CWD = { rl: "regionalLeader", zn: "zone", outlet: "outlet" };
+    const CWD = { rl: "regionalLeader", zn: "zone", div: "division", dis: "district", outlet: "outlet" };
     const rows = D ? cwGroups(v.metrics.filter(D.inPath), CWD[D.at]) : gd ? cwGroups(v.metrics.filter((r) => (r[dim] || "Unmapped") === gd.key), "outlet") : cwGroups(v.metrics, dim);
     if (D && D.at === "zn") rows.forEach((x) => (x.sub = D.zsub(x.key, x.sub)));
     const lvl = D ? CWD[D.at] : gd ? "outlet" : dim;
-    if (D) title = D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[D.at];
+    if (D) title = D.title();
     rows.forEach((x) => { x.metric = x[metric]; x.target = x.targets[metric]; x.variance = isNum(x.metric) && isNum(x.target) ? x.metric - x.target : null; x.base = x[def.den]; x.value = x[def.num]; });
     return mountTable(id, {
       title: gd ? `Outlets of ${gd.key}` : title, file: D ? D.file(`cw_${metric}`) : `cw_${id}_${lvl}_${metric}`, stamp: S.cwv.to, banner: D ? D.crumbs : gBanner(id, gd),
-      desc: (n) => `${int(n)} ${D ? ({ regionalLeader: "regional leaders", zone: n === 1 ? "zonal" : "zonals", outlet: n === 1 ? "outlet" : "outlets" }[lvl]) : "rows"}. ${def.label}, weighted; lower is better. ${lvl === "outlet" ? "Click an outlet for its profile." : D && lvl === "regionalLeader" ? "Click a leader to see their zonals." : "Click a row to list its outlets."}`,
+      desc: (n) => `${int(n)} ${D ? ({ regionalLeader: "regional leaders", zone: n === 1 ? "zonal" : "zonals", division: n === 1 ? "division" : "divisions", district: n === 1 ? "district" : "districts", outlet: n === 1 ? "outlet" : "outlets" }[lvl]) : "rows"}. ${def.label}, weighted; lower is better. ${lvl === "outlet" ? "Click an outlet for its profile." : D && lvl === "regionalLeader" ? "Click a leader to see their zonals." : D && lvl === "division" ? "Click a division to see its districts." : "Click a row to list its outlets."}`,
       rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "metric", tools: D ? `${D.tools}${extraTools}` : extraTools, pageSize: 25,
       rowAttr: (x) => (x.code ? cwOutletAttr(x) : D ? D.pick(x) : `data-gpick="${id}" data-glevel="${esc(dim)}" data-gkey="${esc(x.key)}" tabindex="0" title="List ${esc(x.name)}'s outlets"`),
       cols: [
@@ -2886,7 +2896,7 @@
       movers = `<section class="panel"><div class="panel-head"><div><h2>Biggest movers</h2><p>${esc(CWM[k].label)} against ${fdate(v.prior.from)} to ${fdate(v.prior.to)}.</p></div><div class="panel-tools">${cwSel("moversMetric", CW_METRIC_OPTS, "Movers metric")}</div></div>
         <div class="panel-body grid-h"><div><h3 class="cw-h3">Worsened</h3>${list([...moved].sort((x, y) => y.ch - x.ch).slice(0, 6), "down")}</div><div><h3 class="cw-h3">Improved</h3>${list([...moved].sort((x, y) => x.ch - y.ch).slice(0, 6), "up")}</div></div></section>`;
     }
-    const HD = leaderDrill("cwh", "cw-rank", v.metrics, "click an outlet for its profile", { rl: (r) => r.regionalLeader || "Unmapped", zn: (r) => r.zone || "Unmapped" });
+    const HD = leaderDrill("cwh", "cw-rank", v.metrics, "click an outlet for its profile", { rl: (r) => r.regionalLeader || "Unmapped", zn: (r) => r.zone || "Unmapped", div: (r) => r.division || "Unmapped", dis: (r) => r.district || "Unmapped" });
     const rank = cwGroupTable("cw-rank", v, null, f.rankMetric, cwSel("rankMetric", CW_METRIC_OPTS, "Metric"), "Hierarchy comparison", HD);
     AFTER.push(() => cwTrend(v));
     const defs = S.cw.metricDefinitions || {};
@@ -4184,11 +4194,11 @@
       rows = [...gm].map(([k, os]) => ({ key: k, name: k, sub: at === "zn" ? DR.zsub(k, `${int(os.length)} outlets`) : `${int(os.length)} outlets`, ...rcSum(os, days) }));
     }
     const t = rcSum(inPath, days);
-    const nameL = { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at];
+    const nameL = LVL_ONE[at];
     const table = mountTable("rc-out", {
-      title: DR.V.zn ? `Outlets of ${DR.V.zn}` : DR.V.rl ? `Zonals of ${DR.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: DR.file("receiving"), stamp: D.range.end,
+      title: DR.title(), file: DR.file("receiving"), stamp: D.range.end,
       banner: DR.crumbs, tools: DR.tools,
-      desc: (n) => `${int(n)} ${at === "outlet" ? "outlets" : at === "zn" ? "zonals" : "regional leaders"}. Receipt balance is received minus sold; stock days is inventory divided by average daily sales. Over-receiving value is shown per outlet (it doesn't add up across outlets).`,
+      desc: (n) => `${int(n)} ${LVL_MANY[at].toLowerCase()}. Receipt balance is received minus sold; stock days is inventory divided by average daily sales. Over-receiving value is shown per outlet (it doesn't add up across outlets).`,
       rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "oi", pageSize: 25, rowAttr: (x) => (x.o ? rcAttr({ outlet: x.o.c, rho: "", zn: "" }, "Gap", `${x.o.c} ${x.o.nm}`) : DR.pick(x)),
       cols: rcCols({ k: "name", label: nameL, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet"),
     });
@@ -4444,11 +4454,11 @@
     const D = leaderDrill("sad", "sa-league", rows, "click an outlet for its audits"), at = D.at;
     const lrows = saGroup(rows.filter(D.inPath), prev, at).map((x) => (at === "zn" ? { ...x, sub: D.zsub(x.key, x.sub) } : x));
     const league = mountTable("sa-league", {
-      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file(`store_assessment_${m}`), banner: D.crumbs, tools: D.tools,
+      title: D.title(), file: D.file(`store_assessment_${m}`), banner: D.crumbs, tools: D.tools,
       desc: (n) => `${int(n)} rows, ${fmonth(m)}${pm ? ` vs ${fmonth(pm)}` : ""}. ${at === "outlet" ? "Click an outlet for its audits, points lost and remarks." : "Click a row to go down a level."}`,
       rows: lrows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "p", defaultDir: "asc", pageSize: 25,
       rowAttr: (x) => (x.o ? `data-saout="${esc(x.o.c)}" tabindex="0" role="button"` : D.pick(x)),
-      cols: [{ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+      cols: [{ k: "name", label: LVL_ONE[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
         { k: "code", label: "Outlet code", hide: 1, csv: (x) => (x.o ? x.o.c : "") },
         ...(at === "outlet" ? [] : [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }]),
         { k: "audits", label: "Audits", num: 1, fmt: (x) => int(x.audits) },
@@ -4489,7 +4499,7 @@
       data = [...gm].map(([k, rs]) => ({ key: k, name: k, sub: at === "zn" ? D.zsub(k, `${int(rs.length)} outlets`) : `${int(rs.length)} outlets`, n: rs.length, p: saAvg(rs), cats: d.cats.map((_, ci) => saCatAvg(rs, ci)), qs: qm ? d.questions.map((_, i) => avgQ(rs, i)) : [] }));
     }
     const short = (t) => (t.length > 18 ? t.slice(0, 17) + "…" : t);
-    const cols = [{ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+    const cols = [{ k: "name", label: LVL_ONE[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
       { k: "code", label: "Outlet code", hide: 1, csv: (x) => (x.o ? x.o.c : "") },
       ...(at === "outlet" ? [] : [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }]),
       { k: "p", label: "Score", num: 1, fmt: (x) => saHeat(x.p), csv: (x) => pcsv(x.p) },
@@ -4608,11 +4618,11 @@
     }
     const leaders = at !== "outlet";
     const t1 = mountTable("sa-vout", {
-      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file(`store_since_last_visit_${m}`), banner: D.crumbs, tools: D.tools,
+      title: D.title(), file: D.file(`store_since_last_visit_${m}`), banner: D.crumbs, tools: D.tools,
       desc: (n) => `${int(n)} rows. Latest ${fmonth(m)} audit against the audit before it; category columns show the change in each category's share of points.${leaders ? " Improved and declined count outlets." : " Click an outlet to see both audits side by side."}`,
       rows: data, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "d", defaultDir: "asc", pageSize: 25,
       rowAttr: (x) => (x.o ? `data-saout="${esc(x.o.c)}" tabindex="0" role="button"` : D.pick(x)),
-      cols: [{ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+      cols: [{ k: "name", label: LVL_ONE[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
         { k: "code", label: "Outlet code", hide: 1, csv: (x) => (x.o ? x.o.c : "") },
         ...(leaders ? [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }] : [{ k: "pd", label: "Previous audit", fmt: (x) => fdate(x.pd, true), csv: (x) => x.pd }]),
         { k: "pp", label: "Previous score", num: 1, fmt: (x) => saHeat(x.pp), csv: (x) => pcsv(x.pp) },
@@ -4915,11 +4925,11 @@
       rows = [...gm].map(([k, os]) => ({ key: k, name: k, sub: at === "zn" ? D.zsub(k, `${int(os.length)} outlets`) : `${int(os.length)} outlets`, n: os.length, ...ipRow(os.reduce((a, o) => ipAdd(a, o.t), [0, 0, 0, 0, 0, 0])) }));
     }
     const table = mountTable("ip-out", {
-      title: D.V.zn ? `Outlets of ${D.V.zn}` : D.V.rl ? `Zonals of ${D.V.rl}` : { rl: "Regional leaders", zn: "Zonal leaders", outlet: "Outlets" }[at], file: D.file("item_performance"), banner: D.crumbs, tools: `${D.tools}${ipScopeSeg()}`,
+      title: D.title(), file: D.file("item_performance"), banner: D.crumbs, tools: `${D.tools}${ipScopeSeg()}`,
       desc: (n) => `${int(n)} rows. Sales growth, GP and quantity against the same period last year. ${at === "outlet" ? "Click an outlet for the SKUs and categories behind its change." : "Click a row to go down a level."}`,
       rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "diff", defaultDir: "asc", pageSize: 25,
       rowAttr: (x) => (x.o ? `data-ipout="${esc(x.o.c)}" tabindex="0" role="button"` : D.pick(x)),
-      cols: ipCols({ k: "name", label: { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" }[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet"),
+      cols: ipCols({ k: "name", label: LVL_ONE[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, at !== "outlet"),
     });
     return `${ipHead()}${ipCards(inPath)}${table}`;
   }
