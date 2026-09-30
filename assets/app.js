@@ -7,7 +7,7 @@
 
   // ------------------------------------------------------------------ config
   const NAV = [
-    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"]] },
+    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Actionable report"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
@@ -57,7 +57,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -4423,6 +4423,245 @@
     return `${rcBar()}${rcHead({ range: { start, end, days }, live: !snapAt, snapAt })}${table}`;
   }
 
+  // ------------------------------------------------------------------ actionable report
+  // One A4 page for the whole company and one per regional leader: sales, loss, consumable and wastage, store
+  // assessment, availability and receiving, each with the outlets that need attention. Built from the same data
+  // and rules as the dashboard pages; downloadable as a PDF (one page or all pages).
+  const AR_PHOTOS = ["azim", "emran", "kabir", "kaushik", "mahbub", "qarin", "ranjan", "riaz", "shadhin", "sunny", "yusuf"];
+  const arPhoto = (rl) => { if (!rl) return "assets/ar/national.jpg"; const k = kname(rl), f = AR_PHOTOS.find((p) => k.endsWith(kname(p))); return f ? `assets/ar/${f}.jpg` : null; };
+  const arRhos = () => [...new Set((S.data?.master?.outlets || []).map((o) => o.rl).filter(Boolean))].sort((a, b) => a.replace(/^M[rs]+\.\s*/, "").localeCompare(b.replace(/^M[rs]+\.\s*/, "")));
+  const arIn = (rl) => (o) => !rl || o.dim?.rl === rl;
+  // Worst / best lists name distributed outlets only; new or closed outlets and distribution centres still count in totals.
+  const arOk = (o) => o.dim?.rl && o.dim.rl !== MISS;
+  // Load every source the report needs; true when all have answered (loaded or failed).
+  function arReady() {
+    if (!S.data) return false;
+    loadCw(); loadAv(); loadSa(); loadSku(); loadRc();
+    return [S.cw || S.cwErr, S.av || S.avErr, S.sa || S.saErr, S.sku || S.skuErr, S.rcv || S.rcErr].every(Boolean);
+  }
+
+  // ---- figures
+  function arSales(rl) {
+    const r = S.data.tilldate; if (!r) return null;
+    const list = r.outlets.filter(arIn(rl)), a = agg(list);
+    const act = list.filter((o) => arOk(o) && o.s > 0); // trading, distributed outlets
+    const ach = act.filter((o) => o.t > 0).map((o) => ({ o, v: o.a / o.t })).sort((x, y) => x.v - y.v);
+    // growth ranks same-store outlets only (the report's own list), so a tiny last-year base can't top the list
+    const comp = act.filter((o) => o.ssy && o.sy > 0).map((o) => ({ o, v: o.s / o.sy - 1 }));
+    const gp = act.filter((o) => o.ssy && isNum(o.gv)).map((o) => ({ o, v: o.gv / o.s, ly: o.sy > 0 && isNum(o.gvy) ? o.gvy / o.sy : null }));
+    // lowest 3 and highest 3; with few outlets each shows once
+    const ends = (xs, n = 3) => { const lo = [...xs].sort((x, y) => x.v - y.v).slice(0, n); return [lo, [...xs].sort((x, y) => y.v - x.v).filter((x) => !lo.includes(x)).slice(0, n)]; };
+    const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, 4);
+    return { r, n: list.length, a, worstAch: ach.slice(0, 3), deg, gro, gpw, gpb };
+  }
+  // Weakest categories, leaving out CONSUMABLES (store supplies, not merchandise).
+  function arCats(rl) {
+    const d = S.sku; if (!d) return null;
+    const codes = new Set(d.outlets.filter(arIn(rl)).map((o) => o.c)), g = new Map();
+    d.cube.forEach((r) => { if (!codes.has(r[0]) || /^consumables$/i.test(r[1]) || /^consumables$/i.test(r[2])) return; const k = `${r[1]}|${r[2]}`, x = g.get(k) || { div: r[1], c1: r[2], ns: 0, nl: 0 }; x.ns += r[3] || 0; x.nl += r[4] || 0; g.set(k, x); });
+    return [...g.values()].filter((x) => x.nl > 0).map((x) => ({ ...x, d: x.ns - x.nl, g: x.ns / x.nl - 1 })).sort((a, b) => a.d - b.d).slice(0, 5);
+  }
+  function arLoss(rl) {
+    const P = S.data.pnl; if (!P?.months?.length) return null;
+    const m = P.months[P.months.length - 1], keep = S.pm;
+    S.pm = m; // last month's P&L, the same rules as the Loss-making outlets page
+    try {
+      const rows = (P.summary[m] || []).filter(arIn(rl)).map((o) => ({ o, ...pnlCalc(o) })).filter((x) => !x.closed), loss = rows.filter((x) => x.loss), by = new Map();
+      loss.forEach((x) => { const k = lossReason(x.o).reason, y = by.get(k) || { reason: k, n: 0, pl: 0 }; y.n++; y.pl += x.pl; by.set(k, y); });
+      return { m, trading: rows.length, n: loss.length, total: loss.reduce((t, x) => t + x.pl, 0), net: rows.reduce((t, x) => t + (x.pl || 0), 0), reasons: [...by.values()].sort((a, b) => a.pl - b.pl), worst: loss.filter((x) => arOk(x.o)).sort((a, b) => a.pl - b.pl).slice(0, 3) };
+    } finally { S.pm = keep; }
+  }
+  function arCw(rl) {
+    const d = S.cw; if (!d) return null;
+    const from = S.cwv.from || d.dateRange.min, to = S.cwv.to || d.dateRange.max;
+    cwStamp(from, to);
+    const outs = d.outlets.filter(arIn(rl)), b = cwBuckets(outs.map((o) => o.code), from, to), metrics = outs.map((o) => cwDecorate(o, b.get(o.code)));
+    return { from, to, s: cwSummarize(metrics), worst: metrics.filter((x) => arOk(x) && x.excessTotal > 0).sort((a, b) => b.excessTotal - a.excessTotal).slice(0, 3) };
+  }
+  function arSa(rl) {
+    const d = S.sa; if (!d) return null;
+    const m = saMonth(), rows = saRows(m).filter(arIn(rl)), audited = new Set(rows.map((r) => r.c)), cats = d.cats.map((_, ci) => saCatAvg(rows, ci));
+    return { m, n: rows.length, p: saAvg(rows), audits: rows.reduce((t, r) => t + r.n, 0), notAud: d.masterRows.filter((o) => arIn(rl)(o) && !audited.has(o.c)).length,
+      cats, weak: saWeakest(cats), gc: SA_GRADES.map((g) => [g, rows.filter((r) => r.grade.k === g.k).length]), worst: rows.filter((r) => arOk(r) && isNum(r.p)).sort((a, b) => a.p - b.p).slice(0, 3) };
+  }
+  function arAv(rl) {
+    const d = S.av; if (!d) return null;
+    const days = avDays(), N = d.S, outs = d.outlets.filter(arIn(rl)), res = { days };
+    for (const type of ["core", "kvi", "promo"]) {
+      const skus = d.skus.filter((s) => s[type]), tot = avAcc(), per = [];
+      for (const o of outs) {
+        const a = avAcc(), base = o.i * N;
+        for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days); avAdd(a, st, sl, days, k); avAdd(tot, st, sl, days, k); }
+        if (a.slots && arOk(o)) per.push({ o, a, v: avRate(a) });
+      }
+      res[type] = { tot, v: avRate(tot), worst: per.sort((x, y) => x.v - y.v).slice(0, 3) };
+    }
+    const skus = d.skus.filter((s) => (s.core || s.promo || s.kvi) && s.nd), nd = new Map();
+    for (const o of outs) {
+      const base = o.i * N;
+      for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i]; if (!nd.has(s.nd)) nd.set(s.nd, avAcc()); avAdd(nd.get(s.nd), st, sl, days, avStatus(st, sl, days)); }
+    }
+    res.nd = [...nd].map(([name, a]) => ({ name, a, v: avRate(a) })).filter((x) => isNum(x.v)).sort((x, y) => x.v - y.v).slice(0, 3);
+    return res;
+  }
+  function arRc(rl) {
+    const d = S.rcv; if (!d) return null;
+    const outs = d.outlets.filter(arIn(rl)), sum = (k) => outs.reduce((t, o) => t + (o[k] || 0), 0);
+    // Over-receiving value is a Power BI measure: the company figure for National, the total of its outlets for a leader.
+    return { range: d.range, n: outs.length, ov: rl ? sum("ov") : d.kpis.ov, oi: sum("oi"), ui: sum("ui"), r: sum("r"), s: sum("s"), worst: outs.filter((o) => arOk(o) && o.ov > 0).sort((a, b) => b.ov - a.ov).slice(0, 3) };
+  }
+
+  // ---- page
+  const arSign = (v, unit = "%") => (isNum(v) ? `<span class="${v > 0.00005 ? "ar-pos" : v < -0.00005 ? "ar-neg" : ""}">${v > 0 ? "▲ +" : v < 0 ? "▼ −" : ""}${unit === "pp" ? Math.abs(v * 100).toFixed(2) + " pp" : Math.abs(v * 100).toFixed(1) + "%"}</span>` : "—");
+  const arO = (code, name, sub) => `<span class="ar-o"><b>${esc(code)}</b> ${esc(name || "")}${sub ? ` <i>· ${esc(sub)}</i>` : ""}</span>`;
+  const arT = (head, rows, empty = "None", cls = "") => `<table class="ar-t ${cls}"><thead><tr>${head.map((h, i) => `<th${i ? ' class="n"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.some((r) => !r.label) ? rows.map((r) => (r.label ? `<tr class="ar-grp"><td colspan="${head.length}">${esc(r.label)}</td></tr>` : `<tr>${r.map((c, i) => `<td${i ? ' class="n"' : ""}>${c}</td>`).join("")}</tr>`)).join("") : `<tr><td colspan="${head.length}" class="ar-empty">${esc(empty)}</td></tr>`}</tbody></table>`; // a row { label } is a group heading
+  const arTile = (label, value, sub = "", tone = "") => `<div class="ar-tile ${tone}"><span>${esc(label)}</span><strong>${value}</strong>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  const arCard = (cls, title, meta, body) => `<section class="ar-card ${cls}"><header><h3>${esc(title)}</h3><span>${meta}</span></header>${body}</section>`;
+  const arMini = (title, table) => `<div class="ar-mini"><h4>${esc(title)}</h4>${table}</div>`;
+  const arNA = (what) => `<p class="ar-empty">${esc(what)} data is not loaded yet.</p>`;
+  function arPage(rl, pageNo, pages) {
+    const master = S.data.master?.outlets || [], mine = master.filter((o) => !rl || o.rl === rl);
+    const zonals = new Set(mine.map((o) => o.zn).filter(Boolean)).size, full = rl ? mine[0]?.rh || rl : "National";
+    const sub = (o) => (rl ? o.dim?.zn || o.zn || "" : o.dim?.rl || o.rl || ""); // zonal on a leader's page, leader on National
+    const photo = arPhoto(rl), gen = new Date().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" });
+    const head = `<header class="ar-head">${photo ? `<img src="${photo}" alt="">` : `<div class="ar-noimg">${esc((rl || "N").replace(/^M[rs]+\.\s*/, "")[0])}</div>`}
+      <div class="ar-who"><p>Actionable report</p><h1>${esc(full)}</h1><div>${rl ? `${esc(rl)} · ` : ""}${int(mine.length)} outlets · ${int(zonals)} zonals${rl ? "" : ` · ${int(arRhos().length)} regional leaders`}</div></div>
+      <div class="ar-when"><b>${esc(fmonth(S.data.tilldate?.date?.slice(0, 7) || new Date().toISOString().slice(0, 7)))}</b><span>Generated ${esc(gen)}</span><span>Page ${pageNo} of ${pages}</span></div></header>`;
+
+    // 1. Sales
+    const sa = arSales(rl), cats = arCats(rl);
+    let sales = arNA("Sales");
+    if (sa) {
+      const a = sa.a, rep = sa.r, achTone = a.ach >= 1 ? "pos" : a.ach >= 0.9 ? "warn" : "neg";
+      sales = `<div class="ar-tiles six">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(a.a), `${int(a.tn)} outlets with a target`)}${arTile("Achievement", pct(a.ach, 1), a.a >= a.t ? "On or above target" : `Gap ${bdt(a.a - a.t)}`, achTone)}
+          ${arTile("Sales vs last year", arSign(a.gy), `${bdt(a.s)} vs ${bdt(a.sy)}`)}${arTile("Same-store growth", arSign(a.gss), `${int(a.ssn)} same stores`)}${arTile("GP margin", pct(a.gp, 2), `${arSign(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")} vs last year`)}</div>
+        <div class="ar-grid4 ar-stack">
+          <div>
+          ${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}
+          ${arMini("Same-store gross profit margin: lowest 4 and highest 4", arT(["Outlet", "GP value", "GP%", "vs LY"], [{ label: "Lowest 4" }, ...sa.gpw.map(({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")]), ...(sa.gpb.length ? [{ label: "Highest 4" }] : []), ...sa.gpb.map(({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")])]))}
+          </div><div>
+          ${arMini("Same-store growth vs last year: worst 3 and best 3", arT(["Outlet", "Sales", "Last year", "Growth"], [{ label: "Worst 3" }, ...sa.deg.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)]), ...(sa.gro.length ? [{ label: "Best 3" }] : []), ...sa.gro.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)])]))}
+          ${arMini(`Weakest categories${S.sku ? ` (Item performance, ${ipPeriod(S.sku, true).replace(/^Data /, "")})` : ""}`, cats ? arT(["Category", "Sales", "Last year", "Growth"], cats.map((x) => [`<span class="ar-o">${esc(x.c1)} <i>· ${esc(x.div)}</i></span>`, bdt(x.ns), bdt(x.nl), arSign(x.g)])) : arNA("Item performance"))}
+          </div>
+        </div>`;
+      sales = arCard("ar-sales", "Sales", `${rep.closed ? "Closed month" : "Month to date"}, ${esc(rep.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(rep.date))}`, sales);
+    } else sales = arCard("ar-sales", "Sales", "", sales);
+
+    // 2. Loss-making outlets (last month)
+    const lo = arLoss(rl);
+    const loss = arCard("ar-loss", "Loss-making outlets", lo ? `P&L ${esc(fmonth(lo.m))}, ${S.pbasis === "after" ? "after" : "before"} financing cost` : "", lo ? `
+      <div class="ar-tiles three">${arTile("Loss-making", `${int(lo.n)} <small>of ${int(lo.trading)}</small>`, `${pct(lo.trading ? lo.n / lo.trading : null, 0)} of trading outlets`, lo.n ? "neg" : "pos")}${arTile("Total loss", bdt(lo.total), "", "neg")}${arTile("Net outlet P/L", bdt(lo.net), "", lo.net < 0 ? "neg" : "pos")}</div>
+      ${arMini("Loss by primary reason", arT(["Primary reason", "Outlets", "Loss"], lo.reasons.map((x) => [esc(x.reason), int(x.n), `<span class="ar-neg">${bdt(x.pl)}</span>`]), "No loss-making outlets"))}
+      ${arMini("Biggest losses", arT(["Outlet", "Sales", "P/L"], lo.worst.map((x) => [arO(x.o.c, x.o.nm, sub(x.o)), bdt(x.o.s), `<span class="ar-neg">${bdt(x.pl)}</span>`]), "No loss-making outlets"))}` : arNA("P&L"));
+
+    // 3. Consumable and wastage
+    const cw = arCw(rl);
+    const cwTile = (k, label) => { const s = cw.s, v = s[k], t = s.targets[k], bad = isNum(v) && isNum(t) && v > t; return arTile(label, pct(v, 2), isNum(t) ? `Target ${pct(t, 2)}` : "No target", isNum(t) ? (bad ? "neg" : "pos") : ""); };
+    const cwc = arCard("ar-cw", "Consumable and wastage", cw ? `${esc(fdate(cw.from, true))} – ${esc(fdate(cw.to))}` : "", cw ? `
+      <div class="ar-tiles three">${cwTile("consumableRate", "Consumable % on sales")}${cwTile("wastageSalesRate", "Wastage % on sales")}${cwTile("wastagePnpRate", "Wastage % on PNP sales")}</div>
+      ${arMini("Furthest above target", arT(["Outlet", "Cons.", "Wst. sales", "Wst. PNP", "Above target"], cw.worst.map((r) => [arO(r.code, r.name, rl ? r.zone : r.regionalLeader), pct(r.consumableRate, 2), pct(r.wastageSalesRate, 2), pct(r.wastagePnpRate, 2), `<span class="ar-neg">${bdt(r.excessTotal)}</span>`]), "No outlet above target"))}` : arNA("Consumable and wastage"));
+
+    // 4. Store assessment
+    const sx = arSa(rl);
+    const sac = arCard("ar-sa", "Store assessment", sx ? `${esc(fmonth(sx.m))}, latest audit per outlet` : "", sx ? `
+      <div class="ar-tiles four">${arTile("Score", pct(sx.p, 1), saGrade(sx.p).label, { a: "pos", b: "pos", c: "warn", d: "neg" }[saGrade(sx.p).k] || "")}${arTile("Audits done", int(sx.audits), `${int(sx.n)} outlets`)}${arTile("Not audited", int(sx.notAud), "Outlets this month", sx.notAud ? "warn" : "pos")}${arTile("Weakest category", `<span class="ar-small">${esc(S.sa.cats[sx.weak] || "—")}</span>`, sx.weak >= 0 ? pct(sx.cats[sx.weak], 1) : "")}</div>
+      <div class="ar-grades">${sx.gc.map(([g, n]) => `<span class="ar-g ar-g-${g.k}"><b>${int(n)}</b>${esc(g.label)}</span>`).join("")}</div>
+      ${arMini("Lowest scores", arT(["Outlet", "Score", "Grade", "Audit"], sx.worst.map((r) => [arO(r.c, r.nm, rl ? r.dim.zn : r.dim.rl), pct(r.p, 1), esc(r.grade.label), esc(fdate(r.v.date, true))])))}` : arNA("Store assessment"));
+
+    // 5. Availability
+    const av = arAv(rl);
+    const avRows = (x) => x.worst.map(({ o, v }) => [arO(o.c, o.n, rl ? o.dim.zn : o.dim.rl), `<span class="ar-neg">${pct(v, 1)}</span>`]);
+    const avc = arCard("ar-av", "Availability", av ? `${av.days} day${av.days === 1 ? "" : "s"} of cover` : "", av ? `
+      <div class="ar-tiles three">${["core", "kvi", "promo"].map((k) => arTile(`${k === "kvi" ? "KVI" : k[0].toUpperCase() + k.slice(1)} availability`, pct(av[k].v, 1), `${int(av[k].tot.ok)} of ${int(av[k].tot.slots)} available`, av[k].v >= 0.9 ? "pos" : av[k].v >= 0.8 ? "warn" : "neg")).join("")}</div>
+      <div class="ar-grid4">${arMini("Lowest Core", arT(["Outlet", "Avail."], avRows(av.core)))}${arMini("Lowest KVI", arT(["Outlet", "Avail."], avRows(av.kvi)))}${arMini("Lowest Promo", arT(["Outlet", "Avail."], avRows(av.promo)))}
+      ${arMini("Lowest product divisions", arT(["Product division", "Avail."], av.nd.map((x) => [esc(x.name), `<span class="ar-neg">${pct(x.v, 1)}</span>`])))}</div>` : arNA("Availability"));
+
+    // 6. Receiving
+    const rc = arRc(rl);
+    const rcc = arCard("ar-rc", "Receiving", rc ? `${esc(fdate(rc.range.start, true))} – ${esc(fdate(rc.range.end))}` : "", rc ? `
+      <div class="ar-tiles three">${arTile("Over-receiving value", bdt(rc.ov), rl ? "Total of its outlets" : "Company", "neg")}${arTile("Over-receiving incidents", int(rc.oi), `Under-receiving ${int(rc.ui)}`)}${arTile("Received vs sold", `<span class="ar-small">${units(rc.r)} / ${units(rc.s)}</span>`, "Units")}</div>
+      ${arMini("Highest over-receiving value", arT(["Outlet", "Over value", "Incidents"], rc.worst.map((o) => [arO(o.c, o.nm, rl ? o.dim.zn : o.dim.rl), `<span class="ar-neg">${bdt(o.ov)}</span>`, int(o.oi)])))}` : arNA("Receiving"));
+
+    const foot = `<footer class="ar-foot"><span>Operations Dashboard · Actionable report${rl ? ` · ${esc(rl)}` : " · National"}</span><span>Outlets per card follow each data source; figures use the same rules as the dashboard pages.</span></footer>`;
+    return `<article class="ar-page">${head}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}${rcc}</div></div>${foot}</article>`;
+  }
+
+  // ---- PDF: each page as a JPEG, written into a minimal PDF (A4 portrait, one image per page)
+  function arPdfBlob(imgs) {
+    const enc = new TextEncoder(), parts = [], offs = [];
+    let len = 0;
+    const put = (x) => { const b = typeof x === "string" ? enc.encode(x) : x; parts.push(b); len += b.length; };
+    const obj = (n, body) => { offs[n] = len; put(`${n} 0 obj\n`); body(); put("\nendobj\n"); };
+    const W = 595.28, H = 841.89;
+    put("%PDF-1.4\n"); put(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
+    obj(1, () => put("<< /Type /Catalog /Pages 2 0 R >>"));
+    obj(2, () => put(`<< /Type /Pages /Count ${imgs.length} /Kids [${imgs.map((_, i) => `${3 + 3 * i} 0 R`).join(" ")}] >>`));
+    imgs.forEach((im, i) => {
+      const p = 3 + 3 * i, cs = `q ${W} 0 0 ${H} 0 0 cm /Im${i} Do Q`;
+      obj(p, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /XObject << /Im${i} ${p + 2} 0 R >> >> /Contents ${p + 1} 0 R >>`));
+      obj(p + 1, () => put(`<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`));
+      obj(p + 2, () => { put(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`); put(im.bytes); put("\nendstream"); });
+    });
+    const xref = len, total = 3 + 3 * imgs.length;
+    put(`xref\n0 ${total}\n0000000000 65535 f \n${Array.from({ length: total - 1 }, (_, k) => `${String(offs[k + 1]).padStart(10, "0")} 00000 n \n`).join("")}`);
+    put(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+    return new Blob(parts, { type: "application/pdf" });
+  }
+  const arWaitImages = (el) => Promise.all([...el.querySelectorAll("img")].map((im) => (im.complete ? 1 : new Promise((ok) => { im.onload = im.onerror = ok; }))));
+  async function arPdf(all) {
+    if (S.arBusy) return;
+    const status = $("#arStatus"), host = $("#arPreview");
+    const list = all ? ["", ...arRhos()] : [S.arv.rl];
+    S.arBusy = true; $$("[data-arpdf]").forEach((b) => (b.disabled = true));
+    try {
+      await loadH2C();
+      const imgs = [];
+      for (let i = 0; i < list.length; i++) {
+        status.textContent = `Rendering page ${i + 1} of ${list.length}…`;
+        host.innerHTML = arPage(list[i] || null, all ? i + 1 : arRhos().indexOf(S.arv.rl) + 2 || 1, all ? list.length : arRhos().length + 1);
+        const page = host.firstElementChild;
+        await arWaitImages(page);
+        const c = await window.html2canvas(page, { scale: 1.75, backgroundColor: "#ffffff", logging: false, useCORS: true, windowWidth: page.offsetWidth });
+        const b64 = c.toDataURL("image/jpeg", 0.86).split(",")[1], bin = atob(b64), bytes = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+        imgs.push({ bytes, w: c.width, h: c.height });
+      }
+      const blob = arPdfBlob(imgs), url = URL.createObjectURL(blob), a = document.createElement("a");
+      const who = all ? "all" : (S.arv.rl || "national").replace(/^M[rs]+\.\s*/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      a.href = url; a.download = `actionable-report_${who}_${(S.data.tilldate?.date || "").slice(0, 10)}.pdf`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      status.textContent = `Downloaded ${list.length} page${list.length === 1 ? "" : "s"} (${(blob.size / 1048576).toFixed(1)} MB).`;
+    } catch (e) {
+      console.error(e);
+      status.textContent = "Could not build the PDF. Try again, or use your browser's print to save as PDF.";
+    } finally {
+      S.arBusy = false; $$("[data-arpdf]").forEach((b) => (b.disabled = false));
+      host.innerHTML = arPage(S.arv.rl || null, arRhos().indexOf(S.arv.rl) + 2 || 1, arRhos().length + 1);
+    }
+  }
+  function pageAR() {
+    if (!arReady()) {
+      setTimeout(() => S.page === "ar" && render(), 600);
+      const got = [["Sales", S.data], ["Consumable and wastage", S.cw], ["Availability", S.av], ["Store assessment", S.sa], ["Item performance", S.sku], ["Receiving", S.rcv]];
+      return `<p class="empty">Loading the report data… ${got.filter((x) => x[1]).length} of ${got.length} sources ready (${esc(got.filter((x) => !x[1]).map((x) => x[0]).join(", "))} still loading).</p>`;
+    }
+    const rhos = arRhos();
+    if (S.arv.rl && !rhos.includes(S.arv.rl)) S.arv.rl = "";
+    const idx = S.arv.rl ? rhos.indexOf(S.arv.rl) + 2 : 1, opts = [["", "National"], ...rhos.map((r) => [r, `${r} · ${(S.data.master.outlets.find((o) => o.rl === r) || {}).rh || ""}`])];
+    AFTER.push(() => {
+      $("#arSel").onchange = (e) => { S.arv.rl = e.target.value; render(); };
+      $$("[data-arstep]").forEach((b) => (b.onclick = () => { const all = ["", ...rhos], i = all.indexOf(S.arv.rl) + Number(b.dataset.arstep); S.arv.rl = all[(i + all.length) % all.length]; render(); }));
+      $$("[data-arpdf]").forEach((b) => (b.onclick = () => arPdf(b.dataset.arpdf === "all")));
+    });
+    return `<section class="panel"><div class="panel-head"><div><h2>Actionable report</h2><p>One A4 page for the company and one per regional leader: sales, loss, consumable and wastage, store assessment, availability and receiving, with the outlets that need action. Download one page or all ${int(rhos.length + 1)} pages as a PDF.</p></div>
+      <div class="panel-tools"><button type="button" class="btn" data-arstep="-1" aria-label="Previous page">‹</button>
+        <select class="sel" id="arSel" aria-label="Report page">${opts.map(([v, t]) => `<option value="${esc(v)}" ${S.arv.rl === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <button type="button" class="btn" data-arstep="1" aria-label="Next page">›</button>
+        <button type="button" class="btn" data-arpdf="one">Download PDF (this page)</button><button type="button" class="btn primary" data-arpdf="all">Download PDF (all ${int(rhos.length + 1)} pages)</button></div></div>
+      <div class="panel-body"><p class="muted" id="arStatus" style="margin:0 0 10px">Page ${idx} of ${rhos.length + 1}.</p><div class="ar-scroll"><div id="arPreview">${arPage(S.arv.rl || null, idx, rhos.length + 1)}</div></div></div></section>`;
+  }
+
   // ------------------------------------------------------------------ store assessment (data/sa.json)
   // Store Operations Compliance Audit: each audit scores one outlet on 41 questions in 6 categories (290 points).
   // An outlet's score for a month is its latest audit that month; every audit stays visible in the outlet drawer.
@@ -5224,7 +5463,7 @@
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
