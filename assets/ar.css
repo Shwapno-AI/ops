@@ -58,8 +58,8 @@
 .ar-t tr.ar-grp td{padding:2px 3px 1px;font-size:7px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#50677a;background:#f3f6f8;border-bottom:1px solid #d6e0e6}
 /* weakest regional leaders / zonals, at the bottom of the page */
 .ar-weak{border-top-color:#c8102e;gap:4px}
-.ar-t.ar-wk th.n,.ar-t.ar-wk td.n{width:66px}
-.ar-t.ar-wk td.n:last-child,.ar-t.ar-wk th.n:last-child{width:62px}
+.ar-t.ar-wk th.n,.ar-t.ar-wk td.n{width:45px}
+.ar-t.ar-wk td.n:last-child,.ar-t.ar-wk th.n:last-child{width:46px}
 .ar-t.ar-wk i{font-style:normal;color:#7a8f9c}
 /* credit card and visit compliance */
 .ar-cc{border-top-color:#b83280}.ar-vc{border-top-color:#dd6b20}
@@ -82,3 +82,18 @@
 .ar-row3 .ar-tile strong{font-size:11px}
 .ar-row3 .ar-ccrow{grid-template-columns:92px 1fr}
 .ar-tile strong small{display:inline}
+/* GP margin tile: outlets by gross profit margin */
+.ar-gpv em{font-style:normal;font-size:8px;font-weight:600}
+.ar-tile .ar-gpv span{display:inline;font-size:8px;overflow:visible}
+.ar-gpv .ar-neg{color:#b0122b}.ar-gpv .ar-pos{color:#1e6b43}
+.ar-gpb{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:2px}
+.ar-gpb i{font-style:normal;text-align:center;border-radius:3px;padding:1px 0;font-size:6.6px;line-height:1.15;color:#50677a;white-space:nowrap;overflow:hidden}
+.ar-gpb b{display:block;font-size:9.5px}
+.ar-gpb .lo{background:#fdecee}.ar-gpb .lo b{color:#b0122b}
+.ar-gpb .mid{background:#fdf4e3}.ar-gpb .mid b{color:#9a5b00}
+.ar-gpb .hi{background:#e8f5ee}.ar-gpb .hi b{color:#1e6b43}
+/* weakest leaders or zonals, with skill gap and DOS beside them */
+.ar-bottom{display:grid;grid-template-columns:1fr 290px;gap:8px;align-items:stretch}
+.ar-bottom>.ar-card{min-width:0}
+.ar-sd{border-top-color:#2c5282;gap:4px}
+.ar-sd .ar-tile span{font-size:7.4px}

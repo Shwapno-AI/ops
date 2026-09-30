@@ -4452,7 +4452,10 @@
     // lowest 3 and highest 3; with few outlets each shows once
     const ends = (xs, n = 3) => { const lo = [...xs].sort((x, y) => x.v - y.v).slice(0, n); return [lo, [...xs].sort((x, y) => y.v - x.v).filter((x) => !lo.includes(x)).slice(0, n)]; };
     const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, gpN);
-    return { r, n: list.length, a, worstAch: ach.slice(0, 3), deg, gro, gpw, gpb };
+    // trading outlets by gross profit margin: below 15%, 15% to 18%, above 18%
+    const gpv = act.filter((o) => isNum(o.gv)).map((o) => o.gv / o.s);
+    const gpBands = { lo: gpv.filter((v) => v < 0.15).length, mid: gpv.filter((v) => v >= 0.15 && v <= 0.18).length, hi: gpv.filter((v) => v > 0.18).length };
+    return { r, n: list.length, a, worstAch: ach.slice(0, 3), deg, gro, gpw, gpb, gpBands };
   }
   // Weakest categories, leaving out CONSUMABLES (store supplies) and the HOME DELIVERY divisions (the delivery charge, VEHICLE).
   function arCats(rl) {
@@ -4538,7 +4541,9 @@
       const a = sa.a, rep = sa.r, achTone = a.ach >= 1 ? "pos" : a.ach >= 0.9 ? "warn" : "neg";
       const gpRow = ({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")];
       sales = `<div class="ar-tiles six">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(a.a), `${int(a.tn)} outlets with a target`)}${arTile("Achievement", pct(a.ach, 1), a.a >= a.t ? "On or above target" : `Gap ${bdt(a.a - a.t)}`, achTone)}
-          ${arTile("Sales vs last year", arSign(a.gy), `${bdt(a.s)} vs ${bdt(a.sy)}`)}${arTile("Same-store growth", arSign(a.gss), `${int(a.ssn)} same stores`)}${arTile("GP margin", pct(a.gp, 2), `${arSign(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")} vs last year`)}</div>
+          ${arTile("Sales vs last year", arSign(a.gy), `${bdt(a.s)} vs ${bdt(a.sy)}`)}${arTile("Same-store growth", arSign(a.gss), `${int(a.ssn)} same stores`)}
+          <div class="ar-tile"><span>GP margin · change vs LY</span><strong class="ar-gpv">${pct(a.gp, 2)} <em>${arSign(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")}</em></strong>
+            <div class="ar-gpb"><i class="lo"><b>${int(sa.gpBands.lo)}</b>Below 15%</i><i class="mid"><b>${int(sa.gpBands.mid)}</b>15–18%</i><i class="hi"><b>${int(sa.gpBands.hi)}</b>Above 18%</i></div></div></div>
         <div class="ar-grid4 ar-stack">
           <div>
           ${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}
@@ -4590,12 +4595,12 @@
 
     // 7-8. Visits and credit card, beside receiving in a row of three
     const vcc = arVcCard(arVc(rl), rl), ccc = arCcCard(arCc(rl), rl);
-    return `<article class="ar-page">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${vcc}${ccc}</div>${arWeakCard(rl)}${arFoot(rl)}</article>`;
+    return `<article class="ar-page">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${vcc}${ccc}</div><div class="ar-bottom">${arWeakCard(rl)}${arSdCard(rl)}</div>${arFoot(rl)}</article>`;
   }
 
   // ---- weakest groups: regional leaders on National, a leader's zonals on their page. Ranked on the average of
   // each group's position across six measures (1 = best), so no single figure decides it.
-  const AR_MEASURES = [["ach", 1, "Achievement"], ["ssg", 1, "SS growth"], ["lossShare", -1, "Loss outlets"], ["wst", -1, "Wastage %"], ["sa", 1, "Store score"], ["core", 1, "Core avail."]];
+  const AR_MEASURES = [["ach", 1, "Ach."], ["ssg", 1, "SS growth"], ["lossShare", -1, "Loss outlets"], ["wst", -1, "Wastage %"], ["sa", 1, "Store score"], ["core", 1, "Core avail."]];
   function arWeakest(rl) {
     const inScope = arIn(rl), key = (o) => (rl ? o.dim?.zn : o.dim?.rl), G = new Map();
     (S.data.master?.outlets || []).forEach((o) => { if (rl && o.rl !== rl) return; const k = rl ? o.zn : o.rl; if (!k) return; const g = G.get(k) || { name: k, full: rl ? "" : o.rh || "", outlets: 0, rk: {} }; g.outlets++; G.set(k, g); });
@@ -4638,7 +4643,7 @@
       cell(g, "ach", pct(g.ach, 1)), cell(g, "ssg", isNum(g.ssg) ? `${g.ssg > 0 ? "+" : g.ssg < 0 ? "−" : ""}${Math.abs(g.ssg * 100).toFixed(1)}%` : "—"),
       cell(g, "lossShare", isNum(g.lossShare) ? `${int(g.loss || 0)} of ${int(g.tr)}` : "—"), cell(g, "wst", pct(g.wst, 2)), cell(g, "sa", pct(g.sa, 1)), cell(g, "core", pct(g.core, 1)), `<b>${g.avg.toFixed(1)}</b> <i>of ${int(wk.n)}</i>`]);
     const what = rl ? "zonals" : "regional leaders";
-    return `${arCard("ar-weak", `Weakest ${what}`, wk.n > 3 ? `Bottom 3 of ${int(wk.n)} by average rank across six measures; red = bottom third on that measure` : `All ${int(wk.n)}, weakest first, by average rank across six measures`,
+    return `${arCard("ar-weak", `Weakest ${what}`, wk.n > 3 ? `Bottom 3 of ${int(wk.n)} by average rank on six measures; red = bottom third` : `All ${int(wk.n)}, weakest first, by average rank on six measures`,
         arT([rl ? "Zonal" : "Regional leader", ...AR_MEASURES.map((m) => m[2]), "Avg rank"], rows, `No ${what}`, "ar-wk"))}`;
   }
 
@@ -4690,6 +4695,35 @@
     const tiles = `<div class="ar-tiles three">${arTile("Not visited", int(vc.not.length), `of ${int(vc.n)} outlets, no visit punch`, vc.not.length ? "neg" : "pos")}${arTile("Visit days", int(vc.vd), vc.planned ? `Planned ${int(vc.pl)}` : "Outlet-days with a punch")}${vc.planned ? arTile("On the planned day", pct(vc.pl ? vc.dn / vc.pl : null, 1), `${int(vc.dn)} of ${int(vc.pl)} planned visits`, vc.pl && vc.dn / vc.pl < 0.8 ? "warn" : "") : ""}</div>`;
     const notT = arT(["Outlet", "Planned visits"], vc.not.slice(0, 3).map((o) => [arO(o.c, o.nm, sub(o)), int(o.pl)]), "Every outlet was visited");
     return arCard("ar-vc", "Visit compliance", arRange(vc.from, vc.to), `${tiles}${arMini("Not visited", notT)}`);
+  }
+  // Skill gap (Store Level) from the KPI performance file: the leader's own figure (National on the company page),
+  // and who is highest: the leaders on National, the leader's zonals on their page.
+  function arSkill(rl) {
+    const K = S.data.kpi, m = K?.months?.[K.months.length - 1]; if (!m) return null;
+    const is = (r) => /skill gap/i.test(r.metric || "");
+    const me = (K.rho || []).find((r) => is(r) && (rl ? kname(r.head) === kname(rl) : r.head === "National"));
+    if (!me || !isNum(me.a?.[m])) return null;
+    // a leader who is also zonal for some outlets is left out: the KPI zonal row of that name is someone else's
+    const zs = rl ? new Set((S.data.master?.outlets || []).filter((o) => o.rl === rl && kname(o.zn) !== kname(rl)).map((o) => kname(o.zn))) : null;
+    const cand = rl ? (K.zonal || []).filter((r) => is(r) && zs.has(kname(r.head))) : (K.rho || []).filter((r) => is(r) && r.head !== "National");
+    const top = cand.filter((r) => isNum(r.a?.[m])).sort((a, b) => b.a[m] - a.a[m])[0];
+    return { m, v: me.a[m], t: me.t?.[m], top: top ? { name: top.head, v: top.a[m] } : null };
+  }
+  // Days of stock from the compiled DOS file. "Below 30 days" includes exactly 30, as the file's own "up to 30 days".
+  function arDos(rl) {
+    const d = S.data.dos; if (!d?.rows?.length) return null;
+    const mo = arMasterMap(), rows = d.rows.map(([c, v]) => ({ ...(mo.get(c) || { c, nm: "", dim: { rl: MISS, zn: MISS } }), v })).filter(arIn(rl));
+    if (!rows.length) return null;
+    const lo = rows.filter((r) => r.v <= 30).length;
+    return { m: d.month, n: rows.length, lo, hi: rows.length - lo, avg: rows.reduce((s, r) => s + r.v, 0) / rows.length, top: rows.filter(arOk).sort((a, b) => b.v - a.v)[0] };
+  }
+  function arSdCard(rl) {
+    const sk = arSkill(rl), ds = arDos(rl);
+    const skT = sk ? arTile("Skill gap", pct(sk.v, 1), isNum(sk.t) ? `Target ${pct(sk.t, 0)} or less` : "", isNum(sk.t) ? (Math.round(sk.v * 1000) > Math.round(sk.t * 1000) ? "neg" : "pos") : "") : arTile("Skill gap", "—", "No KPI figure"); // compared as shown, to 0.1%
+    const dsT = ds ? `${arTile("DOS below 30 days", int(ds.lo), `of ${int(ds.n)} outlets`, "pos")}${arTile("DOS over 30 days", int(ds.hi), `Average ${Math.round(ds.avg)} days`, ds.hi ? "neg" : "pos")}` : `${arTile("DOS below 30 days", "—", "No DOS file")}${arTile("DOS over 30 days", "—", "")}`;
+    const bits = [sk?.top && `<b>Highest skill gap:</b> ${esc(sk.top.name)} ${pct(sk.top.v, 1)}`, ds?.top && `<b>Highest DOS:</b> ${esc(ds.top.c)} ${Math.round(ds.top.v)} days`].filter(Boolean);
+    const meta = [sk && `KPI ${fmonth(sk.m)}`, ds?.m && `DOS ${fmonth(ds.m)}`].filter(Boolean).join(" · ");
+    return arCard("ar-sd", "Skill gap and DOS", esc(meta), `<div class="ar-tiles three">${skT}${dsT}</div>${bits.length ? `<p class="ar-line">${bits.join(" · ")}</p>` : ""}`);
   }
   const arLeaderIdx = (rl) => (rl ? arRhos().indexOf(rl) + 1 : 0); // 0 = National
 

@@ -155,6 +155,10 @@ def classify(path):
             return "pnl", (wb, heads)
     for rows in heads.values():
         f = flat(rows)
+        if {"code", "dos"} <= f:
+            return "dos", (wb, heads)
+    for rows in heads.values():
+        f = flat(rows)
         if "code" in f and "zonal" in f and "format" in f:
             return "master", (wb, heads)
     for rows in heads.values():
@@ -626,13 +630,50 @@ def parse_master(path, wb, heads):
     return {"file": src, "sheet": t, "latest_launch": latest, "outlets": out}
 
 
+# --------------------------------------------------------------------------- days of stock (DOS)
+MONTH_NAME_RE = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s'_-]*(\d{4}|\d{2})(?!\d)", re.I)
+
+
+def parse_dos(path, wb, heads):
+    """Compiled DOS workbook: one row per outlet with CODE and DOS (days of stock). Several sheets may carry
+    the list (with or without sales and stock); the one with the most outlets is used. The month comes
+    from the file name ("Compiled DOS_August 2026")."""
+    src = os.path.basename(path)
+    best = None
+    for t, rows in heads.items():
+        hi = next((i for i, row in enumerate(rows) if {"code", "dos"} <= {norm(v) for v in row if v is not None}), None)
+        if hi is None:
+            continue
+        idx = header_map(rows[hi])
+        ci, di = idx["code"], idx["dos"]
+        out = {}
+        for n, row in enumerate(wb[t].iter_rows(values_only=True)):
+            if n <= hi:
+                continue
+            code = str(row[ci] if ci < len(row) and row[ci] is not None else "").strip().upper()
+            v = num(row[di]) if di < len(row) else None
+            if CODE_RE.match(code) and v is not None:
+                out[code] = round(v, 1)
+        if out and (best is None or len(out) > len(best[1])):
+            best = (t, out)
+    if not best:
+        issue("warn", src, "DOS workbook has no outlet rows.")
+        return None
+    m = MONTH_NAME_RE.search(src)
+    month = None
+    if m:
+        y = int(m.group(2))
+        month = f"{y + 2000 if y < 100 else y}-{MONTHS[m.group(1).lower()[:3]]:02d}"
+    return {"file": src, "sheet": best[0], "month": month, "rows": sorted(best[1].items())}
+
+
 # --------------------------------------------------------------------------- main
 def month_end(d):
     return d.replace(day=calendar.monthrange(d.year, d.month)[1])
 
 
 def build(root):
-    found = {"business": [], "kpi": [], "master": [], "pnl": []}
+    found = {"business": [], "kpi": [], "master": [], "pnl": [], "dos": []}
     folders = sorted(f for f in os.listdir(root) if os.path.isdir(os.path.join(root, f))) or ["."]
     for folder in folders:
         files = excel_files(os.path.join(root, folder))
@@ -645,7 +686,7 @@ def build(root):
             if not kind:
                 continue
             wb, heads = payload
-            parsed = {"business": parse_business, "kpi": parse_kpi, "master": parse_master, "pnl": parse_pnl}[kind](p, wb, heads)
+            parsed = {"business": parse_business, "kpi": parse_kpi, "master": parse_master, "pnl": parse_pnl, "dos": parse_dos}[kind](p, wb, heads)
             wb.close()
             if parsed:
                 parsed["folder"] = folder
@@ -658,7 +699,7 @@ def build(root):
             if used_here:
                 issue("warn", os.path.basename(p), "Unrecognised file: no known sheet layout found. It was skipped.")
             else:
-                print(f"skipped (not a sales, KPI, P&L or outlet master layout): {os.path.basename(p)} ({folder})")
+                print(f"skipped (not a sales, KPI, P&L, DOS or outlet master layout): {os.path.basename(p)} ({folder})")
 
     biz = found["business"]
     td_pool = [b for b in biz if TILL_FOLDER.search(b["folder"])] or biz
@@ -684,6 +725,9 @@ def build(root):
         kpi, kpi_months = merge_kpi(found["kpi"])
     else:
         issue("warn", "performance", "No KPI performance file found.")
+
+    # days of stock: the latest month's compiled DOS file
+    dos = max(found["dos"], key=lambda f: (f["month"] or "", f["file"]), default=None)
 
     pnl = None
     if found["pnl"]:
@@ -726,9 +770,12 @@ def build(root):
         "master": {"file": master["file"], "outlets": master["outlets"]} if master else None,
         "pnl": pnl,
         "kpi": {"months": kpi_months, "files": [f["file"] for f in found["kpi"]], **kpi},
+        # [outlet code, days of stock]
+        "dos": {"file": dos["file"], "month": dos["month"], "rows": dos["rows"]} if dos else None,
         "sources": [{"folder": b["folder"], "file": b["file"], "type": "Business report", "date": b["date"].isoformat()} for b in biz]
                    + [{"folder": f["folder"], "file": f["file"], "type": "KPI performance", "date": max(f["months"])} for f in found["kpi"]]
                    + [{"folder": f["folder"], "file": f["file"], "type": "Outlet P&L", "date": f["month"]} for f in found["pnl"]]
+                   + [{"folder": f["folder"], "file": f["file"], "type": "DOS", "date": f["month"] or ""} for f in found["dos"]]
                    + [{"folder": m["folder"], "file": m["file"], "type": "Outlet master", "date": (m["latest_launch"] or dt.date.min).isoformat()} for m in found["master"]],
         "issues": ISSUES,
     }
