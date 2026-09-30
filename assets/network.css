@@ -187,3 +187,5 @@ tr[data-gpick][aria-selected="true"] td{background:var(--info-soft)}
 .net-eq .rank-list.scroll{flex:1;max-height:420px}
 .net-eq .mix-grid{flex:1;grid-template-columns:1fr;align-content:space-evenly}
 @media (max-width:900px){.net-eq{grid-template-columns:1fr}}
+/* Active outlets: its label 5% larger than the other glance labels */
+.stat-strip>div.glance-lead>span{font-size:12.6px}

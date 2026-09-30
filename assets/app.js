@@ -1951,7 +1951,7 @@
       [`Opened in ${lmo ? fmonth(lmo) : "latest month"}`, mc ? dbtn(int(mc), `List outlets opened in ${fmonth(lmo)}`, () => setDrill("Launch month", [lmo], (r) => (r.launchDate || "").slice(0, 7))) : "—", "Latest launch month"],
     ];
     const glanceHtml = `<section class="panel"><div class="panel-head"><div><h2>Network at a glance</h2><p>Blue figures open the matching outlets in the outlet register.</p></div></div>
-      <div class="stat-strip">${glance.map(([l, v, n]) => `<div><span>${esc(l)}</span><strong>${v}</strong><small>${esc(n)}</small></div>`).join("")}</div></section>`;
+      <div class="stat-strip">${glance.map(([l, v, n]) => `<div${l === "Active outlets" ? ' class="glance-lead"' : ""}><span>${esc(l)}</span><strong>${v}</strong><small>${esc(n)}</small></div>`).join("")}</div></section>`;
 
     // actual vs target by level
     const lvl = st.league, lvlName = NET_LEVELS[lvl];
