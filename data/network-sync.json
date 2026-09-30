@@ -2,14 +2,14 @@
   "folderId": "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "folderUrl": "https://drive.google.com/drive/folders/1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "method": "public-link",
-  "syncedAt": "2026-09-30T07:31:14Z",
+  "syncedAt": "2026-09-30T11:59:56Z",
   "files": {
     "outletMaster": {
-      "driveName": "Performance final & Zone distribution file/Zone Distribution Sep 2026 w location type.xlsx",
-      "driveId": "1_glVK5nD5Rm2e6onBJNOYgdhJ9MZ85sO",
-      "driveModified": "Sep 28",
-      "bytes": 183454,
-      "sha256": "a025ac7a0abe281a6cfcf498e2c9c67c9ee3668ee02d1ac86323c2b5f23f5aff"
+      "driveName": "Performance final & Zone distribution file/Compiled DOS_August 2026 (1).xlsx",
+      "driveId": "1QvQiZw5yySeAkkXlRPxYFNTSPvZkUr8W",
+      "driveModified": "4:43 am",
+      "bytes": 114411,
+      "sha256": "055fa2718fd0e2d1c8b6135b3c9b939c27703332c9a8149a4735d8d979933808"
     },
     "dayWiseTarget": {
       "driveName": "outlet-network-dashboard-main/day-wise-target.xlsx",
