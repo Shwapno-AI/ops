@@ -102,11 +102,11 @@
     ["tilldate", "monthend"].forEach((k) => {
       if (!d[k]) return;
       d[k].outlets.forEach((o) => {
-        mkDim(o, M[o.c], o.s > 0 || o.t > 0 ? MISS : "Closed outlets");
+        mkDim(o, M[o.c], MISS); // not in the outlet master: new or closed, one group
         o.nm = o.m?.n || String(o.name || o.c).replace(new RegExp("^" + o.c + "\\s*-\\s*"), "");
       });
     });
-    Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], o.s >= 1 ? MISS : "Closed outlets"); o.nm = o.n || o.m?.n || o.c; }));
+    Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], MISS); o.nm = o.n || o.m?.n || o.c; }));
   }
   function mkDim(o, m, miss) {
     o.m = m;
@@ -161,7 +161,7 @@
       x.months++; x.n = o.n; x.nm = o.nm; x.ld = o.ld; x.sft = o.sft; x.m = o.m; x.dim = o.dim;
       byC.set(o.c, x);
     }));
-    byC.forEach((x) => { x.bs = x.ff ? x.s / x.ff : null; if (!(x.s >= 1)) mkDim(x, x.m, "Closed outlets"); });
+    byC.forEach((x) => { x.bs = x.ff ? x.s / x.ff : null; if (!(x.s >= 1)) mkDim(x, x.m, MISS); });
     return (ytdCache = [...byC.values()]);
   }
   function detailFor(code) {
