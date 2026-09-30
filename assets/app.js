@@ -35,8 +35,10 @@
     vc: { url: "https://aftabz-lab.github.io/visit-compliance-dashboard/", desc: "Outlet visit schedules and compliance." },
   };
   // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.
-  const MISS = "New outlets (Not Distributed)", LEGACY_MISS = "Not in outlet master";
-  const fixMiss = (x) => (x === LEGACY_MISS || x === "Unmapped" ? MISS : x); // data files built before the rename
+  const MISS = "New/Closed outlets (Not Distributed)";
+  // names used in data files built before the current one
+  const LEGACY_MISS = new Set(["Not in outlet master", "Unmapped", "New outlets (Not Distributed)"]);
+  const fixMiss = (x) => (LEGACY_MISS.has(x) ? MISS : x);
   const missLast = (a, b) => (a === MISS) - (b === MISS) || String(a).localeCompare(String(b));
   const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"], ["age", "Outlet age"]];
   // Extra outlet-master fields, filterable on the outlet network pages only.
@@ -220,7 +222,7 @@
         return (t.dir === "asc" ? c : -c) || String(sp.key(x)).localeCompare(String(sp.key(y)));
       });
     }
-    // The "New outlets (Not Distributed)" group stays at the bottom until the user sorts the table themselves.
+    // The "New/Closed outlets (Not Distributed)" group stays at the bottom until the user sorts the table themselves.
     if (!t.userSorted) {
       const isMiss = (r) => r.key === MISS || r.name === MISS || (sp.key && sp.key(r) === MISS);
       const miss = rows.filter(isMiss);
@@ -2686,7 +2688,7 @@
       .finally(() => { S.cwLoading = false; if (CW_PAGES.has(S.page) || S.page === "dq") render(); });
   }
   function prepCw(d) {
-    d.outlets.forEach((o) => { for (const k in o) if (o[k] === "Unmapped") o[k] = MISS; }); // outlets not in the zone master
+    d.outlets.forEach((o) => { for (const k in o) if (LEGACY_MISS.has(o[k])) o[k] = MISS; }); // outlets not in the zone master
     const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
     d.outlets.forEach((o) => {
       const own = /^own/i.test(o.ownership || "") ? "Own" : /^fr/i.test(o.ownership || "") ? "Franchise" : o.ownership;
@@ -2856,7 +2858,7 @@
       <div class="kpi" style="--accent:var(--bad)"><span class="label">Amount above target</span><span class="value down" title="${esc(exact(s.excessTotal))}">${bdt(s.excessTotal)}</span>
         <span class="sub"><span><i class="cw-key c"></i>Consumable ${bdt(s.excessConsumable)}</span><span><i class="cw-key w"></i>Wastage ${bdt(s.excessWastage)}</span></span>
         <div class="cw-split" role="img" aria-label="Consumable ${shares[0].toFixed(1)}%, wastage ${shares[1].toFixed(1)}% of the amount above target">${shares[0] ? `<span class="c" style="flex-grow:${shares[0]}"></span>` : ""}${shares[1] ? `<span class="w" style="flex-grow:${shares[1]}"></span>` : ""}</div>
-        <span class="foot"><span>${int(s.aboveAny)} outlets above at least one target</span><span>${p ? cwValDelta(s.excessTotal, p.excessTotal) : `${int(s.outlets - s.mapped)} new outlets (not distributed)`}</span></span></div>
+        <span class="foot"><span>${int(s.aboveAny)} outlets above at least one target</span><span>${p ? cwValDelta(s.excessTotal, p.excessTotal) : `${int(s.outlets - s.mapped)} new/closed outlets (not distributed)`}</span></span></div>
     </div>`;
   }
   const cwOutletAttr = (x) => `data-cwoutlet="${esc(x.code)}" tabindex="0"`;
@@ -3394,7 +3396,7 @@
   const avBandIdx = (r) => { const x = Math.round(r * 100); return x >= 91 ? 0 : x >= 81 ? 1 : x >= 71 ? 2 : x >= 61 ? 3 : 4; };
   const AV_KINDS = [["core", "Core"], ["promo", "Promo"], ["kvi", "KVI"], ["all", "Overall"]];
   // Outlets missing from Zone Distribution (new outlets not yet distributed) read as MISS.
-  const avIsMiss = (v) => v === NET_MISS || v === MISS || v === LEGACY_MISS;
+  const avIsMiss = (v) => v === NET_MISS || v === MISS || LEGACY_MISS.has(v);
   const avUnassigned = (v) => (avIsMiss(v) ? MISS : v);
   function avRhoStats(outs, scans) {
     const x = { n: outs.length };
