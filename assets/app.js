@@ -1877,7 +1877,10 @@
     rows.forEach((x) => (x.status = x.active ? (x.master ? "Active" : "Active, not in outlet master") : x.days ? "Stopped selling" : "No sales this month"));
     // how the count changes with the length of the window: sold within the last n days up to the date
     const windows = [1, 2, 3, 7].map((n) => ({ n, count: rows.filter((x) => x.lastDay != null && x.lastDay >= toDay - n + 1).length }));
-    return { rows, active: rows.filter((x) => x.active), to, filtered, windows };
+    // the card's number: every outlet with sales this month, up to the date
+    const month = rows.filter((x) => x.lastDay != null);
+    windows.push({ n: 0, count: month.length });
+    return { rows, active: rows.filter((x) => x.active), month, to, filtered, windows };
   }
   function openNetActive(act) {
     const order = { "Stopped selling": 0, "No sales this month": 1, "Active, not in outlet master": 2, Active: 3 };
@@ -1888,12 +1891,14 @@
       rows.map((x) => [x.code, x.name, x.rl, x.zn, x.status, x.last, x.days, x.master ? "Yes" : "No"]), act.to];
     const tone = { Active: "good", "Active, not in outlet master": "info", "Stopped selling": "bad", "No sales this month": "idle" };
     $("#drawerTitle").textContent = `Active outlets, ${fdate(act.to)}`;
-    $("#drawerBody").innerHTML = `<div class="stat-grid three">
-        <div class="stat"><small>Active</small><strong class="up">${int(act.active.length)}</strong><div style="font-size:12px">Sold in the ${ACTIVE_DAYS} days to ${fdate(act.to, true)}${cnt("Active, not in outlet master") ? `, ${int(cnt("Active, not in outlet master"))} not in the outlet master` : ""}</div></div>
+    const monthNotMaster = act.month.filter((x) => !x.master).length;
+    $("#drawerBody").innerHTML = `<div class="stat-grid">
+        <div class="stat"><small>Active this month</small><strong class="up">${int(act.month.length)}</strong><div style="font-size:12px">Sold at least once, 1–${fdate(act.to, true)}${monthNotMaster ? `; ${int(monthNotMaster)} not in the outlet master` : ""}</div></div>
+        <div class="stat"><small>Selling now</small><strong class="up">${int(act.active.length)}</strong><div style="font-size:12px">Sold in the ${ACTIVE_DAYS} days to ${fdate(act.to, true)}</div></div>
         <div class="stat"><small>Stopped selling</small><strong class="down">${int(cnt("Stopped selling"))}</strong><div style="font-size:12px">Sold earlier this month, not in the last ${ACTIVE_DAYS} days</div></div>
         <div class="stat"><small>No sales this month</small><strong>${int(cnt("No sales this month"))}</strong><div style="font-size:12px">In the outlet master, no sales in the file</div></div></div>
       <div class="table-wrap" style="max-height:none"><table class="compact net-windows"><thead><tr><th>Sold within the last…</th><th class="num">Active outlets</th></tr></thead><tbody>
-      ${act.windows.map((w) => `<tr${w.n === ACTIVE_DAYS ? ' class="on"' : ""}><td>${w.n === 1 ? `1 day (only ${fdate(act.to, true)})` : `${w.n} days`}${w.n === ACTIVE_DAYS ? " <small class=\"muted\">(current)</small>" : ""}</td><td class="num">${w.n === ACTIVE_DAYS ? `<strong>${int(w.count)}</strong>` : int(w.count)}</td></tr>`).join("")}</tbody></table></div>
+      ${act.windows.map((w) => `<tr${w.n === 0 ? ' class="on"' : ""}><td>${w.n === 0 ? `This month, 1–${fdate(act.to, true)} <small class="muted">(the card)</small>` : w.n === 1 ? `1 day (only ${fdate(act.to, true)})` : `${w.n} days`}</td><td class="num">${w.n === 0 ? `<strong>${int(w.count)}</strong>` : int(w.count)}</td></tr>`).join("")}</tbody></table></div>
       <div class="lr-dtools"><span class="muted">From the day-wise sales file (${esc(S.net.source?.drive?.files?.dayWiseSales || S.net.source?.sourceFiles?.dayWiseSales || "day-wise sales")}), through ${fdate(act.to)}.${act.filtered ? " Sidebar filters are on, so outlets not in the outlet master are left out." : ""}</span>${csvBtn("netactive")}</div>
       <div class="table-wrap" style="max-height:600px"><table class="compact"><thead><tr><th>Outlet</th><th>Status</th><th>Last sale</th><th class="num">Days with sales</th></tr></thead><tbody>
       ${rows.map((x) => `<tr><td><span class="cell-primary">${esc(x.code)} ${esc(x.name)}</span><span class="cell-secondary">${x.master ? `${esc(x.rl)} · ${esc(x.zn)}` : esc(MISS)}</span></td><td>${chip({ cls: tone[x.status], label: x.status })}</td><td>${x.last ? fdate(x.last, true) : "—"}</td><td class="num">${int(x.days)}</td></tr>`).join("")}</tbody></table></div>`;
@@ -1936,7 +1941,7 @@
     const share = (n) => pct0(list.length ? n / list.length : null) + " of outlets";
     const act = netActive(list);
     const glance = [
-      act ? ["Active outlets", dbtn(int(act.active.length), "See which outlets are selling and which are not", () => openNetActive(act)), `Selling in the ${ACTIVE_DAYS} days to ${fdate(act.to, true)} · ${int(list.length)} in the outlet master`]
+      act ? ["Active outlets", dbtn(int(act.month.length), "See which outlets are selling and which are not", () => openNetActive(act)), `Sold this month, 1–${fdate(act.to, true)} · ${int(list.length)} in the outlet master`]
         : ["Outlets", int(list.length), "In the current view"],
       ["Total floor area", compact(area), "sft across valid records"],
       ["Average size", sfts.length ? int(area / sfts.length) : "—", "sft per outlet"],
