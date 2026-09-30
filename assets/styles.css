@@ -41,6 +41,8 @@ h1,h2,h3{margin:0;font-weight:650}
 .nav button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:var(--radius-sm);color:var(--ink-2);font-size:13px}
 .nav button:hover{background:var(--surface-2);color:var(--ink)}
 .nav button[aria-current="page"]{background:var(--surface-2);color:var(--ink);font-weight:620;box-shadow:inset 2px 0 0 var(--brand)}
+/* Priority Tasks: a single link, set in the section headings' type */
+.nav button[data-page="ar"]{font-size:14.4px;font-weight:750;color:var(--info)}
 .nav .soon{font-size:10.5px;color:var(--ink-3)}
 .filters{border-top:1px solid var(--line);padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
 .filters h2{font-size:15.6px;color:var(--info);font-weight:750}
