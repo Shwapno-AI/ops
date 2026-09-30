@@ -342,3 +342,11 @@ tr[data-rcx]{cursor:pointer}tr[data-rcx]:hover td{background:var(--surface-2)}
 @media (max-width:640px){.sa-vcat{grid-template-columns:1fr 80px 100px}.sa-vcat .sa-div{grid-column:1/-1;order:5}}
 /* Outlet network: active-outlet windows */
 .net-windows tr.on td{background:var(--info-soft)}
+.net-windows-box{border:1px solid var(--line-soft);border-radius:8px}
+.net-windows-box>summary{cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600;list-style:none;display:flex;align-items:center;gap:8px}
+.net-windows-box>summary::-webkit-details-marker{display:none}
+.net-windows-box>summary::before{content:"▸";color:var(--ink-3);transition:transform .15s}
+.net-windows-box[open]>summary::before{transform:rotate(90deg)}
+.net-windows-box>summary .muted{font-weight:400;font-size:12px}
+.net-windows-box>summary:hover{background:var(--line-soft)}
+.net-windows-box .table-wrap{border-top:1px solid var(--line-soft);border-radius:0 0 8px 8px}
