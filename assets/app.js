@@ -4436,12 +4436,12 @@
   // Load every source the report needs; true when all have answered (loaded or failed).
   function arReady() {
     if (!S.data) return false;
-    loadCw(); loadAv(); loadSa(); loadSku(); loadRc();
-    return [S.cw || S.cwErr, S.av || S.avErr, S.sa || S.saErr, S.sku || S.skuErr, S.rcv || S.rcErr].every(Boolean);
+    loadCw(); loadAv(); loadSa(); loadSku(); loadRc(); loadCcv();
+    return [S.cw || S.cwErr, S.av || S.avErr, S.sa || S.saErr, S.sku || S.skuErr, S.rcv || S.rcErr, S.ccv || S.ccvErr].every(Boolean);
   }
 
   // ---- figures
-  function arSales(rl) {
+  function arSales(rl, gpN = 4) {
     const r = S.data.tilldate; if (!r) return null;
     const list = r.outlets.filter(arIn(rl)), a = agg(list);
     const act = list.filter((o) => arOk(o) && o.s > 0); // trading, distributed outlets
@@ -4451,7 +4451,7 @@
     const gp = act.filter((o) => o.ssy && isNum(o.gv)).map((o) => ({ o, v: o.gv / o.s, ly: o.sy > 0 && isNum(o.gvy) ? o.gvy / o.sy : null }));
     // lowest 3 and highest 3; with few outlets each shows once
     const ends = (xs, n = 3) => { const lo = [...xs].sort((x, y) => x.v - y.v).slice(0, n); return [lo, [...xs].sort((x, y) => y.v - x.v).filter((x) => !lo.includes(x)).slice(0, n)]; };
-    const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, 4);
+    const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, gpN);
     return { r, n: list.length, a, worstAch: ach.slice(0, 3), deg, gro, gpw, gpb };
   }
   // Weakest categories, leaving out CONSUMABLES (store supplies) and the HOME DELIVERY divisions (the delivery charge, VEHICLE).
@@ -4519,26 +4519,30 @@
   const arCard = (cls, title, meta, body) => `<section class="ar-card ${cls}"><header><h3>${esc(title)}</h3><span>${meta}</span></header>${body}</section>`;
   const arMini = (title, table) => `<div class="ar-mini"><h4>${esc(title)}</h4>${table}</div>`;
   const arNA = (what) => `<p class="ar-empty">${esc(what)} data is not loaded yet.</p>`;
-  function arPage(rl, pageNo, pages) {
-    const master = S.data.master?.outlets || [], mine = master.filter((o) => !rl || o.rl === rl);
+  function arHead(rl, pageNo, pages) {
+    const mine = (S.data.master?.outlets || []).filter((o) => !rl || o.rl === rl);
     const zonals = new Set(mine.map((o) => o.zn).filter(Boolean)).size, full = rl ? mine[0]?.rh || rl : "National";
-    const sub = (o) => (rl ? o.dim?.zn || o.zn || "" : o.dim?.rl || o.rl || ""); // zonal on a leader's page, leader on National
     const photo = arPhoto(rl), gen = new Date().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" });
-    const head = `<header class="ar-head">${photo ? `<img src="${photo}" alt="">` : `<div class="ar-noimg">${esc((rl || "N").replace(/^M[rs]+\.\s*/, "")[0])}</div>`}
+    return `<header class="ar-head">${photo ? `<img src="${photo}" alt="">` : `<div class="ar-noimg">${esc((rl || "N").replace(/^M[rs]+\.\s*/, "")[0])}</div>`}
       <div class="ar-who"><p>Priority Tasks</p><h1>${esc(full)}</h1><div>${rl ? `${esc(rl)} · ` : ""}${int(mine.length)} outlets · ${int(zonals)} zonals${rl ? "" : ` · ${int(arRhos().length)} regional leaders`}</div></div>
       <div class="ar-when"><b>${esc(fmonth(S.data.tilldate?.date?.slice(0, 7) || new Date().toISOString().slice(0, 7)))}</b><span>Generated ${esc(gen)}</span><span>Page ${pageNo} of ${pages}</span></div></header>`;
+  }
+  const arFoot = (rl) => `<footer class="ar-foot"><span>Operations Dashboard · Priority Tasks${rl ? ` · ${esc(rl)}` : " · National"}</span><span>Outlets per card follow each data source; figures use the same rules as the dashboard pages.</span></footer>`;
+  function arPage(rl, pageNo, pages) {
+    const sub = (o) => (rl ? o.dim?.zn || o.zn || "" : o.dim?.rl || o.rl || ""); // zonal on a leader's page, leader on National
 
     // 1. Sales
-    const sa = arSales(rl), cats = arCats(rl);
+    const gpN = 3, sa = arSales(rl, gpN), cats = arCats(rl)?.slice(0, 3);
     let sales = arNA("Sales");
     if (sa) {
       const a = sa.a, rep = sa.r, achTone = a.ach >= 1 ? "pos" : a.ach >= 0.9 ? "warn" : "neg";
+      const gpRow = ({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")];
       sales = `<div class="ar-tiles six">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(a.a), `${int(a.tn)} outlets with a target`)}${arTile("Achievement", pct(a.ach, 1), a.a >= a.t ? "On or above target" : `Gap ${bdt(a.a - a.t)}`, achTone)}
           ${arTile("Sales vs last year", arSign(a.gy), `${bdt(a.s)} vs ${bdt(a.sy)}`)}${arTile("Same-store growth", arSign(a.gss), `${int(a.ssn)} same stores`)}${arTile("GP margin", pct(a.gp, 2), `${arSign(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")} vs last year`)}</div>
         <div class="ar-grid4 ar-stack">
           <div>
           ${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}
-          ${arMini("Same-store gross profit margin: lowest 4 and highest 4", arT(["Outlet", "GP value", "GP%", "vs LY"], [{ label: "Lowest 4" }, ...sa.gpw.map(({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")]), ...(sa.gpb.length ? [{ label: "Highest 4" }] : []), ...sa.gpb.map(({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")])]))}
+          ${arMini(`Same-store gross profit margin: lowest ${gpN} and highest ${gpN}`, arT(["Outlet", "GP value", "GP%", "vs LY"], [{ label: `Lowest ${gpN}` }, ...sa.gpw.map(gpRow), ...(sa.gpb.length ? [{ label: `Highest ${gpN}` }] : []), ...sa.gpb.map(gpRow)]))}
           </div><div>
           ${arMini("Same-store growth vs last year: worst 3 and best 3", arT(["Outlet", "Sales", "Last year", "Growth"], [{ label: "Worst 3" }, ...sa.deg.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)]), ...(sa.gro.length ? [{ label: "Best 3" }] : []), ...sa.gro.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)])]))}
           ${arMini(`Weakest categories${S.sku ? ` (Item performance, ${ipPeriod(S.sku, true).replace(/^Data /, "")})` : ""}`, cats ? arT(["Category", "Sales", "Last year", "Growth"], cats.map((x) => [`<span class="ar-o">${esc(x.c1)} <i>· ${esc(x.div)}</i></span>`, bdt(x.ns), bdt(x.nl), arSign(x.g)])) : arNA("Item performance"))}
@@ -4547,11 +4551,12 @@
       sales = arCard("ar-sales", "Sales", `${rep.closed ? "Closed month" : "Month to date"}, ${esc(rep.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(rep.date))}`, sales);
     } else sales = arCard("ar-sales", "Sales", "", sales);
 
-    // 2. Loss-making outlets (last month)
+    // 2. Loss-making outlets (last month), the reasons on one line
     const lo = arLoss(rl);
+    const reasons = !lo ? "" : `<p class="ar-line"><b>By primary reason:</b> ${lo.reasons.length ? lo.reasons.map((x) => `${esc(x.reason)} ${int(x.n)} <span class="ar-neg">${bdt(x.pl)}</span>`).join(" · ") : "none"}</p>`;
     const loss = arCard("ar-loss", "Loss-making outlets", lo ? `P&L ${esc(fmonth(lo.m))}, ${S.pbasis === "after" ? "after" : "before"} financing cost` : "", lo ? `
       <div class="ar-tiles three">${arTile("Loss-making", `${int(lo.n)} <small>of ${int(lo.trading)}</small>`, `${pct(lo.trading ? lo.n / lo.trading : null, 0)} of trading outlets`, lo.n ? "neg" : "pos")}${arTile("Total loss", bdt(lo.total), "", "neg")}${arTile("Net outlet P/L", bdt(lo.net), "", lo.net < 0 ? "neg" : "pos")}</div>
-      ${arMini("Loss by primary reason", arT(["Primary reason", "Outlets", "Loss"], lo.reasons.map((x) => [esc(x.reason), int(x.n), `<span class="ar-neg">${bdt(x.pl)}</span>`]), "No loss-making outlets"))}
+      ${reasons}
       ${arMini("Biggest losses", arT(["Outlet", "Sales", "P/L"], lo.worst.map((x) => [arO(x.o.c, x.o.nm, sub(x.o)), bdt(x.o.s), `<span class="ar-neg">${bdt(x.pl)}</span>`]), "No loss-making outlets"))}` : arNA("P&L"));
 
     // 3. Consumable and wastage
@@ -4568,13 +4573,14 @@
       <div class="ar-grades">${sx.gc.map(([g, n]) => `<span class="ar-g ar-g-${g.k}"><b>${int(n)}</b>${esc(g.label)}</span>`).join("")}</div>
       ${arMini("Lowest scores", arT(["Outlet", "Score", "Grade", "Audit"], sx.worst.map((r) => [arO(r.c, r.nm, rl ? r.dim.zn : r.dim.rl), pct(r.p, 1), esc(r.grade.label), esc(fdate(r.v.date, true))])))}` : arNA("Store assessment"));
 
-    // 5. Availability
+    // 5. Availability: the three lists side by side, the product divisions on one line
     const av = arAv(rl);
     const avRows = (x) => x.worst.map(({ o, v }) => [arO(o.c, o.n, rl ? o.dim.zn : o.dim.rl), `<span class="ar-neg">${pct(v, 1)}</span>`]);
+    const avLists = !av ? "" : `<div class="ar-grid3">${arMini("Lowest Core", arT(["Outlet", "Avail."], avRows(av.core)))}${arMini("Lowest KVI", arT(["Outlet", "Avail."], avRows(av.kvi)))}${arMini("Lowest Promo", arT(["Outlet", "Avail."], avRows(av.promo)))}</div>
+        <p class="ar-line"><b>Lowest product divisions:</b> ${av.nd.map((x) => `${esc(x.name)} <span class="ar-neg">${pct(x.v, 1)}</span>`).join(" · ") || "none"}</p>`;
     const avc = arCard("ar-av", "Availability", av ? `${av.days} day${av.days === 1 ? "" : "s"} of cover` : "", av ? `
       <div class="ar-tiles three">${["core", "kvi", "promo"].map((k) => arTile(`${k === "kvi" ? "KVI" : k[0].toUpperCase() + k.slice(1)} availability`, pct(av[k].v, 1), `${int(av[k].tot.ok)} of ${int(av[k].tot.slots)} available`, av[k].v >= 0.9 ? "pos" : av[k].v >= 0.8 ? "warn" : "neg")).join("")}</div>
-      <div class="ar-grid4">${arMini("Lowest Core", arT(["Outlet", "Avail."], avRows(av.core)))}${arMini("Lowest KVI", arT(["Outlet", "Avail."], avRows(av.kvi)))}${arMini("Lowest Promo", arT(["Outlet", "Avail."], avRows(av.promo)))}
-      ${arMini("Lowest product divisions", arT(["Product division", "Avail."], av.nd.map((x) => [esc(x.name), `<span class="ar-neg">${pct(x.v, 1)}</span>`])))}</div>` : arNA("Availability"));
+      ${avLists}` : arNA("Availability"));
 
     // 6. Receiving
     const rc = arRc(rl);
@@ -4582,8 +4588,9 @@
       <div class="ar-tiles three">${arTile("Over-receiving value", bdt(rc.ov), rl ? "Total of its outlets" : "Company", "neg")}${arTile("Over-receiving incidents", int(rc.oi), `Under-receiving ${int(rc.ui)}`)}${arTile("Received vs sold", `<span class="ar-small">${units(rc.r)} / ${units(rc.s)}</span>`, "Units")}</div>
       ${arMini("Highest over-receiving value", arT(["Outlet", "Over value", "Incidents"], rc.worst.map((o) => [arO(o.c, o.nm, rl ? o.dim.zn : o.dim.rl), `<span class="ar-neg">${bdt(o.ov)}</span>`, int(o.oi)])))}` : arNA("Receiving"));
 
-    const foot = `<footer class="ar-foot"><span>Operations Dashboard · Priority Tasks${rl ? ` · ${esc(rl)}` : " · National"}</span><span>Outlets per card follow each data source; figures use the same rules as the dashboard pages.</span></footer>`;
-    return `<article class="ar-page">${head}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}${rcc}</div></div>${arWeakCard(rl)}${foot}</article>`;
+    // 7-8. Visits and credit card, beside receiving in a row of three
+    const vcc = arVcCard(arVc(rl), rl), ccc = arCcCard(arCc(rl), rl);
+    return `<article class="ar-page">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${vcc}${ccc}</div>${arWeakCard(rl)}${arFoot(rl)}</article>`;
   }
 
   // ---- weakest groups: regional leaders on National, a leader's zonals on their page. Ranked on the average of
@@ -4635,6 +4642,57 @@
         arT([rl ? "Zonal" : "Regional leader", ...AR_MEASURES.map((m) => m[2]), "Avg rank"], rows, `No ${what}`, "ar-wk"))}`;
   }
 
+  // ---- credit card extra cost and visit compliance (data/ccv.json, from the Dashboard Raw Data Drive folder)
+  function loadCcv() {
+    if (S.ccv || S.ccvLoading) return;
+    S.ccvLoading = true; S.ccvErr = null;
+    fetch("data/ccv.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { S.ccv = d; })
+      .catch((e) => { S.ccvErr = e.message; })
+      .finally(() => { S.ccvLoading = false; });
+  }
+  // master outlets by code, shaped like the other sources' outlets ({ c, nm, dim })
+  const arMasterMap = () => new Map((S.data.master?.outlets || []).map((o) => [o.c, { c: o.c, nm: o.n, dim: { rl: o.rl || MISS, zn: o.zn || MISS } }]));
+  function arCc(rl) {
+    const d = S.ccv?.cc; if (!d) return null;
+    const mo = arMasterMap(), P = d.providers;
+    const rows = d.rows.map(([c, a, t]) => ({ ...(mo.get(c) || { c, nm: "", dim: { rl: MISS, zn: MISS } }), a, t })).filter(arIn(rl));
+    const total = rows.reduce((s, r) => s + r.t, 0);
+    const prov = P.map((name, i) => { const v = rows.reduce((s, r) => s + (r.a[i] || 0), 0); return { name, i, v, share: total ? v / total : null, n: rows.filter((r) => r.a[i] >= 1).length }; }).sort((a, b) => b.v - a.v);
+    const main = (a) => { let bi = 0; a.forEach((v, i) => { if (v > a[bi]) bi = i; }); return { name: P[bi], v: a[bi] }; };
+    // amounts under ৳1 (the export shows ৳0.01 for some outlets) don't count as extra cost
+    return { from: d.from, to: d.to, total, n: rows.filter((r) => r.t >= 1).length, prov,
+      worst: rows.filter((r) => arOk(r) && r.t >= 1).sort((a, b) => b.t - a.t).slice(0, 3).map((r) => ({ ...r, top: main(r.a) })) };
+  }
+  function arVc(rl) {
+    const d = S.ccv?.visit; if (!d) return null;
+    const vis = new Map(d.rows.map((r) => [r[0], r]));
+    const outs = (S.data.master?.outlets || []).filter((o) => o.rl && (!rl || o.rl === rl)).map((o) => { const r = vis.get(o.c) || [o.c, 0, 0, 0]; return { c: o.c, nm: o.n, dim: { rl: o.rl, zn: o.zn || MISS }, pl: r[1], dn: r[2], vd: r[3] }; });
+    const sum = (k) => outs.reduce((s, o) => s + o[k], 0);
+    const not = outs.filter((o) => !o.vd).sort((a, b) => b.pl - a.pl || a.c.localeCompare(b.c));
+    return { from: d.from, to: d.to, planned: d.planned, n: outs.length, not, pl: sum("pl"), dn: sum("dn"), vd: sum("vd") };
+  }
+  const arRange = (f, t) => (f && t ? `${esc(fdate(f, true))} – ${esc(fdate(t))}` : "");
+  // Credit card: the total beside the split by provider, then the outlets with the highest extra cost.
+  function arCcCard(cc, rl) {
+    if (!cc) return arCard("ar-cc", "Credit card extra cost", "", arNA("Credit card"));
+    const sub = (o) => (rl ? o.dim.zn : o.dim.rl);
+    const bar = `<div class="ar-bar">${cc.prov.filter((p) => p.v > 0).map((p) => `<span class="ar-c${p.i}" style="width:${(p.share * 100).toFixed(2)}%"></span>`).join("")}</div>
+      <div class="ar-legend">${cc.prov.map((p) => `<span><i class="ar-c${p.i}"></i>${esc(p.name)} <b>${pct(p.share, 1)}</b></span>`).join("")}</div>`;
+    const top = arT(["Outlet", "Extra", "Main source"], cc.worst.map((r) => [arO(r.c, r.nm, sub(r)), `<span class="ar-neg">${bdt(r.t)}</span>`, `${esc(r.top.name)} ${pct(r.t ? r.top.v / r.t : null, 0)}`]), "No extra cost");
+    return arCard("ar-cc", "Credit card extra cost", arRange(cc.from, cc.to), `<div class="ar-ccrow">${arTile("Extra amount", bdt(cc.total), `${int(cc.n)} outlets`, "neg")}<div>${bar}</div></div>${arMini("Highest extra cost", top)}`);
+  }
+  // Visits: an outlet is visited when the visit team punched in there on any day of the period.
+  function arVcCard(vc, rl) {
+    if (!vc) return arCard("ar-vc", "Visit compliance", "", arNA("Visit"));
+    const sub = (o) => (rl ? o.dim.zn : o.dim.rl);
+    const tiles = `<div class="ar-tiles three">${arTile("Not visited", int(vc.not.length), `of ${int(vc.n)} outlets, no visit punch`, vc.not.length ? "neg" : "pos")}${arTile("Visit days", int(vc.vd), vc.planned ? `Planned ${int(vc.pl)}` : "Outlet-days with a punch")}${vc.planned ? arTile("On the planned day", pct(vc.pl ? vc.dn / vc.pl : null, 1), `${int(vc.dn)} of ${int(vc.pl)} planned visits`, vc.pl && vc.dn / vc.pl < 0.8 ? "warn" : "") : ""}</div>`;
+    const notT = arT(["Outlet", "Planned visits"], vc.not.slice(0, 3).map((o) => [arO(o.c, o.nm, sub(o)), int(o.pl)]), "Every outlet was visited");
+    return arCard("ar-vc", "Visit compliance", arRange(vc.from, vc.to), `${tiles}${arMini("Not visited", notT)}`);
+  }
+  const arLeaderIdx = (rl) => (rl ? arRhos().indexOf(rl) + 1 : 0); // 0 = National
+
   // ---- PDF: each page as a JPEG, written into a minimal PDF (A4 portrait, one image per page)
   function arPdfBlob(imgs) {
     const enc = new TextEncoder(), parts = [], offs = [];
@@ -4665,9 +4723,10 @@
     try {
       await loadH2C();
       const imgs = [];
+      const total = arRhos().length + 1;
       for (let i = 0; i < list.length; i++) {
         status.textContent = `Rendering page ${i + 1} of ${list.length}…`;
-        host.innerHTML = arPage(list[i] || null, all ? i + 1 : arRhos().indexOf(S.arv.rl) + 2 || 1, all ? list.length : arRhos().length + 1);
+        host.innerHTML = arPage(list[i] || null, arLeaderIdx(list[i]) + 1, total);
         const page = host.firstElementChild;
         await arWaitImages(page);
         const c = await window.html2canvas(page, { scale: 1.75, backgroundColor: "#ffffff", logging: false, useCORS: true, windowWidth: page.offsetWidth });
@@ -4686,29 +4745,29 @@
       status.textContent = "Could not build the PDF. Try again, or use your browser's print to save as PDF.";
     } finally {
       S.arBusy = false; $$("[data-arpdf]").forEach((b) => (b.disabled = false));
-      host.innerHTML = arPage(S.arv.rl || null, arRhos().indexOf(S.arv.rl) + 2 || 1, arRhos().length + 1);
+      host.innerHTML = arPage(S.arv.rl || null, arLeaderIdx(S.arv.rl) + 1, arRhos().length + 1);
     }
   }
   function pageAR() {
     if (!arReady()) {
       setTimeout(() => S.page === "ar" && render(), 600);
-      const got = [["Sales", S.data], ["Consumable and wastage", S.cw], ["Availability", S.av], ["Store assessment", S.sa], ["Item performance", S.sku], ["Receiving", S.rcv]];
+      const got = [["Sales", S.data], ["Consumable and wastage", S.cw], ["Availability", S.av], ["Store assessment", S.sa], ["Item performance", S.sku], ["Receiving", S.rcv], ["Credit card and visits", S.ccv]];
       return `<p class="empty">Loading the report data… ${got.filter((x) => x[1]).length} of ${got.length} sources ready (${esc(got.filter((x) => !x[1]).map((x) => x[0]).join(", "))} still loading).</p>`;
     }
     const rhos = arRhos();
     if (S.arv.rl && !rhos.includes(S.arv.rl)) S.arv.rl = "";
-    const idx = S.arv.rl ? rhos.indexOf(S.arv.rl) + 2 : 1, opts = [["", "National"], ...rhos.map((r) => [r, `${r} · ${(S.data.master.outlets.find((o) => o.rl === r) || {}).rh || ""}`])];
+    const total = rhos.length + 1, idx = arLeaderIdx(S.arv.rl) + 1, opts = [["", "National"], ...rhos.map((r) => [r, `${r} · ${(S.data.master.outlets.find((o) => o.rl === r) || {}).rh || ""}`])];
     AFTER.push(() => {
       $("#arSel").onchange = (e) => { S.arv.rl = e.target.value; render(); };
       $$("[data-arstep]").forEach((b) => (b.onclick = () => { const all = ["", ...rhos], i = all.indexOf(S.arv.rl) + Number(b.dataset.arstep); S.arv.rl = all[(i + all.length) % all.length]; render(); }));
       $$("[data-arpdf]").forEach((b) => (b.onclick = () => arPdf(b.dataset.arpdf === "all")));
     });
-    return `<section class="panel"><div class="panel-head"><div><h2>Priority Tasks</h2><p>One A4 page for the company and one per regional leader: sales, loss, consumable and wastage, store assessment, availability and receiving, with the outlets that need action. Download one page or all ${int(rhos.length + 1)} pages as a PDF.</p></div>
+    return `<section class="panel"><div class="panel-head"><div><h2>Priority Tasks</h2><p>One A4 page for the company and one per regional leader: sales, loss, consumable and wastage, store assessment, availability, receiving, visits and credit card extra cost, with the outlets that need action. Download one page or all ${int(total)} pages as a PDF.</p></div>
       <div class="panel-tools"><button type="button" class="btn" data-arstep="-1" aria-label="Previous page">‹</button>
         <select class="sel" id="arSel" aria-label="Report page">${opts.map(([v, t]) => `<option value="${esc(v)}" ${S.arv.rl === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
         <button type="button" class="btn" data-arstep="1" aria-label="Next page">›</button>
-        <button type="button" class="btn" data-arpdf="one">Download PDF (this page)</button><button type="button" class="btn primary" data-arpdf="all">Download PDF (all ${int(rhos.length + 1)} pages)</button></div></div>
-      <div class="panel-body"><p class="muted" id="arStatus" style="margin:0 0 10px">Page ${idx} of ${rhos.length + 1}.</p><div class="ar-scroll"><div id="arPreview">${arPage(S.arv.rl || null, idx, rhos.length + 1)}</div></div></div></section>`;
+        <button type="button" class="btn" data-arpdf="one">Download PDF (this page)</button><button type="button" class="btn primary" data-arpdf="all">Download PDF (all ${int(total)} pages)</button></div></div>
+      <div class="panel-body"><p class="muted" id="arStatus" style="margin:0 0 10px">Page ${idx} of ${total}.</p><div class="ar-scroll"><div id="arPreview">${arPage(S.arv.rl || null, idx, total)}</div></div></div></section>`;
   }
 
   // ------------------------------------------------------------------ store assessment (data/sa.json)

@@ -10,7 +10,7 @@ Exit status: 0 = something changed (the changes are printed), 1 = nothing change
 
 Usage: python scripts/watch_drive.py            # compare and remember the new listing
        python scripts/watch_drive.py --baseline # just remember the current listing
-Environment: DATA_FOLDER_ID, NETWORK_FOLDER_ID, CW_FOLDER_ID, AV_FOLDER_ID, SKU_FOLDER_ID (the same
+Environment: DATA_FOLDER_ID, NETWORK_FOLDER_ID, CW_FOLDER_ID, AV_FOLDER_ID, SKU_FOLDER_ID, SA_FOLDER_ID, CCV_FOLDER_ID (the same
 overrides the refresh scripts use), WATCH_STATE (default /tmp/drive-watch.json).
 """
 import json
@@ -25,13 +25,14 @@ import fetch_drive_data as drive  # noqa: E402
 MOTHER = "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l"
 SKU = "111qtlTIgOpvuYK7G4B_xrA8hRBpwjcj_"
 SA = "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF"  # Store Assessment audit exports
+CCV = "16HTr8nfPz4P2PMr4QB0bjgwiD110Qd-0"  # Dashboard Raw Data: credit card extra cost, visit attendance and plan
 STATE = Path(os.environ.get("WATCH_STATE") or "/tmp/drive-watch.json")
 
 
 def folders():
     env = lambda k: (os.environ.get(k) or "").strip()  # noqa: E731
     data = env("DATA_FOLDER_ID") or MOTHER
-    return sorted({data, env("NETWORK_FOLDER_ID") or data, env("CW_FOLDER_ID") or data, env("AV_FOLDER_ID") or data, env("SKU_FOLDER_ID") or SKU, env("SA_FOLDER_ID") or SA})
+    return sorted({data, env("NETWORK_FOLDER_ID") or data, env("CW_FOLDER_ID") or data, env("AV_FOLDER_ID") or data, env("SKU_FOLDER_ID") or SKU, env("SA_FOLDER_ID") or SA, env("CCV_FOLDER_ID") or CCV})
 
 
 def listing():

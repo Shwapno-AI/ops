@@ -2,7 +2,7 @@
    Fixed light colours so the page and its PDF look the same in either theme. */
 .ar-scroll{overflow:auto;padding:14px;background:#e9eef1;border-radius:10px}
 #arPreview{width:794px;margin:0 auto}
-.ar-page{width:794px;height:1123px;box-sizing:border-box;padding:18px 24px 10px;background:#fff;color:#14232e;font:9px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:7px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+.ar-page{width:794px;height:1123px;box-sizing:border-box;padding:14px 24px 8px;background:#fff;color:#14232e;font:9px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:5px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .ar-page *{box-sizing:border-box}
 .ar-head{display:flex;align-items:center;gap:14px;padding:0 0 10px;border-bottom:2px solid #14232e}
 .ar-head img,.ar-noimg{width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid #d8e2e8;flex:none}
@@ -61,3 +61,24 @@
 .ar-t.ar-wk th.n,.ar-t.ar-wk td.n{width:66px}
 .ar-t.ar-wk td.n:last-child,.ar-t.ar-wk th.n:last-child{width:62px}
 .ar-t.ar-wk i{font-style:normal;color:#7a8f9c}
+/* credit card and visit compliance */
+.ar-cc{border-top-color:#b83280}.ar-vc{border-top-color:#dd6b20}
+.ar-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:#edf1f4}
+.ar-bar span{display:block;height:100%}
+.ar-legend{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:7.8px;color:#50677a}
+.ar-legend i{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:3px;vertical-align:-1px}
+.ar-legend b{color:#14232e}
+.ar-c0{background:#e2136e}.ar-c1{background:#1f6fb2}.ar-c2{background:#2f855a}.ar-c3{background:#b7791f}.ar-c4{background:#6b46c1}.ar-c5{background:#0f7c8c}.ar-c6{background:#7a8d99}
+.ar-line{margin:0;font-size:8px;line-height:1.4;color:#35505f}
+.ar-line b{color:#14232e}
+.ar-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 8px}
+.ar-grid3 .ar-t th.n,.ar-grid3 .ar-t td.n{width:38px}
+.ar-ccrow{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center}
+.ar-ccrow>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+/* receiving, visits and credit card in a row of three */
+.ar-row3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-items:stretch}
+.ar-row3>.ar-card{min-width:0}
+.ar-row3 .ar-tiles.three{grid-template-columns:repeat(3,1fr)}
+.ar-row3 .ar-tile strong{font-size:11px}
+.ar-row3 .ar-ccrow{grid-template-columns:92px 1fr}
+.ar-tile strong small{display:inline}
