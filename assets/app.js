@@ -1854,6 +1854,52 @@
     else Object.assign(col, { csv: (r) => r[k] ?? "", fmt: (r) => esc(disp(r[k])) });
     return col;
   }
+  // Active outlets, from the day-wise sales file: an outlet is active when it sold on at least one of the last
+  // ACTIVE_DAYS days up to the selected "sales through" date (so one day without sales, e.g. a holiday, doesn't
+  // count against it). Outlets in the sales file but not in the outlet master are included when no sidebar filter
+  // is set (they have no region or leader to filter on).
+  const ACTIVE_DAYS = 3;
+  function netActive(list) {
+    const so = S.net?.salesOutlets;
+    if (!so) return null;
+    const to = S.netTo || S.net.max, toDay = Number(to.slice(8, 10)), fromDay = toDay - ACTIVE_DAYS + 1;
+    const filtered = dims().some(([k]) => S.filters[k].size);
+    const inView = new Map(list.map((r) => [r.code, r]));
+    const bySales = new Map(so.map(([c, n, m, days]) => [c, { c, n, m, days: days.filter((x) => x <= toDay) }]));
+    const rows = [];
+    bySales.forEach((x) => {
+      if (x.m ? !inView.has(x.c) : filtered) return;
+      const r = inView.get(x.c), last = x.days.length ? x.days[x.days.length - 1] : null;
+      rows.push({ code: x.c, name: disp(r?.outletName) !== "—" ? r.outletName : x.n || "", rl: r ? disp(r.leader || r.regionalHead) : MISS, zn: r ? disp(r.zonal) : MISS, master: x.m,
+        last: last ? `${to.slice(0, 8)}${String(last).padStart(2, "0")}` : "", lastDay: last, days: x.days.length, active: last !== null && last >= fromDay });
+    });
+    list.forEach((r) => { if (!bySales.has(r.code)) rows.push({ code: r.code, name: disp(r.outletName), rl: disp(r.leader || r.regionalHead), zn: disp(r.zonal), master: true, last: "", days: 0, active: false }); });
+    rows.forEach((x) => (x.status = x.active ? (x.master ? "Active" : "Active, not in outlet master") : x.days ? "Stopped selling" : "No sales this month"));
+    // how the count changes with the length of the window: sold within the last n days up to the date
+    const windows = [1, 2, 3, 7].map((n) => ({ n, count: rows.filter((x) => x.lastDay != null && x.lastDay >= toDay - n + 1).length }));
+    return { rows, active: rows.filter((x) => x.active), to, filtered, windows };
+  }
+  function openNetActive(act) {
+    const order = { "Stopped selling": 0, "No sales this month": 1, "Active, not in outlet master": 2, Active: 3 };
+    const rows = [...act.rows].sort((a, b) => order[a.status] - order[b.status] || (a.last || "").localeCompare(b.last || "") || a.code.localeCompare(b.code));
+    const cnt = (s) => rows.filter((x) => x.status === s).length;
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    NCSV.netactive = () => [`active_outlets_${act.to}`, ["Outlet code", "Outlet", "Regional leader", "Zonal", "Status", "Last sale", "Days with sales this month", "In outlet master"],
+      rows.map((x) => [x.code, x.name, x.rl, x.zn, x.status, x.last, x.days, x.master ? "Yes" : "No"]), act.to];
+    const tone = { Active: "good", "Active, not in outlet master": "info", "Stopped selling": "bad", "No sales this month": "idle" };
+    $("#drawerTitle").textContent = `Active outlets, ${fdate(act.to)}`;
+    $("#drawerBody").innerHTML = `<div class="stat-grid three">
+        <div class="stat"><small>Active</small><strong class="up">${int(act.active.length)}</strong><div style="font-size:12px">Sold in the ${ACTIVE_DAYS} days to ${fdate(act.to, true)}${cnt("Active, not in outlet master") ? `, ${int(cnt("Active, not in outlet master"))} not in the outlet master` : ""}</div></div>
+        <div class="stat"><small>Stopped selling</small><strong class="down">${int(cnt("Stopped selling"))}</strong><div style="font-size:12px">Sold earlier this month, not in the last ${ACTIVE_DAYS} days</div></div>
+        <div class="stat"><small>No sales this month</small><strong>${int(cnt("No sales this month"))}</strong><div style="font-size:12px">In the outlet master, no sales in the file</div></div></div>
+      <div class="table-wrap" style="max-height:none"><table class="compact net-windows"><thead><tr><th>Sold within the last…</th><th class="num">Active outlets</th></tr></thead><tbody>
+      ${act.windows.map((w) => `<tr${w.n === ACTIVE_DAYS ? ' class="on"' : ""}><td>${w.n === 1 ? `1 day (only ${fdate(act.to, true)})` : `${w.n} days`}${w.n === ACTIVE_DAYS ? " <small class=\"muted\">(current)</small>" : ""}</td><td class="num">${w.n === ACTIVE_DAYS ? `<strong>${int(w.count)}</strong>` : int(w.count)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="lr-dtools"><span class="muted">From the day-wise sales file (${esc(S.net.source?.drive?.files?.dayWiseSales || S.net.source?.sourceFiles?.dayWiseSales || "day-wise sales")}), through ${fdate(act.to)}.${act.filtered ? " Sidebar filters are on, so outlets not in the outlet master are left out." : ""}</span>${csvBtn("netactive")}</div>
+      <div class="table-wrap" style="max-height:600px"><table class="compact"><thead><tr><th>Outlet</th><th>Status</th><th>Last sale</th><th class="num">Days with sales</th></tr></thead><tbody>
+      ${rows.map((x) => `<tr><td><span class="cell-primary">${esc(x.code)} ${esc(x.name)}</span><span class="cell-secondary">${x.master ? `${esc(x.rl)} · ${esc(x.zn)}` : esc(MISS)}</span></td><td>${chip({ cls: tone[x.status], label: x.status })}</td><td>${x.last ? fdate(x.last, true) : "—"}</td><td class="num">${int(x.days)}</td></tr>`).join("")}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
   function pageON() {
     const g = netGuard(); if (g) return g;
     NDRILL.clear();
@@ -1888,8 +1934,10 @@
     const ly = launches.length ? launches[launches.length - 1].slice(0, 4) : null, lmo = launches.length ? launches[launches.length - 1].slice(0, 7) : null;
     const yc = ly ? launches.filter((x) => x.startsWith(ly)).length : 0, mc = lmo ? launches.filter((x) => x.startsWith(lmo)).length : 0;
     const share = (n) => pct0(list.length ? n / list.length : null) + " of outlets";
+    const act = netActive(list);
     const glance = [
-      ["Outlets", int(list.length), "In the current view"],
+      act ? ["Active outlets", dbtn(int(act.active.length), "See which outlets are selling and which are not", () => openNetActive(act)), `Selling in the ${ACTIVE_DAYS} days to ${fdate(act.to, true)} · ${int(list.length)} in the outlet master`]
+        : ["Outlets", int(list.length), "In the current view"],
       ["Total floor area", compact(area), "sft across valid records"],
       ["Average size", sfts.length ? int(area / sfts.length) : "—", "sft per outlet"],
       ["Own stores", own.length ? dbtn(int(own.length), "List own stores", () => setDrill("Store status", ["Own"], (r) => r.status)) : "0", share(own.length)],

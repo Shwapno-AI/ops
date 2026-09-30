@@ -497,6 +497,18 @@ def build() -> dict:
             "lastMonthSales": last_month_map.get(code),
         })
 
+    # Every outlet in the day-wise sales file (outlet master or not) with the days it sold, for the active-outlet
+    # count: [code, name, in outlet master, days of the month with sales above zero]. Rows that are not outlet
+    # codes (the "Total (…)" footer, "Undf# 74" and the like) are left out and counted.
+    master_codes = {record["code"] for record in records}
+    sales_outlets, not_outlet_codes = [], []
+    for code, daily in sorted(actual_map.items()):
+        if not re.match(r"^[A-Z]{1,2}\d{2,4}$", code):
+            not_outlet_codes.append(code)
+            continue
+        days = sorted(int(date[8:10]) for date, amount in daily.items() if amount > 0)
+        sales_outlets.append([code, target_names.get(code, ""), code in master_codes, days])
+
     target_dates = [date for _, date in date_columns]
     report_month = target_dates[0][:7] if target_dates else ""
     sales_start = min(sales_dates) if sales_dates else ""
@@ -573,6 +585,8 @@ def build() -> dict:
             },
         },
         "rows": records,
+        "salesOutlets": sales_outlets,
+        "salesNonOutletCodes": [code for code in not_outlet_codes if not code.startswith("TOTAL")],
     }
 
 
