@@ -7,7 +7,7 @@
 
   // ------------------------------------------------------------------ config
   const NAV = [
-    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Actionable report"]] },
+    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
@@ -4423,7 +4423,7 @@
     return `${rcBar()}${rcHead({ range: { start, end, days }, live: !snapAt, snapAt })}${table}`;
   }
 
-  // ------------------------------------------------------------------ actionable report
+  // ------------------------------------------------------------------ priority tasks (actionable report)
   // One A4 page for the whole company and one per regional leader: sales, loss, consumable and wastage, store
   // assessment, availability and receiving, each with the outlets that need attention. Built from the same data
   // and rules as the dashboard pages; downloadable as a PDF (one page or all pages).
@@ -4454,11 +4454,11 @@
     const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, 4);
     return { r, n: list.length, a, worstAch: ach.slice(0, 3), deg, gro, gpw, gpb };
   }
-  // Weakest categories, leaving out CONSUMABLES (store supplies, not merchandise).
+  // Weakest categories, leaving out CONSUMABLES (store supplies) and the HOME DELIVERY divisions (the delivery charge, VEHICLE).
   function arCats(rl) {
     const d = S.sku; if (!d) return null;
     const codes = new Set(d.outlets.filter(arIn(rl)).map((o) => o.c)), g = new Map();
-    d.cube.forEach((r) => { if (!codes.has(r[0]) || /^consumables$/i.test(r[1]) || /^consumables$/i.test(r[2])) return; const k = `${r[1]}|${r[2]}`, x = g.get(k) || { div: r[1], c1: r[2], ns: 0, nl: 0 }; x.ns += r[3] || 0; x.nl += r[4] || 0; g.set(k, x); });
+    d.cube.forEach((r) => { if (!codes.has(r[0]) || /^consumables$/i.test(r[1]) || /^consumables$/i.test(r[2]) || /home delivery/i.test(r[1])) return; const k = `${r[1]}|${r[2]}`, x = g.get(k) || { div: r[1], c1: r[2], ns: 0, nl: 0 }; x.ns += r[3] || 0; x.nl += r[4] || 0; g.set(k, x); });
     return [...g.values()].filter((x) => x.nl > 0).map((x) => ({ ...x, d: x.ns - x.nl, g: x.ns / x.nl - 1 })).sort((a, b) => a.d - b.d).slice(0, 5);
   }
   function arLoss(rl) {
@@ -4525,7 +4525,7 @@
     const sub = (o) => (rl ? o.dim?.zn || o.zn || "" : o.dim?.rl || o.rl || ""); // zonal on a leader's page, leader on National
     const photo = arPhoto(rl), gen = new Date().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" });
     const head = `<header class="ar-head">${photo ? `<img src="${photo}" alt="">` : `<div class="ar-noimg">${esc((rl || "N").replace(/^M[rs]+\.\s*/, "")[0])}</div>`}
-      <div class="ar-who"><p>Actionable report</p><h1>${esc(full)}</h1><div>${rl ? `${esc(rl)} · ` : ""}${int(mine.length)} outlets · ${int(zonals)} zonals${rl ? "" : ` · ${int(arRhos().length)} regional leaders`}</div></div>
+      <div class="ar-who"><p>Priority Tasks</p><h1>${esc(full)}</h1><div>${rl ? `${esc(rl)} · ` : ""}${int(mine.length)} outlets · ${int(zonals)} zonals${rl ? "" : ` · ${int(arRhos().length)} regional leaders`}</div></div>
       <div class="ar-when"><b>${esc(fmonth(S.data.tilldate?.date?.slice(0, 7) || new Date().toISOString().slice(0, 7)))}</b><span>Generated ${esc(gen)}</span><span>Page ${pageNo} of ${pages}</span></div></header>`;
 
     // 1. Sales
@@ -4582,8 +4582,57 @@
       <div class="ar-tiles three">${arTile("Over-receiving value", bdt(rc.ov), rl ? "Total of its outlets" : "Company", "neg")}${arTile("Over-receiving incidents", int(rc.oi), `Under-receiving ${int(rc.ui)}`)}${arTile("Received vs sold", `<span class="ar-small">${units(rc.r)} / ${units(rc.s)}</span>`, "Units")}</div>
       ${arMini("Highest over-receiving value", arT(["Outlet", "Over value", "Incidents"], rc.worst.map((o) => [arO(o.c, o.nm, rl ? o.dim.zn : o.dim.rl), `<span class="ar-neg">${bdt(o.ov)}</span>`, int(o.oi)])))}` : arNA("Receiving"));
 
-    const foot = `<footer class="ar-foot"><span>Operations Dashboard · Actionable report${rl ? ` · ${esc(rl)}` : " · National"}</span><span>Outlets per card follow each data source; figures use the same rules as the dashboard pages.</span></footer>`;
-    return `<article class="ar-page">${head}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}${rcc}</div></div>${foot}</article>`;
+    const foot = `<footer class="ar-foot"><span>Operations Dashboard · Priority Tasks${rl ? ` · ${esc(rl)}` : " · National"}</span><span>Outlets per card follow each data source; figures use the same rules as the dashboard pages.</span></footer>`;
+    return `<article class="ar-page">${head}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}${rcc}</div></div>${arWeakCard(rl)}${foot}</article>`;
+  }
+
+  // ---- weakest groups: regional leaders on National, a leader's zonals on their page. Ranked on the average of
+  // each group's position across six measures (1 = best), so no single figure decides it.
+  const AR_MEASURES = [["ach", 1, "Achievement"], ["ssg", 1, "SS growth"], ["lossShare", -1, "Loss outlets"], ["wst", -1, "Wastage %"], ["sa", 1, "Store score"], ["core", 1, "Core avail."]];
+  function arWeakest(rl) {
+    const inScope = arIn(rl), key = (o) => (rl ? o.dim?.zn : o.dim?.rl), G = new Map();
+    (S.data.master?.outlets || []).forEach((o) => { if (rl && o.rl !== rl) return; const k = rl ? o.zn : o.rl; if (!k) return; const g = G.get(k) || { name: k, full: rl ? "" : o.rh || "", outlets: 0, rk: {} }; g.outlets++; G.set(k, g); });
+    const at = (o) => G.get(key(o));
+    const r = S.data.tilldate;
+    if (r) {
+      r.outlets.filter(inScope).forEach((o) => { const g = at(o); if (!g) return; if (o.t > 0) { g.t = (g.t || 0) + o.t; g.a = (g.a || 0) + (o.a || 0); } if (o.ssy && o.sy > 0) { g.ss = (g.ss || 0) + (o.s || 0); g.sy = (g.sy || 0) + o.sy; } });
+      G.forEach((g) => { g.ach = g.t > 0 ? g.a / g.t : null; g.ssg = g.sy > 0 ? g.ss / g.sy - 1 : null; });
+    }
+    const P = S.data.pnl;
+    if (P?.months?.length) {
+      const m = P.months[P.months.length - 1], keep = S.pm;
+      S.pm = m;
+      try { (P.summary[m] || []).filter(inScope).forEach((o) => { const g = at(o); if (!g) return; const x = pnlCalc(o); if (x.closed) return; g.tr = (g.tr || 0) + 1; if (x.loss) g.loss = (g.loss || 0) + 1; }); } finally { S.pm = keep; }
+      G.forEach((g) => { g.lossShare = g.tr ? (g.loss || 0) / g.tr : null; });
+    }
+    if (S.cw) {
+      const d = S.cw, from = S.cwv.from || d.dateRange.min, to = S.cwv.to || d.dateRange.max, by = new Map();
+      cwStamp(from, to);
+      const outs = d.outlets.filter((o) => inScope(o) && at(o)), b = cwBuckets(outs.map((o) => o.code), from, to);
+      outs.forEach((o) => { const k = key(o); if (!by.has(k)) by.set(k, []); by.get(k).push(cwDecorate(o, b.get(o.code))); });
+      by.forEach((ms, k) => (G.get(k).wst = cwSummarize(ms).wastageSalesRate));
+    }
+    if (S.sa) { const rows = saRows(saMonth()).filter(inScope); G.forEach((g, k) => (g.sa = saAvg(rows.filter((x) => key(x) === k)))); }
+    if (S.av) {
+      const d = S.av, days = avDays(), N = d.S, skus = d.skus.filter((s) => s.core), acc = new Map();
+      d.outlets.filter((o) => inScope(o) && at(o)).forEach((o) => { const k = key(o), a = acc.get(k) || avAcc(), base = o.i * N; for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i]; avAdd(a, st, sl, days, avStatus(st, sl, days)); } acc.set(k, a); });
+      acc.forEach((a, k) => (G.get(k).core = avRate(a)));
+    }
+    const list = [...G.values()], cnt = {};
+    AR_MEASURES.forEach(([k, dir]) => { const xs = list.filter((g) => isNum(g[k])).sort((a, b) => dir * (b[k] - a[k])); cnt[k] = xs.length; xs.forEach((g, i) => (g.rk[k] = i + 1)); });
+    list.forEach((g) => { const v = Object.values(g.rk); g.avg = v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; });
+    return { n: list.length, cnt, rows: list.filter((g) => isNum(g.avg)).sort((a, b) => b.avg - a.avg || (a.ach ?? 9) - (b.ach ?? 9)).slice(0, 3) }; // a tie goes to the lower achievement
+  }
+  function arWeakCard(rl) {
+    const wk = arWeakest(rl);
+    // a figure in the bottom third on its measure is red
+    const cell = (g, k, text) => `<span class="${g.rk[k] && wk.cnt[k] > 1 && g.rk[k] > (wk.cnt[k] * 2) / 3 ? "ar-neg" : ""}">${text}</span>`;
+    const rows = wk.rows.map((g) => [`<span class="ar-o"><b>${esc(g.full || g.name)}</b> <i>· ${int(g.outlets)} outlets</i></span>`,
+      cell(g, "ach", pct(g.ach, 1)), cell(g, "ssg", isNum(g.ssg) ? `${g.ssg > 0 ? "+" : g.ssg < 0 ? "−" : ""}${Math.abs(g.ssg * 100).toFixed(1)}%` : "—"),
+      cell(g, "lossShare", isNum(g.lossShare) ? `${int(g.loss || 0)} of ${int(g.tr)}` : "—"), cell(g, "wst", pct(g.wst, 2)), cell(g, "sa", pct(g.sa, 1)), cell(g, "core", pct(g.core, 1)), `<b>${g.avg.toFixed(1)}</b> <i>of ${int(wk.n)}</i>`]);
+    const what = rl ? "zonals" : "regional leaders";
+    return `${arCard("ar-weak", `Weakest ${what}`, wk.n > 3 ? `Bottom 3 of ${int(wk.n)} by average rank across six measures; red = bottom third on that measure` : `All ${int(wk.n)}, weakest first, by average rank across six measures`,
+        arT([rl ? "Zonal" : "Regional leader", ...AR_MEASURES.map((m) => m[2]), "Avg rank"], rows, `No ${what}`, "ar-wk"))}`;
   }
 
   // ---- PDF: each page as a JPEG, written into a minimal PDF (A4 portrait, one image per page)
@@ -4628,7 +4677,7 @@
       }
       const blob = arPdfBlob(imgs), url = URL.createObjectURL(blob), a = document.createElement("a");
       const who = all ? "all" : (S.arv.rl || "national").replace(/^M[rs]+\.\s*/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      a.href = url; a.download = `actionable-report_${who}_${(S.data.tilldate?.date || "").slice(0, 10)}.pdf`;
+      a.href = url; a.download = `priority-tasks_${who}_${(S.data.tilldate?.date || "").slice(0, 10)}.pdf`;
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       status.textContent = `Downloaded ${list.length} page${list.length === 1 ? "" : "s"} (${(blob.size / 1048576).toFixed(1)} MB).`;
@@ -4654,7 +4703,7 @@
       $$("[data-arstep]").forEach((b) => (b.onclick = () => { const all = ["", ...rhos], i = all.indexOf(S.arv.rl) + Number(b.dataset.arstep); S.arv.rl = all[(i + all.length) % all.length]; render(); }));
       $$("[data-arpdf]").forEach((b) => (b.onclick = () => arPdf(b.dataset.arpdf === "all")));
     });
-    return `<section class="panel"><div class="panel-head"><div><h2>Actionable report</h2><p>One A4 page for the company and one per regional leader: sales, loss, consumable and wastage, store assessment, availability and receiving, with the outlets that need action. Download one page or all ${int(rhos.length + 1)} pages as a PDF.</p></div>
+    return `<section class="panel"><div class="panel-head"><div><h2>Priority Tasks</h2><p>One A4 page for the company and one per regional leader: sales, loss, consumable and wastage, store assessment, availability and receiving, with the outlets that need action. Download one page or all ${int(rhos.length + 1)} pages as a PDF.</p></div>
       <div class="panel-tools"><button type="button" class="btn" data-arstep="-1" aria-label="Previous page">‹</button>
         <select class="sel" id="arSel" aria-label="Report page">${opts.map(([v, t]) => `<option value="${esc(v)}" ${S.arv.rl === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
         <button type="button" class="btn" data-arstep="1" aria-label="Next page">›</button>

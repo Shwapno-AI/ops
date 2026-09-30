@@ -1,8 +1,8 @@
-/* Actionable report: one A4 portrait page (794 x 1123 px at 96 dpi) per regional leader.
+/* Priority Tasks (actionable report): one A4 portrait page (794 x 1123 px at 96 dpi) per regional leader.
    Fixed light colours so the page and its PDF look the same in either theme. */
 .ar-scroll{overflow:auto;padding:14px;background:#e9eef1;border-radius:10px}
 #arPreview{width:794px;margin:0 auto}
-.ar-page{width:794px;height:1123px;box-sizing:border-box;padding:22px 24px 16px;background:#fff;color:#14232e;font:9px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+.ar-page{width:794px;height:1123px;box-sizing:border-box;padding:18px 24px 10px;background:#fff;color:#14232e;font:9px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:7px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .ar-page *{box-sizing:border-box}
 .ar-head{display:flex;align-items:center;gap:14px;padding:0 0 10px;border-bottom:2px solid #14232e}
 .ar-head img,.ar-noimg{width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid #d8e2e8;flex:none}
@@ -37,7 +37,7 @@
 .ar-mini h4{margin:0 0 2px;font-size:8.5px;font-weight:700;color:#35505f}
 .ar-t{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px}
 .ar-t th{font-size:7.5px;font-weight:600;color:#6a8190;text-align:left;border-bottom:1px solid #d6e0e6;padding:1px 3px}
-.ar-t td{padding:2px 3px;border-bottom:1px solid #edf1f4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:top}
+.ar-t td{padding:1.5px 3px;border-bottom:1px solid #edf1f4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:top}
 .ar-t th.n,.ar-t td.n{text-align:right;width:56px}
 .ar-t tr:last-child td{border-bottom:0}
 .ar-o{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -56,3 +56,8 @@
 .ar-cols>div>.ar-card:last-child{flex:1}
 .ar-t.split4 tbody tr:nth-child(5) td{border-top:1px solid #9fb2bd}
 .ar-t tr.ar-grp td{padding:2px 3px 1px;font-size:7px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#50677a;background:#f3f6f8;border-bottom:1px solid #d6e0e6}
+/* weakest regional leaders / zonals, at the bottom of the page */
+.ar-weak{border-top-color:#c8102e;gap:4px}
+.ar-t.ar-wk th.n,.ar-t.ar-wk td.n{width:66px}
+.ar-t.ar-wk td.n:last-child,.ar-t.ar-wk th.n:last-child{width:62px}
+.ar-t.ar-wk i{font-style:normal;color:#7a8f9c}
