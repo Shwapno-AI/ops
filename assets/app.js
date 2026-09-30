@@ -36,7 +36,7 @@
   };
   // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.
   const MISS = "New outlets (Not Distributed)", LEGACY_MISS = "Not in outlet master";
-  const fixMiss = (x) => (x === LEGACY_MISS ? MISS : x); // data files built before the rename
+  const fixMiss = (x) => (x === LEGACY_MISS || x === "Unmapped" ? MISS : x); // data files built before the rename
   const missLast = (a, b) => (a === MISS) - (b === MISS) || String(a).localeCompare(String(b));
   const DIMS = [["rl", "Regional leader"], ["zn", "Zonal"], ["div", "Division"], ["dis", "District"], ["fmt", "Outlet format"], ["own", "Ownership"], ["pnp", "PNP status"], ["loc", "Location type"], ["age", "Outlet age"]];
   // Extra outlet-master fields, filterable on the outlet network pages only.
@@ -2658,7 +2658,7 @@
   const CWK = Object.keys(CWM);
   const CW_TOL = 0.0001; // 0.01 percentage point
   const CW_METRIC_OPTS = CWK.map((k) => [k, CWM[k].short]);
-  const CW_STATUS = [["all", "All outlets"], ["above", "Above any target"], ["within", "Within all targets"], ["unmapped", "Unmapped outlets"], ["reversal", "Net reversal outlets"]];
+  const CW_STATUS = [["all", "All outlets"], ["above", "Above any target"], ["within", "Within all targets"], ["unmapped", MISS], ["reversal", "Net reversal outlets"]];
   function cwStatus(actual, target, numerator = 0) {
     if (!isNum(actual) || !isNum(target)) return { key: "neutral", cls: "idle", label: "No target" };
     if (numerator < 0) return { key: "info", cls: "info", label: "Net reversal" };
@@ -2686,6 +2686,7 @@
       .finally(() => { S.cwLoading = false; if (CW_PAGES.has(S.page) || S.page === "dq") render(); });
   }
   function prepCw(d) {
+    d.outlets.forEach((o) => { for (const k in o) if (o[k] === "Unmapped") o[k] = MISS; }); // outlets not in the zone master
     const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
     d.outlets.forEach((o) => {
       const own = /^own/i.test(o.ownership || "") ? "Own" : /^fr/i.test(o.ownership || "") ? "Franchise" : o.ownership;
@@ -2807,7 +2808,7 @@
   }
   function cwGroups(metrics, dim) {
     const g = new Map();
-    metrics.forEach((r) => { const k = dim === "outlet" ? r.code : r[dim] || "Unmapped"; if (!g.has(k)) g.set(k, []); g.get(k).push(r); });
+    metrics.forEach((r) => { const k = dim === "outlet" ? r.code : r[dim] || MISS; if (!g.has(k)) g.set(k, []); g.get(k).push(r); });
     return [...g].map(([key, rows]) => ({ key, name: dim === "outlet" ? rows[0].name : key, code: dim === "outlet" ? key : null, sub: dim === "outlet" ? `${key}, ${rows[0].zone}` : `${int(rows.length)} outlets`, rows, ...cwSummarize(rows) }));
   }
 
@@ -2855,7 +2856,7 @@
       <div class="kpi" style="--accent:var(--bad)"><span class="label">Amount above target</span><span class="value down" title="${esc(exact(s.excessTotal))}">${bdt(s.excessTotal)}</span>
         <span class="sub"><span><i class="cw-key c"></i>Consumable ${bdt(s.excessConsumable)}</span><span><i class="cw-key w"></i>Wastage ${bdt(s.excessWastage)}</span></span>
         <div class="cw-split" role="img" aria-label="Consumable ${shares[0].toFixed(1)}%, wastage ${shares[1].toFixed(1)}% of the amount above target">${shares[0] ? `<span class="c" style="flex-grow:${shares[0]}"></span>` : ""}${shares[1] ? `<span class="w" style="flex-grow:${shares[1]}"></span>` : ""}</div>
-        <span class="foot"><span>${int(s.aboveAny)} outlets above at least one target</span><span>${p ? cwValDelta(s.excessTotal, p.excessTotal) : `${int(s.outlets - s.mapped)} unmapped`}</span></span></div>
+        <span class="foot"><span>${int(s.aboveAny)} outlets above at least one target</span><span>${p ? cwValDelta(s.excessTotal, p.excessTotal) : `${int(s.outlets - s.mapped)} new outlets (not distributed)`}</span></span></div>
     </div>`;
   }
   const cwOutletAttr = (x) => `data-cwoutlet="${esc(x.code)}" tabindex="0"`;
@@ -2863,7 +2864,7 @@
   function cwGroupTable(id, v, dim, metric, extraTools, title, D) {
     const def = CWM[metric], gd = D ? null : gdrill(id, dim);
     const CWD = { rl: "regionalLeader", zn: "zone", div: "division", dis: "district", outlet: "outlet" };
-    const rows = D ? cwGroups(v.metrics.filter(D.inPath), CWD[D.at]) : gd ? cwGroups(v.metrics.filter((r) => (r[dim] || "Unmapped") === gd.key), "outlet") : cwGroups(v.metrics, dim);
+    const rows = D ? cwGroups(v.metrics.filter(D.inPath), CWD[D.at]) : gd ? cwGroups(v.metrics.filter((r) => (r[dim] || MISS) === gd.key), "outlet") : cwGroups(v.metrics, dim);
     if (D && D.at === "zn") rows.forEach((x) => (x.sub = D.zsub(x.key, x.sub)));
     const lvl = D ? CWD[D.at] : gd ? "outlet" : dim;
     if (D) title = D.title();
@@ -2907,7 +2908,7 @@
       movers = `<section class="panel"><div class="panel-head"><div><h2>Biggest movers</h2><p>${esc(CWM[k].label)} against ${fdate(v.prior.from)} to ${fdate(v.prior.to)}.</p></div><div class="panel-tools">${cwSel("moversMetric", CW_METRIC_OPTS, "Movers metric")}</div></div>
         <div class="panel-body grid-h"><div><h3 class="cw-h3">Worsened</h3>${list([...moved].sort((x, y) => y.ch - x.ch).slice(0, 6), "down")}</div><div><h3 class="cw-h3">Improved</h3>${list([...moved].sort((x, y) => x.ch - y.ch).slice(0, 6), "up")}</div></div></section>`;
     }
-    const HD = leaderDrill("cwh", "cw-rank", v.metrics, "click an outlet for its profile", { rl: (r) => r.regionalLeader || "Unmapped", zn: (r) => r.zone || "Unmapped", div: (r) => r.division || "Unmapped", dis: (r) => r.district || "Unmapped" });
+    const HD = leaderDrill("cwh", "cw-rank", v.metrics, "click an outlet for its profile", { rl: (r) => r.regionalLeader || MISS, zn: (r) => r.zone || MISS, div: (r) => r.division || MISS, dis: (r) => r.district || MISS });
     const rank = cwGroupTable("cw-rank", v, null, f.rankMetric, cwSel("rankMetric", CW_METRIC_OPTS, "Metric"), "Hierarchy comparison", HD);
     AFTER.push(() => cwTrend(v));
     const defs = S.cw.metricDefinitions || {};
@@ -3160,7 +3161,7 @@
     return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th>Type</th><th class="num">Rows</th><th>Covers</th></tr></thead><tbody>
       ${S.cw.sourceFiles.map((s) => `<tr><td class="cell-primary">${esc(s.name)}</td><td>${esc(s.id)}</td><td class="num">${int(s.rows)}</td><td>${s.dateMin ? `${fdate(s.dateMin)} to ${fdate(s.dateMax)}` : "—"}</td></tr>`).join("")}</tbody></table></div>
       <div class="panel-body">
-        ${item(un.length ? "warn" : "good", un.length ? "Active outlets missing from the zone master" : "All active outlets are mapped", un.length ? `${esc(un.join(", "))}. They show as Unmapped and are left out of target-weighted results only.` : "Every active outlet joined to the hierarchy master.")}
+        ${item(un.length ? "warn" : "good", un.length ? "Active outlets missing from the zone master" : "All active outlets are mapped", un.length ? `${esc(un.join(", "))}. They show as "${MISS}" and are left out of target-weighted results only.` : "Every active outlet joined to the hierarchy master.")}
         ${item(rev.length ? "info" : "good", rev.length ? "Net movement reversals" : "No net reversal outlets", rev.length ? `${esc(rev.join(", "))}. Kept as net movement and flagged rather than zeroed.` : "Net movement values are non-negative for all outlets.")}
         ${item(dup.length ? "bad" : "good", dup.length ? "Duplicate outlet codes in the zone master" : "Zone master codes are unique", dup.length ? esc(dup.join(", ")) : `${int(q.zone?.rows)} outlets, no duplicated code.`)}
         ${(() => {
