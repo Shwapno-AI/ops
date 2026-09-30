@@ -112,7 +112,7 @@
   // KPI performance: the category, direction and order each KPI is shown in, whatever the KPI file says.
   // A KPI not listed here keeps the file's category and sits after the listed ones.
   const KSPEC = [[/^sales \(in cr\)/i, "Business", "higher"], [/^profit/i, "Business", "higher"], [/sales growth/i, "Business", "higher"], [/^expansion/i, "Business", "higher"],
-    [/pakhaqs/i, "Customer", "higher"], [/quality audit/i, "Customer", "higher"], [/^churn$/i, "Customer", "lower"], [/churn react/i, "Customer", "higher"],
+    [/pakhaqs/i, "Customer centricity", "higher"], [/quality audit/i, "Customer centricity", "higher"], [/^churn$/i, "Customer centricity", "lower"], [/churn react/i, "Customer centricity", "higher"],
     [/consumable/i, "Expense", "lower"], [/stock loss/i, "Expense", "lower"], [/wastage/i, "Expense", "lower"], [/salary/i, "Expense", "lower"],
     [/store assess/i, "Training", "higher"], [/skill gap/i, "Training", "lower"]];
   function prepKpi(K) {
