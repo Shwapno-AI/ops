@@ -107,6 +107,21 @@
       });
     });
     Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], MISS); o.nm = o.n || o.m?.n || o.c; }));
+    prepKpi(d.kpi);
+  }
+  // KPI performance: the category, direction and order each KPI is shown in, whatever the KPI file says.
+  // A KPI not listed here keeps the file's category and sits after the listed ones.
+  const KSPEC = [[/^sales \(in cr\)/i, "Business", "higher"], [/^profit/i, "Business", "higher"], [/sales growth/i, "Business", "higher"], [/^expansion/i, "Business", "higher"],
+    [/pakhaqs/i, "Customer", "higher"], [/quality audit/i, "Customer", "higher"], [/^churn$/i, "Customer", "lower"], [/churn react/i, "Customer", "higher"],
+    [/consumable/i, "Expense", "lower"], [/stock loss/i, "Expense", "lower"], [/wastage/i, "Expense", "lower"], [/salary/i, "Expense", "lower"],
+    [/store assess/i, "Training", "higher"], [/skill gap/i, "Training", "lower"]];
+  function prepKpi(K) {
+    if (!K) return;
+    const ix = (m) => { const i = KSPEC.findIndex(([r]) => r.test(m.trim())); return i < 0 ? KSPEC.length : i; };
+    ["rho", "zonal"].forEach((lvl) => {
+      (K[lvl] || []).forEach((rec) => { const s = KSPEC[ix(rec.metric)]; if (s) { rec.cat = s[1]; rec.dir = s[2]; } });
+      K[lvl]?.sort((a, b) => ix(a.metric) - ix(b.metric));
+    });
   }
   function mkDim(o, m, miss) {
     o.m = m;
