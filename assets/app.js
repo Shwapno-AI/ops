@@ -654,9 +654,9 @@
   const cmpSeg = () => seg("cmp", [["y", "vs last year"], ["m", "vs last month"]], "Compare with");
 
   function wireDyn(root) {
-    // Panels with a CSV button: the description shows on hovering the title, so the tools stay on the right.
+    // Panels with a CSV button (or marked .hint-head): the description shows on hovering the title's ⓘ.
     $$(".panel-head", root).forEach((h) => {
-      if (!h.querySelector("[data-csv],[data-ncsv]")) return;
+      if (!h.querySelector("[data-csv],[data-ncsv]") && !h.classList.contains("hint-head")) return;
       const t = h.querySelector(":scope > div > h2"), d = t && t.nextElementSibling;
       if (!t || t.classList.contains("hint-title") || !d || d.tagName !== "P" || !d.textContent.trim()) return;
       t.classList.add("hint-title"); t.tabIndex = 0;
@@ -1950,7 +1950,7 @@
       [`Opened in ${ly || "latest year"}`, yc ? dbtn(int(yc), `List outlets opened in ${ly}`, () => setDrill("Launch year", [ly], (r) => (r.launchDate || "").slice(0, 4))) : "—", "Latest launch year"],
       [`Opened in ${lmo ? fmonth(lmo) : "latest month"}`, mc ? dbtn(int(mc), `List outlets opened in ${fmonth(lmo)}`, () => setDrill("Launch month", [lmo], (r) => (r.launchDate || "").slice(0, 7))) : "—", "Latest launch month"],
     ];
-    const glanceHtml = `<section class="panel"><div class="panel-head"><div><h2>Network at a glance</h2><p>Blue figures open the matching outlets in the outlet register.</p></div></div>
+    const glanceHtml = `<section class="panel"><div class="panel-head hint-head"><div><h2>Network at a glance</h2><p>Blue figures open the matching outlets in the outlet register.</p></div></div>
       <div class="stat-strip">${glance.map(([l, v, n]) => `<div${l === "Active outlets" ? ' class="glance-lead"' : ""}><span>${esc(l)}</span><strong>${v}</strong><small>${esc(n)}</small></div>`).join("")}</div></section>`;
 
     // actual vs target by level
