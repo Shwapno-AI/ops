@@ -4541,8 +4541,8 @@
       // National: achieved is the total sales of every outlet against the target; a leader's page counts its outlets with a target
       const a = sa.a, rep = sa.r, got = rl ? a.a : a.s, ach = a.t > 0 ? got / a.t : null, achTone = ach >= 1 ? "pos" : ach >= 0.9 ? "warn" : "neg";
       const gpRow = ({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")];
-      sales = `<div class="ar-tiles six">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(got), rl ? `${int(a.tn)} outlets with a target` : "Total sales, all outlets")}${arTile("Achievement", pct(ach, 1), got >= a.t ? "On or above target" : `Gap ${bdt(got - a.t)}`, achTone)}
-          ${arTile("Sales vs last year", arSign(a.gy), `${bdt(a.s)} vs ${bdt(a.sy)}`)}${arTile("Same-store growth", arSign(a.gss), `${int(a.ssn)} same stores`)}
+      sales = `<div class="ar-tiles ar-five">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(got), rl ? `${int(a.tn)} outlets with a target` : "Total sales, all outlets")}${arTile("Achievement", pct(ach, 1), got >= a.t ? "On or above target" : `Gap ${bdt(got - a.t)}`, achTone)}
+          <div class="ar-tile"><span>Growth vs last year</span><div class="ar-yyr"><b>All outlets</b><em>${arSign(a.gy)}</em></div><div class="ar-yyr"><b>Same-store</b><em>${arSign(a.gss)}</em></div><small>LY ${bdt(a.sy)} · ${int(a.ssn)} same stores</small></div>
           <div class="ar-tile"><span>GP margin · change vs LY</span><strong class="ar-gpv">${pct(a.gp, 2)} <em>${arSign(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")}</em></strong>
             <div class="ar-gpb"><i class="lo"><b>${int(sa.gpBands.lo)}</b>Below 15%</i><i class="mid"><b>${int(sa.gpBands.mid)}</b>15–18%</i><i class="hi"><b>${int(sa.gpBands.hi)}</b>Above 18%</i></div></div></div>
         <div class="ar-grid4 ar-stack">

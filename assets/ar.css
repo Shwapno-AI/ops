@@ -83,6 +83,13 @@
 .ar-row3 .ar-ccrow{grid-template-columns:92px 1fr}
 .ar-tile strong small{display:inline}
 /* GP margin tile: outlets by gross profit margin */
+/* sales tiles: five, the growth tile holds all-outlet and same-store growth, the GP margin tile is widest */
+.ar-tiles.ar-five{grid-template-columns:1fr 1fr 0.9fr 1.2fr 1.55fr}
+.ar-yyr{display:flex;justify-content:space-between;align-items:baseline;gap:4px;line-height:1.3}
+.ar-yyr b{font-size:8px;font-weight:600;color:#50677a}
+.ar-yyr em{font-style:normal}
+.ar-tile .ar-yyr span{display:inline;font-size:10.5px;font-weight:700;overflow:visible}
+.ar-yyr .ar-neg{color:#b0122b}.ar-yyr .ar-pos{color:#1e6b43}
 .ar-gpv em{font-style:normal;font-size:8px;font-weight:600}
 .ar-tile .ar-gpv span{display:inline;font-size:8px;overflow:visible}
 .ar-gpv .ar-neg{color:#b0122b}.ar-gpv .ar-pos{color:#1e6b43}
