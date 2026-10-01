@@ -286,7 +286,9 @@ def content_role(path: Path) -> str:
     except ValueError:
         return ""
     header = [norm(v) for v in rows[header_row]]
-    if {"leader", "zonal", "regional head hr name", "format", "launching date"} & set(header):
+    # The outlet register has columns no other outlet list carries (the leader's HR name, format, launch date,
+    # size). Lists that only name each outlet's RHO and zonal, such as the compiled DOS workbook, are not it.
+    if "dos" not in header and {"regional head hr name", "format", "launching date", "sft"} & set(header):
         return "outletMaster"
     date_like = 0
     for value in rows[header_row]:
