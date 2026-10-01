@@ -613,12 +613,38 @@
     return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">${heroAchievement(a, r)}${k.join("")}</div>${table}`;
   }
 
+  // Data quality sits behind a password. Only its SHA-256 hash is kept here; the page stays open until you go to
+  // another page or reload. This keeps casual visitors out; it is not server-side security.
+  const DQ_HASH = "5e263652728eb6b82f8f4fadba7b038990d34714c72f664c55839dff118ce23e";
+  const dqUnlocked = () => S.dqOk === true;
+  function dqLock() {
+    AFTER.push(() => {
+      const f = $("#dqLock"); if (!f) return;
+      $("#dqPw").focus();
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode($("#dqPw").value));
+        const h = [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        if (h !== DQ_HASH) { $("#dqMsg").textContent = "Wrong password. Try again."; $("#dqPw").select(); return; }
+        S.dqOk = true;
+        render();
+      };
+    });
+    return `<section class="panel dq-lock"><div class="panel-body"><form id="dqLock" autocomplete="off">
+      <h2>Data quality is locked</h2><p class="muted">Enter the password to see the upload schedule, files in use and checks.</p>
+      <div class="dq-lock-row"><input id="dqPw" type="password" class="sel" aria-label="Password" placeholder="Password"><button class="btn primary" type="submit">Unlock</button></div>
+      <p id="dqMsg" class="dq-lock-msg" role="alert"></p></form></div></section>`;
+  }
+  function dqRelock() { S.dqOk = false; render(); }
   function pageDQ() {
+    if (!dqUnlocked()) return dqLock();
+    AFTER.push(() => { const b = $("#dqRelock"); if (b) b.onclick = dqRelock; });
     const d = S.data;
     const lvl = { error: "bad", warn: "warn", info: "info" };
     const name = { error: "Problem", warn: "Warning", info: "Note" };
     const folder = { tilldate: "Till-date folder", monthend: "Month-end folder", performance: "Performance folder" };
     return `
+      ${uploadSchedulePanel()}
       <section class="panel"><div class="panel-head"><div><h2>Files in use</h2><p>Recognised by their content. Filenames don't matter.</p></div></div>
         <div class="table-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Folder</th><th>Data up to</th></tr></thead><tbody>
         ${d.sources.map((s) => `<tr><td class="cell-primary">${esc(s.file)}</td><td>${esc(s.type)}</td><td>${esc(folder[s.folder] || s.folder)}</td><td>${/^\d{4}-\d{2}$/.test(s.date) ? esc(s.date) : fdate(s.date)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No files were found in the Drive folders.</td></tr>`}
@@ -5252,6 +5278,89 @@
       ${d.source.files.map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td>${(f.months || []).map(fmonth).join(", ")}</td><td class="num">${int(f.audits)}</td><td>${f.modifiedIso ? fdate(f.modifiedIso) : esc(f.modified || "—")}</td></tr>`).join("")}</tbody></table></div>
       <div class="panel-body">${(d.issues || []).map((i) => `<div class="issue"><span>${chip({ cls: lvl[i.level] || "info", label: i.level === "warn" ? "Warning" : "Note" })}</span><div>${esc(i.message)}</div></div>`).join("") || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
   }
+  // ---- upload schedule: every file the dashboard needs, how often, by when, and whether the latest one is in
+  // kind: "day" = data should run to yesterday; "week" = within the last 7 days; "prev" = last month's file by day `by`;
+  // "cur" = this month's file by day `by`; "auto" = read automatically.
+  const DQ_MONTH_RE = /(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s'_-]*(\d{4}|\d{2})(?!\d)/i;
+  const dqNameMonth = (name) => { const m = DQ_MONTH_RE.exec(name || ""); if (!m) return null; const y = +m[2]; return `${y < 100 ? 2000 + y : y}-${String("janfebmaraprmayjunjulaugsepoctnovdec".indexOf(m[1].toLowerCase()) / 3 + 1).padStart(2, "0")}`; };
+  function dqSchedule() {
+    const d = S.data, cwf = (id) => S.cw?.sourceFiles?.find((f) => f.id === id), avf = (k) => S.av?.files?.find((f) => f.kind === k);
+    const saLast = S.sa ? S.sa.visits.reduce((m, v) => (v[2] > m ? v[2] : m), "") : null;
+    const F = { cc: "Credit Card and Visit Compliance", av: "ITEM - Availability", pf: "Performance final & Zone distribution file", cwf: "Consumable & Wastage Control" };
+    return [
+      ["Daily", [
+        ["Till-date business performance report", "Daily", "Every morning, sales to yesterday", "day", d.tilldate?.date],
+        ["Day-wise sales (POS NSI)", "Daily", "Every morning, sales to yesterday", "day", S.net?.meta?.salesThroughDate],
+        ["Consumable issues", F.cwf, "Every morning, to yesterday", "day", cwf("consumable")?.dateMax],
+        ["Wastage", F.cwf, "Every morning, to yesterday", "day", cwf("wastage")?.dateMax],
+        ["Stock extraction report (availability)", F.av, "Every morning", "day", avf("stock")?.modified?.slice(0, 10)],
+        ["Visit attendance (punches)", F.cc, "Every morning, to yesterday", "day", S.ccv?.visit?.to],
+        ["Store Operations Compliance Audit export", "Store Assessment Score", "Every morning, audits to yesterday", "day", saLast],
+      ]],
+      ["Weekly", [
+        ["Item performance workbooks (one per regional leader)", "Item performance", "Once a week", "week", S.sku?.period?.end],
+        ["Credit card extra cost (ccol_outlets)", F.cc, "Once a week", "week", S.ccv?.cc?.to],
+        ["Core, Promo, KVI and E-COM lists", F.av, "When the lists change", "info", avf("lists")?.modified?.slice(0, 10)],
+      ]],
+      ["Monthly", [
+        ["Day-wise target", "outlet-network-dashboard-main", "By the 3rd, for the new month", "cur", S.net?.meta?.reportMonth, 3],
+        ["Zone Distribution (outlet register)", F.pf, "By the 3rd, and whenever outlets open or close", "cur", dqNameMonth(d.master?.file), 3],
+        ["Visit schedule (plan)", F.cc, "By the 3rd, for the new month", "cur", S.ccv?.visit?.planned ? S.ccv.visit.from?.slice(0, 7) : null, 3],
+        ["Month-end business performance report", "Month-end", "By the 5th, for last month", "prev", d.monthend?.date?.slice(0, 7), 5],
+        ["Outlet wise profitability (P&L)", F.pf, "By the 10th, for last month", "prev", d.pnl?.months?.[d.pnl.months.length - 1], 10],
+        ["Compiled DOS", F.pf, "By the 10th, for last month", "prev", d.dos?.month, 10],
+        ["KPI performance (RHO and zonal)", F.pf, "By the 25th, for last month", "prev", d.kpi?.months?.[d.kpi.months.length - 1], 25],
+      ]],
+      ["Automatic", [
+        ["Receiving (Power BI report)", "No upload", "Read every 10 minutes", "auto", S.rcv?.range?.end],
+      ]],
+    ];
+  }
+  // Google Drive folder for each place a file is uploaded
+  const DQ_FOLDERS = {
+    "Daily": "12UEEFUoUIP_duIJGYMw5g2zjsiuphjOa",
+    "Month-end": "1oRRVEZ7A6AjrsXZ-wHx7JQrDh3FoB2eb",
+    "Consumable & Wastage Control": "1FLbOzMJnihnXWO6hfSJeI5vJ1VFSI1RD",
+    "ITEM - Availability": "1OiccpJ7WLxYVBSn6Gw9DMacK2ds0wW4j",
+    "outlet-network-dashboard-main": "1mcEmZg6DV0xQzWImuNyZFPhfg4oc0YTB",
+    "Performance final & Zone distribution file": "1r09IGv8Pk0J86li4hqLD8gskj5j3SBih",
+    "Store Assessment Score": "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF",
+    "Item performance": "111qtlTIgOpvuYK7G4B_xrA8hRBpwjcj_",
+    "Credit Card and Visit Compliance": "16HTr8nfPz4P2PMr4QB0bjgwiD110Qd-0",
+  };
+  const DQ_MOTHER = "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l";
+  const dqFolderLink = (name) => (DQ_FOLDERS[name] ? `<a class="dq-drive" href="https://drive.google.com/drive/folders/${DQ_FOLDERS[name]}" target="_blank" rel="noopener">${esc(name)} ↗</a>` : esc(name));
+  function dqStatus(kind, v, by) {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dhaka" }), day = +today.slice(8, 10), ym = today.slice(0, 7);
+    const ok = { cls: "good", label: "Up to date" }, due = (t) => ({ cls: "warn", label: t }), late = (t) => ({ cls: "bad", label: t });
+    if (kind === "auto") return v ? { cls: "info", label: "Automatic" } : late("Not read");
+    if (!v) return late("Missing");
+    if (kind === "info") return { cls: "info", label: "As needed" };
+    if (kind === "day" || kind === "week") {
+      const lag = Math.round((Date.parse(today) - Date.parse(v.slice(0, 10))) / 864e5), [soft, hard] = kind === "day" ? [1, 3] : [7, 10];
+      return lag <= soft ? ok : lag < hard ? due(`${lag} days behind`) : late(`Overdue, ${lag} days behind`);
+    }
+    const prev = new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 2, 1)).toISOString().slice(0, 7), want = kind === "prev" ? prev : ym;
+    if (v >= want) return ok;
+    const when = `${by} ${new Date(today).toLocaleDateString("en-GB", { month: "short" })}`;
+    return day <= by ? due(`Due by ${when}`) : late(`Overdue since ${when}`);
+  }
+  function uploadSchedulePanel() {
+    // the dates come from every source; load any that are missing and check back
+    const need = [[S.net, S.netErr, loadNet], [S.cw, S.cwErr, loadCw], [S.av, S.avErr, loadAv], [S.sa, S.saErr, loadSa], [S.sku, S.skuErr, loadSku], [S.ccv, S.ccvErr, loadCcv], [S.rcv, S.rcErr, loadRc]];
+    const waiting = need.filter(([x, e]) => !x && !e);
+    waiting.forEach(([, , load]) => load());
+    if (waiting.length) setTimeout(() => S.page === "dq" && render(), 900);
+    const groups = dqSchedule().map(([g, rows]) => [g, rows.map((r) => ({ r, st: dqStatus(r[3], r[4], r[5]) }))]);
+    const all = groups.flatMap(([, rs]) => rs), n = (c) => all.filter((x) => x.st.cls === c).length;
+    const shown = (kind, v) => (!v ? "—" : /^\d{4}-\d{2}$/.test(v) ? fmonth(v) : fdate(v));
+    return `<section class="panel"><div class="panel-head"><div><h2>Upload schedule</h2><p>Every file the dashboard needs, how often and by when, and whether the latest one is in. ${int(n("good"))} up to date, ${int(n("warn"))} due, ${int(n("bad"))} overdue or missing${waiting.length ? " (still loading some sources)" : ""}. Click a folder to open it in Google Drive and upload.</p></div>
+      <div class="panel-tools"><a class="btn" href="https://drive.google.com/drive/folders/${DQ_MOTHER}" target="_blank" rel="noopener">Open main Drive folder ↗</a><button type="button" class="btn" id="dqRelock">Lock page</button></div></div>
+      <div class="table-wrap"><table><thead><tr><th>File</th><th>Drive folder</th><th>When to upload</th><th>Data up to</th><th>Status</th></tr></thead><tbody>
+      ${groups.map(([g, rs]) => `<tr class="dq-grp"><td colspan="5">${esc(g)}</td></tr>${rs.map(({ r, st }) => `<tr><td class="cell-primary">${esc(r[0])}</td><td>${dqFolderLink(r[1])}</td><td>${esc(r[2])}</td><td>${esc(shown(r[3], r[4]))}</td><td>${chip(st)}</td></tr>`).join("")}`).join("")}
+      </tbody></table></div></section>`;
+  }
+
   // ---- data quality panels for item performance, receiving, credit card and visits
   const dqWhen = (iso) => (iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" }) : "—");
   const dqIssue = (cls, label, msg) => `<div class="issue"><span>${chip({ cls, label })}</span><div>${msg}</div></div>`;
@@ -5672,6 +5781,7 @@
   function route() {
     const h = location.hash.slice(1);
     S.page = TITLES[h] ? h : "overview";
+    if (S.page !== "dq") S.dqOk = false; // leaving Data quality locks it again
     const grp = NAV.find((g) => g.items.some(([k]) => k === S.page))?.group;
     if (grp && UI.navOpen?.[grp] === false) { UI.navOpen = { ...UI.navOpen }; delete UI.navOpen[grp]; saveUI(); }
     render();
