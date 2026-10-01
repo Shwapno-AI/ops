@@ -105,3 +105,4 @@
 .ar-skill{border-top-color:#2c5282;gap:4px}
 /* tile labels set in black and bold */
 .ar-tile.lbl>span{color:#14232e;font-weight:750}
+.ar-g em{font-style:normal;font-weight:600;opacity:.85}

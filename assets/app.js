@@ -4471,12 +4471,12 @@
   }
 
   // ---- figures
-  // Lowest achievement, the gross profit lists and availability name outlets open at least a month (launch date
-  // from the outlet register, a month or more before the sales date). An outlet with no launch date counts.
+  // Lowest achievement, gross profit margin and the availability card count only outlets that have traded at least one
+  // full calendar month: launched on or before the 1st of the month before the sales month (launch date from the
+  // outlet register). An outlet with no launch date counts.
   function arOldEnough() {
-    const d = new Date(`${S.data.tilldate?.date || new Date().toISOString().slice(0, 10)}T00:00:00Z`);
-    d.setUTCMonth(d.getUTCMonth() - 1);
-    const cut = d.toISOString().slice(0, 10), ld = new Map((S.data.master?.outlets || []).map((o) => [o.c, o.ld]));
+    const [y, m] = (S.data.tilldate?.date || new Date().toISOString()).slice(0, 7).split("-").map(Number);
+    const cut = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10), ld = new Map((S.data.master?.outlets || []).map((o) => [o.c, o.ld]));
     return (c) => { const x = ld.get(c); return !x || x <= cut; };
   }
   function arSales(rl, gpN = 4) {
@@ -4486,7 +4486,8 @@
     const ach = act.filter((o) => o.t > 0 && old(o.c)).map((o) => ({ o, v: o.a / o.t })).sort((x, y) => x.v - y.v);
     // growth ranks same-store outlets only (the report's own list), so a tiny last-year base can't top the list
     const comp = act.filter((o) => o.ssy && o.sy > 0).map((o) => ({ o, v: o.s / o.sy - 1 }));
-    const gp = act.filter((o) => o.ssy && isNum(o.gv) && old(o.c)).map((o) => ({ o, v: o.gv / o.s, ly: o.sy > 0 && isNum(o.gvy) ? o.gvy / o.sy : null }));
+    // gross profit margin ranks all stores open at least a month
+    const gp = act.filter((o) => isNum(o.gv) && old(o.c)).map((o) => ({ o, v: o.gv / o.s, ly: o.sy > 0 && isNum(o.gvy) ? o.gvy / o.sy : null }));
     // lowest 3 and highest 3; with few outlets each shows once
     const ends = (xs, n = 3) => { const lo = [...xs].sort((x, y) => x.v - y.v).slice(0, n); return [lo, [...xs].sort((x, y) => y.v - x.v).filter((x) => !lo.includes(x)).slice(0, n)]; };
     const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, gpN);
@@ -4509,7 +4510,9 @@
     try {
       const rows = (P.summary[m] || []).filter(arIn(rl)).map((o) => ({ o, ...pnlCalc(o) })).filter((x) => !x.closed), loss = rows.filter((x) => x.loss), by = new Map();
       loss.forEach((x) => { const k = lossReason(x.o).reason, y = by.get(k) || { reason: k, n: 0, pl: 0 }; y.n++; y.pl += x.pl; by.set(k, y); });
-      return { m, trading: rows.length, n: loss.length, total: loss.reduce((t, x) => t + x.pl, 0), net: rows.reduce((t, x) => t + (x.pl || 0), 0), reasons: [...by.values()].sort((a, b) => a.pl - b.pl), worst: loss.filter((x) => arOk(x.o)).sort((a, b) => a.pl - b.pl).slice(0, 3) };
+      // loss-making outlets open more than 6 months by the P&L month (no launch date counts as old)
+      const old = loss.filter((x) => x.age == null || x.age > 6).length;
+      return { m, trading: rows.length, n: loss.length, old, total: loss.reduce((t, x) => t + x.pl, 0), net: rows.reduce((t, x) => t + (x.pl || 0), 0), reasons: [...by.values()].sort((a, b) => a.pl - b.pl), worst: loss.filter((x) => arOk(x.o)).sort((a, b) => a.pl - b.pl).slice(0, 3) };
     } finally { S.pm = keep; }
   }
   function arCw(rl) {
@@ -4527,7 +4530,7 @@
   }
   function arAv(rl) {
     const d = S.av; if (!d) return null;
-    const days = avDays(), N = d.S, outs = d.outlets.filter(arIn(rl)), res = { days }, old = arOldEnough();
+    const old = arOldEnough(), days = avDays(), N = d.S, outs = d.outlets.filter((o) => arIn(rl)(o) && old(o.c)), res = { days };
     for (const type of ["core", "kvi", "promo"]) {
       const skus = d.skus.filter((s) => s[type]), tot = avAcc(), per = [];
       for (const o of outs) {
@@ -4542,7 +4545,8 @@
       const base = o.i * N;
       for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i]; if (!nd.has(s.nd)) nd.set(s.nd, avAcc()); avAdd(nd.get(s.nd), st, sl, days, avStatus(st, sl, days)); }
     }
-    res.nd = [...nd].map(([name, a]) => ({ name, a, v: avRate(a) })).filter((x) => isNum(x.v)).sort((x, y) => x.v - y.v).slice(0, 3);
+    // Fresh & Perishables is always left out of the weakest product divisions
+    res.nd = [...nd].map(([name, a]) => ({ name, a, v: avRate(a) })).filter((x) => isNum(x.v) && !/fresh\s*&\s*perishables?/i.test(x.name)).sort((x, y) => x.v - y.v).slice(0, 3);
     return res;
   }
   function arRc(rl) {
@@ -4578,7 +4582,7 @@
     if (sa) {
       // National: achieved is the total sales of every outlet against the target; a leader's page counts its outlets with a target
       const a = sa.a, rep = sa.r, got = rl ? a.a : a.s, ach = a.t > 0 ? got / a.t : null, achTone = ach >= 1 ? "pos" : ach >= 0.9 ? "warn" : "neg";
-      const gpRow = ({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2)];
+      const gpRow = ({ o, v }) => [arO(o.c, o.nm, sub(o)), pct(v, 2)];
       const chg = (v) => `<span class="${v < 0 ? "ar-neg" : v > 0 ? "ar-pos" : ""}">${v > 0 ? "+" : ""}${bdt(v)}</span>`;
       sales = `<div class="ar-tiles ar-five">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(got), rl ? `${int(a.tn)} outlets with a target` : "Total sales, all outlets")}${arTile("Achievement", pct(ach, 1), got >= a.t ? "On or above target" : `Gap ${bdt(got - a.t)}`, achTone)}
           <div class="ar-tile"><span>Growth vs last year</span><div class="ar-yyr"><b>All outlets</b><em>${arSign(a.gy)}</em></div><div class="ar-yyr"><b>Same-store</b><em>${arSign(a.gss)}</em></div><small>LY ${bdt(a.sy)} · ${int(a.ssn)} same stores</small></div>
@@ -4587,7 +4591,7 @@
         <div class="ar-grid4 ar-stack">
           <div>
           ${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}
-          ${arMini(`Same-store gross profit margin: lowest ${gpN} and highest ${gpN}`, arT(["Outlet", "GP value", "GP%"], [{ label: `Lowest ${gpN}` }, ...sa.gpw.map(gpRow), ...(sa.gpb.length ? [{ label: `Highest ${gpN}` }] : []), ...sa.gpb.map(gpRow)]))}
+          ${arMini("Gross profit margin", arT(["Outlet", "GP%"], [{ label: `Lowest ${gpN}` }, ...sa.gpw.map(gpRow), ...(sa.gpb.length ? [{ label: `Highest ${gpN}` }] : []), ...sa.gpb.map(gpRow)]))}
           </div><div>
           ${arMini("Same-store growth vs last year: worst 3 and best 3", arT(["Outlet", "Sales", "Last year", "Growth"], [{ label: "Worst 3" }, ...sa.deg.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)]), ...(sa.gro.length ? [{ label: "Best 3" }] : []), ...sa.gro.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)])]))}
           ${arMini(`Weakest categories${S.sku ? ` (Item performance, ${ipPeriod(S.sku, true).replace(/^Data /, "")})` : ""}`, cats ? arT(["Category", "Sales", "Last year", "Change"], cats.map((x) => [`<span class="ar-o">${esc(x.c1)} <i>· ${esc(x.div)}</i></span>`, bdt(x.ns), bdt(x.nl), chg(x.d)])) : arNA("Item performance"))}
@@ -4600,7 +4604,7 @@
     const lo = arLoss(rl);
     const reasons = !lo ? "" : `<p class="ar-line"><b>By primary reason:</b> ${lo.reasons.length ? lo.reasons.map((x) => `${esc(x.reason)} ${int(x.n)} <span class="ar-neg">${bdt(x.pl)}</span>`).join(" · ") : "none"}</p>`;
     const loss = arCard("ar-loss", "Loss-making outlets", lo ? `P&L ${esc(fmonth(lo.m))}, ${S.pbasis === "after" ? "after" : "before"} financing cost` : "", lo ? `
-      <div class="ar-tiles three">${arTile("Loss-making", `${int(lo.n)} <small>of ${int(lo.trading)}</small>`, `${pct(lo.trading ? lo.n / lo.trading : null, 0)} of trading outlets`, `${lo.n ? "neg" : "pos"} lbl`)}${arTile("Total loss", bdt(lo.total), "", "neg")}${arTile("Net outlet P/L", bdt(lo.net), "", lo.net < 0 ? "neg" : "pos")}</div>
+      <div class="ar-tiles four">${arTile("Total loss outlets", `${int(lo.n)} <small>of ${int(lo.trading)}</small>`, `${pct(lo.trading ? lo.n / lo.trading : null, 0)} of trading`, `${lo.n ? "neg" : "pos"} lbl`)}${arTile("Over 6 months old", int(lo.old), `${int(lo.n - lo.old)} newer`, `${lo.old ? "neg" : "pos"} lbl`)}${arTile("Total loss", bdt(lo.total), "", "neg")}${arTile("Net outlet P/L", bdt(lo.net), "", lo.net < 0 ? "neg" : "pos")}</div>
       ${reasons}
       ${arMini("Biggest losses", arT(["Outlet", "Sales", "P/L"], lo.worst.map((x) => [arO(x.o.c, x.o.nm, sub(x.o)), bdt(x.o.s), `<span class="ar-neg">${bdt(x.pl)}</span>`]), "No loss-making outlets"))}` : arNA("P&L"));
 
@@ -4615,7 +4619,7 @@
     const sx = arSa(rl);
     const sac = arCard("ar-sa", "Store assessment", sx ? `${esc(fmonth(sx.m))}, latest audit per outlet` : "", sx ? `
       <div class="ar-tiles three">${arTile("Score", pct(sx.p, 1), saGrade(sx.p).label, { a: "pos", b: "pos", c: "warn", d: "neg" }[saGrade(sx.p).k] || "")}${arTile("Not Visited", int(sx.notAud), "Outlets this month", `${sx.notAud ? "warn" : "pos"} lbl`)}${arTile("Weakest category", `<span class="ar-small">${esc(S.sa.cats[sx.weak] || "—")}</span>`, sx.weak >= 0 ? pct(sx.cats[sx.weak], 1) : "")}</div>
-      <div class="ar-grades">${sx.gc.map(([g, n]) => `<span class="ar-g ar-g-${g.k}"><b>${int(n)}</b>${esc(g.label)}</span>`).join("")}</div>
+      <div class="ar-grades">${sx.gc.map(([g, n]) => `<span class="ar-g ar-g-${g.k}"><b>${int(n)}</b>${esc(g.label)} <em>${pct(sx.n ? n / sx.n : null, 0)}</em></span>`).join("")}</div>
       ${arMini("Lowest scores", arT(["Outlet", "Score", "Grade", "Audit"], sx.worst.map((r) => [arO(r.c, r.nm, rl ? r.dim.zn : r.dim.rl), pct(r.p, 1), esc(r.grade.label), esc(fdate(r.v.date, true))])))}` : arNA("Store assessment"));
 
     // 5. Availability: the three lists side by side, the product divisions on one line
@@ -4738,15 +4742,16 @@
     const d = S.data.dos; if (!d?.rows?.length) return null;
     const mo = arMasterMap(), rows = d.rows.map(([c, v]) => ({ ...(mo.get(c) || { c, nm: "", dim: { rl: MISS, zn: MISS } }), v })).filter(arIn(rl));
     if (!rows.length) return null;
-    const lo = rows.filter((r) => r.v <= 30).length;
-    return { m: d.month, n: rows.length, lo, hi: rows.length - lo, avg: rows.reduce((s, r) => s + r.v, 0) / rows.length, tops: rows.filter(arOk).sort((a, b) => b.v - a.v).slice(0, 3) };
+    // the DOS workbook's own ranges: up to 30 days, 31 to 45, above 45
+    const lo = rows.filter((r) => r.v <= 30).length, mid = rows.filter((r) => r.v > 30 && r.v <= 45).length;
+    return { m: d.month, n: rows.length, lo, mid, hi: rows.length - lo - mid, avg: rows.reduce((s, r) => s + r.v, 0) / rows.length, tops: rows.filter(arOk).sort((a, b) => b.v - a.v).slice(0, 3) };
   }
   // DOS: outlets below and over 30 days, and the three highest
   function arDosCard(rl) {
     const ds = arDos(rl);
     if (!ds) return arCard("ar-dos", "Days of stock (DOS)", "", '<p class="ar-empty">No DOS file is loaded.</p>');
     const sub = (o) => (rl ? o.dim.zn : o.dim.rl);
-    return arCard("ar-dos", "Days of stock (DOS)", esc(fmonth(ds.m)), `<div class="ar-tiles three">${arTile("Below 30 days", int(ds.lo), `of ${int(ds.n)} outlets`, "pos lbl")}${arTile("Over 30 days", int(ds.hi), `${pct(ds.n ? ds.hi / ds.n : null, 0)} of outlets`, `${ds.hi ? "neg" : "pos"} lbl`)}${arTile("Average", `${Math.round(ds.avg)} <small>days</small>`, "All outlets")}</div>
+    return arCard("ar-dos", "Days of stock (DOS)", esc(fmonth(ds.m)), `<div class="ar-tiles three">${arTile("Below 30 days", int(ds.lo), `of ${int(ds.n)} outlets`, "pos lbl")}${arTile("30–45 days", int(ds.mid), `${pct(ds.n ? ds.mid / ds.n : null, 0)} of outlets`, `${ds.mid ? "warn" : "pos"} lbl`)}${arTile("Over 45 days", int(ds.hi), `${pct(ds.n ? ds.hi / ds.n : null, 0)} of outlets`, `${ds.hi ? "neg" : "pos"} lbl`)}</div>
       ${arMini("Highest DOS", arT(["Outlet", "Days"], ds.tops.map((o) => [arO(o.c, o.nm, sub(o)), `<span class="ar-neg">${Math.round(o.v)}</span>`])))}`);
   }
   // Skill gap: the leader's figure against its target, and the three highest (leaders on National, zonals on a leader's page)
