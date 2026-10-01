@@ -615,7 +615,7 @@
 
   // Data quality sits behind a password. Only its SHA-256 hash is kept here; the page stays open until you go to
   // another page or reload. This keeps casual visitors out; it is not server-side security.
-  const DQ_HASH = "5e263652728eb6b82f8f4fadba7b038990d34714c72f664c55839dff118ce23e";
+  const DQ_HASH = "19581e27de7ced00ff1ce50b2047e7a567c76b1cbaebabe5ef03f7c3017bb5b7";
   const dqUnlocked = () => S.dqOk === true;
   function dqLock() {
     AFTER.push(() => {
