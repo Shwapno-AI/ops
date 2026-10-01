@@ -645,6 +645,7 @@
     const folder = { tilldate: "Till-date folder", monthend: "Month-end folder", performance: "Performance folder" };
     return `
       ${uploadSchedulePanel()}
+      ${monthlyReportPanel()}
       <section class="panel"><div class="panel-head"><div><h2>Files in use</h2><p>Recognised by their content. Filenames don't matter.</p></div></div>
         <div class="table-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Folder</th><th>Data up to</th></tr></thead><tbody>
         ${d.sources.map((s) => `<tr><td class="cell-primary">${esc(s.file)}</td><td>${esc(s.type)}</td><td>${esc(folder[s.folder] || s.folder)}</td><td>${/^\d{4}-\d{2}$/.test(s.date) ? esc(s.date) : fdate(s.date)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No files were found in the Drive folders.</td></tr>`}
@@ -5278,6 +5279,166 @@
       ${d.source.files.map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td>${(f.months || []).map(fmonth).join(", ")}</td><td class="num">${int(f.audits)}</td><td>${f.modifiedIso ? fdate(f.modifiedIso) : esc(f.modified || "—")}</td></tr>`).join("")}</tbody></table></div>
       <div class="panel-body">${(d.issues || []).map((i) => `<div class="issue"><span>${chip({ cls: lvl[i.level] || "info", label: i.level === "warn" ? "Warning" : "Note" })}</span><div>${esc(i.message)}</div></div>`).join("") || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
   }
+  // ---- minimal .xlsx writer: sheets of typed columns, stored uncompressed in a zip (no library needed)
+  const XL_CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const xlCrc = (b) => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = XL_CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  function xlZip(files) {
+    const enc = new TextEncoder(), parts = [], cen = [];
+    const u16 = (v) => [v & 255, (v >>> 8) & 255], u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+    let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), data = typeof f.data === "string" ? enc.encode(f.data) : f.data, crc = xlCrc(data), sz = data.length;
+      const head = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(sz), ...u32(sz), ...u16(nm.length), ...u16(0)]);
+      parts.push(head, nm, data);
+      cen.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(sz), ...u32(sz), ...u16(nm.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), nm);
+      off += head.length + nm.length + sz;
+    }
+    const cenSize = cen.reduce((t, b) => t + b.length, 0);
+    const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cenSize), ...u32(off), ...u16(0)]);
+    return new Blob([...parts, ...cen, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+  const xlEsc = (v) => String(v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const xlCol = (i) => { let s = ""; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; };
+  // column formats: t text, n whole number, n1 one decimal, p1 / p2 percent with 1 / 2 decimals
+  const XL_STYLE = { t: 0, n: 2, n1: 5, p1: 3, p2: 4 };
+  function xlSheet(cols, rows, freezeCols = 0) {
+    const cell = (v, f, r, c) => {
+      const ref = `${xlCol(c)}${r}`;
+      if (v == null || v === "" || (typeof v === "number" && !isFinite(v))) return "";
+      if (typeof v === "number" && f !== "t") return `<c r="${ref}" s="${XL_STYLE[f] ?? 0}"><v>${v}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xlEsc(v)}</t></is></c>`;
+    };
+    const head = `<row r="1">${cols.map((c, i) => `<c r="${xlCol(i)}1" s="1" t="inlineStr"><is><t>${xlEsc(c.h)}</t></is></c>`).join("")}</row>`;
+    const body = rows.map((row, ri) => `<row r="${ri + 2}">${cols.map((c, ci) => cell(row[ci], c.f || "t", ri + 2, ci)).join("")}</row>`).join("");
+    const pane = freezeCols ? `<pane xSplit="${freezeCols}" ySplit="1" topLeftCell="${xlCol(freezeCols)}2" activePane="bottomRight" state="frozen"/>` : `<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews>`
+      + `<cols>${cols.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.w || 12}" customWidth="1"/>`).join("")}</cols><sheetData>${head}${body}</sheetData>`
+      + (rows.length ? `<autoFilter ref="A1:${xlCol(cols.length - 1)}${rows.length + 1}"/>` : "") + `</worksheet>`;
+  }
+  function xlBook(sheets) {
+    const ws = sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: xlSheet(s.cols, s.rows, s.freeze) }));
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+      + `<numFmts count="3"><numFmt numFmtId="164" formatCode="0.0%"/><numFmt numFmtId="165" formatCode="0.00%"/><numFmt numFmtId="166" formatCode="#,##0.0"/></numFmts>`
+      + `<fonts count="2"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>`
+      + `<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1C6B87"/></patternFill></fill></fills>`
+      + `<borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>`
+      + `<cellXfs count="6"><xf/><xf fontId="1" fillId="2" applyFont="1" applyFill="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="3" applyNumberFormat="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="165" applyNumberFormat="1"/><xf numFmtId="166" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+    return xlZip([
+      { name: "[Content_Types].xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${ws.map((w) => `<Override PartName="/${w.name}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>` },
+      { name: "_rels/.rels", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+      { name: "xl/workbook.xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${xlEsc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>`
+        + `<definedNames>${sheets.map((s, i) => (s.rows.length ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xlEsc(s.name)}'!$A$1:$${xlCol(s.cols.length - 1)}$${s.rows.length + 1}</definedName>` : "")).join("")}</definedNames></workbook>` },
+      { name: "xl/_rels/workbook.xml.rels", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+      { name: "xl/styles.xml", data: styles },
+      ...ws,
+    ]);
+  }
+
+  // ---- monthly outlet-wise report: one row per outlet with every figure the dashboard has for it
+  function monthlyOutletReport() {
+    const d = S.data, r = d.tilldate, ym = (r?.date || "").slice(0, 7);
+    const master = d.master?.outlets || [], tdBy = new Map((r?.outlets || []).map((o) => [o.c, o]));
+    const codes = [...master.map((o) => o.c), ...[...tdBy.keys()].filter((c) => !master.some((m) => m.c === c) && tdBy.get(c).s > 0)];
+    const mBy = new Map(master.map((o) => [o.c, o])), ratio = (a, b) => (b > 0 && isNum(a) ? a / b : null);
+    // P&L, last month in the file
+    const P = d.pnl, pm = P?.months?.[P.months.length - 1], pnl = new Map();
+    if (pm) { const keep = S.pm; S.pm = pm; try { (P.summary[pm] || []).forEach((o) => { const x = pnlCalc(o); if (!x.closed) pnl.set(o.c, { pl: x.pl, loss: x.loss, why: x.loss ? lossReason(o).reason : "" }); }); } finally { S.pm = keep; } }
+    // consumable and wastage over the selected period
+    const cw = new Map();
+    if (S.cw) {
+      const from = S.cwv.from || S.cw.dateRange.min, to = S.cwv.to || S.cw.dateRange.max;
+      cwStamp(from, to);
+      const b = cwBuckets(S.cw.outlets.map((o) => o.code), from, to);
+      S.cw.outlets.forEach((o) => cw.set(o.code, cwDecorate(o, b.get(o.code))));
+    }
+    // availability per outlet: core, KVI, promo
+    const av = new Map();
+    if (S.av) {
+      const A = S.av, days = avDays(), N = A.S, types = ["core", "kvi", "promo"], skus = types.map((t) => A.skus.filter((s) => s[t]));
+      A.outlets.forEach((o) => { const base = o.i * N; av.set(o.c, types.map((_, ti) => { const a = avAcc(); for (const s of skus[ti]) { const st = A.stock[base + s.i], sl = A.sales60[base + s.i]; avAdd(a, st, sl, days, avStatus(st, sl, days)); } return avRate(a); })); });
+    }
+    const sa = new Map(S.sa ? saRows(saMonth()).map((x) => [x.c, x]) : []);
+    const sku = new Map((S.sku?.outlets || []).map((o) => [o.c, o.t]));
+    const rc = new Map((S.rcv?.outlets || []).map((o) => [o.c, o]));
+    const vis = new Map((S.ccv?.visit?.rows || []).map((x) => [x[0], x]));
+    const P2 = S.ccv?.cc?.providers || [], cc = new Map((S.ccv?.cc?.rows || []).map(([c, a, t]) => { let bi = 0; a.forEach((v, i) => { if (v > a[bi]) bi = i; }); return [c, { t, src: t >= 1 ? P2[bi] : "" }]; }));
+    const dos = new Map(d.dos?.rows || []);
+    const K = d.kpi, km = K?.months?.[K.months.length - 1], skill = new Map((K?.zonal || []).filter((x) => /skill gap/i.test(x.metric || "") && isNum(x.a?.[km])).map((x) => [kname(x.head), x.a[km]]));
+    const yes = (b) => (b ? "Yes" : "No");
+    const cols = [
+      { h: "Outlet code", w: 9 }, { h: "Outlet", w: 26 }, { h: "Regional leader", w: 14 }, { h: "Regional head", w: 22 }, { h: "Zonal", w: 16 },
+      { h: "Division", w: 11 }, { h: "District", w: 12 }, { h: "Area", w: 18 }, { h: "Format", w: 15 }, { h: "Ownership", w: 10 }, { h: "PNP", w: 8 }, { h: "Location type", w: 18 }, { h: "Launch date", w: 11 }, { h: "Size (sft)", w: 9, f: "n" },
+      { h: "Target till date", w: 13, f: "n" }, { h: "Achieved", w: 13, f: "n" }, { h: "Achievement", w: 11, f: "p1" },
+      { h: "Sales", w: 13, f: "n" }, { h: "Sales last year", w: 13, f: "n" }, { h: "Growth vs last year", w: 11, f: "p1" }, { h: "Same store", w: 8 },
+      { h: "Sales last month (same days)", w: 13, f: "n" }, { h: "Growth vs last month", w: 11, f: "p1" },
+      { h: "GP value", w: 12, f: "n" }, { h: "GP margin", w: 9, f: "p2" }, { h: "GP margin last year", w: 9, f: "p2" }, { h: "GP margin band", w: 10 },
+      { h: "Footfall", w: 10, f: "n" }, { h: "Footfall last year", w: 10, f: "n" }, { h: "Average bill", w: 9, f: "n1" }, { h: "Average bill last year", w: 9, f: "n1" },
+      { h: `Net P/L ${pm ? fmonth(pm) : ""}`, w: 12, f: "n" }, { h: "Loss-making", w: 8 }, { h: "Loss primary reason", w: 16 },
+      { h: "Consumable % on sales", w: 10, f: "p2" }, { h: "Consumable target", w: 10, f: "p2" }, { h: "Wastage % on sales", w: 10, f: "p2" }, { h: "Wastage target", w: 10, f: "p2" }, { h: "Wastage % on PNP sales", w: 10, f: "p2" }, { h: "Wastage PNP target", w: 10, f: "p2" }, { h: "Above target (৳)", w: 11, f: "n" },
+      { h: "Core availability", w: 10, f: "p1" }, { h: "KVI availability", w: 10, f: "p1" }, { h: "Promo availability", w: 10, f: "p1" },
+      { h: "Store assessment score", w: 10, f: "p1" }, { h: "Store assessment grade", w: 11 }, { h: "Audits", w: 7, f: "n" },
+      { h: "Item performance sales", w: 13, f: "n" }, { h: "Item performance sales last year", w: 13, f: "n" }, { h: "Item performance growth", w: 10, f: "p1" },
+      { h: "Over-receiving value", w: 12, f: "n" }, { h: "Over-receiving incidents", w: 10, f: "n" }, { h: "Under-receiving incidents", w: 10, f: "n" },
+      { h: "Planned visits", w: 8, f: "n" }, { h: "Visit days", w: 8, f: "n" }, { h: "Visited on the planned day", w: 9, f: "n" },
+      { h: "Credit card extra cost", w: 11, f: "n" }, { h: "Credit card main source", w: 10 },
+      { h: "DOS (days)", w: 8, f: "n1" }, { h: "DOS band", w: 10 }, { h: "Zonal skill gap", w: 9, f: "p1" },
+    ];
+    const rows = codes.map((c) => {
+      const m = mBy.get(c) || {}, t = tdBy.get(c) || {}, p = pnl.get(c), w = cw.get(c), a = av.get(c) || [], s = sa.get(c), k = sku.get(c), rv = rc.get(c), v = vis.get(c), cr = cc.get(c), ds = dos.get(c);
+      const gpm = ratio(t.gv, t.s);
+      return [c, m.n || t.name || "", m.rl || t.rl || "", m.rh || "", m.zn || t.zn || "", m.div || "", m.dis || "", m.area || "", m.fmt || "", m.own || "", m.pnp || "", m.loc || "", m.ld || "", m.sft ?? null,
+        t.t ?? null, t.a ?? null, ratio(t.a, t.t), t.s ?? null, t.sy ?? null, t.sy > 0 ? t.s / t.sy - 1 : null, t.c ? yes(t.ssy) : "",
+        t.sm ?? null, t.sm > 0 ? t.s / t.sm - 1 : null,
+        t.gv ?? null, gpm, t.gpy ?? null, isNum(gpm) ? (gpm < 0.15 ? "Below 15%" : gpm <= 0.18 ? "15–18%" : "Above 18%") : "",
+        t.f ?? null, t.fy ?? null, t.b ?? null, t.by ?? null,
+        p?.pl ?? null, p ? yes(p.loss) : "", p?.why || "",
+        w?.consumableRate ?? null, w?.consumableTarget ?? null, w?.wastageSalesRate ?? null, w?.wastageSalesTarget ?? null, w?.wastagePnpRate ?? null, w?.wastagePnpTarget ?? null, w?.excessTotal ?? null,
+        a[0] ?? null, a[1] ?? null, a[2] ?? null,
+        s?.p ?? null, s?.grade?.label || "", s?.n ?? null,
+        k ? k[0] : null, k ? k[1] : null, k && k[1] > 0 ? k[0] / k[1] - 1 : null,
+        rv?.ov ?? null, rv?.oi ?? null, rv?.ui ?? null,
+        v ? v[1] : null, v ? v[3] : null, v ? v[2] : null,
+        cr ? Math.round(cr.t * 100) / 100 : null, cr?.src || "",
+        ds ?? null, isNum(ds) ? (ds <= 30 ? "Below 30 days" : "Over 30 days") : "", m.zn ? skill.get(kname(m.zn)) ?? null : null];
+    });
+    // what each block covers
+    const per = (f, t) => (f && t ? `${fdate(f)} – ${fdate(t)}` : "—");
+    const about = [
+      ["Report month", fmonth(ym)], ["Generated", dqWhen(new Date().toISOString())], ["Outlets", int(rows.length)],
+      ["Sales, GP, footfall", r ? `${r.closed ? "Full month" : "Till date"} to ${fdate(r.date)} (${r.file})` : "—"],
+      ["Net P/L", pm ? `${fmonth(pm)}, ${S.pbasis === "after" ? "after" : "before"} financing cost` : "—"],
+      ["Consumable and wastage", S.cw ? per(S.cwv.from || S.cw.dateRange.min, S.cwv.to || S.cw.dateRange.max) : "—"],
+      ["Availability", S.av ? `${avDays()} days of cover, stock report ${S.av.files?.find((f) => f.kind === "stock")?.modified?.slice(0, 10) || ""}` : "—"],
+      ["Store assessment", S.sa ? `${fmonth(saMonth())}, latest audit per outlet` : "—"],
+      ["Item performance", S.sku ? per(S.sku.period?.start, S.sku.period?.end) : "—"],
+      ["Receiving", S.rcv ? per(S.rcv.range?.start, S.rcv.range?.end) : "—"],
+      ["Visits", S.ccv?.visit ? per(S.ccv.visit.from, S.ccv.visit.to) : "—"],
+      ["Credit card extra cost", S.ccv?.cc ? per(S.ccv.cc.from, S.ccv.cc.to) : "—"],
+      ["DOS", d.dos?.month ? `${fmonth(d.dos.month)} (${d.dos.file})` : "—"],
+      ["Zonal skill gap", km ? `KPI performance ${fmonth(km)}` : "—"],
+    ];
+    return { ym, book: xlBook([{ name: "Outlet wise", cols, rows, freeze: 2 }, { name: "About", cols: [{ h: "Item", w: 26 }, { h: "Covers", w: 70 }], rows: about }]) };
+  }
+  function monthlyReportPanel() {
+    const ym = (S.data.tilldate?.date || "").slice(0, 7);
+    AFTER.push(() => {
+      const b = $("#dqMonthly"); if (!b) return;
+      b.onclick = () => {
+        const st = $("#dqMonthlyMsg");
+        if (!arReady()) { st.textContent = "Loading all sources…"; b.disabled = true; const wait = setInterval(() => { if (arReady()) { clearInterval(wait); b.disabled = false; b.click(); } }, 600); return; }
+        try {
+          const { ym: m, book } = monthlyOutletReport(), url = URL.createObjectURL(book), a = document.createElement("a");
+          a.href = url; a.download = `monthly-outlet-wise-report_${m}.xlsx`; document.body.append(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+          st.textContent = `Downloaded monthly-outlet-wise-report_${m}.xlsx (${(book.size / 1048576).toFixed(1)} MB).`;
+        } catch (e) { console.error(e); st.textContent = "Could not build the report. Try again after the page has loaded."; }
+      };
+    });
+    return `<section class="panel"><div class="panel-head"><div><h2>Monthly outlet-wise report</h2><p>One Excel row per outlet with every figure the dashboard holds for ${esc(fmonth(ym))}: sales and target, growth, gross profit, footfall, net P/L and loss reason, consumable and wastage, availability, store assessment, item performance, receiving, visits, credit card extra cost, DOS and zonal skill gap. Download it at each month end to keep the month's results; the About sheet lists the period each block covers.</p></div>
+      <div class="panel-tools"><button type="button" class="btn primary" id="dqMonthly">Download Excel (${esc(fmonth(ym))})</button></div></div>
+      <div class="panel-body"><p class="muted" id="dqMonthlyMsg" style="margin:0"></p></div></section>`;
+  }
+
   // ---- upload schedule: every file the dashboard needs, how often, by when, and whether the latest one is in
   // kind: "day" = data should run to yesterday; "week" = within the last 7 days; "prev" = last month's file by day `by`;
   // "cur" = this month's file by day `by`; "auto" = read automatically.
