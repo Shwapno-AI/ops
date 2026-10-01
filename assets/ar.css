@@ -2,7 +2,7 @@
    Fixed light colours so the page and its PDF look the same in either theme. */
 .ar-scroll{overflow:auto;padding:14px;background:#e9eef1;border-radius:10px}
 #arPreview{width:794px;margin:0 auto}
-.ar-page{width:794px;height:1123px;box-sizing:border-box;padding:14px 24px 8px;background:#fff;color:#14232e;font:9px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:5px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+.ar-page{width:794px;height:1123px;box-sizing:border-box;padding:14px 24px 8px;background:#fff;color:#14232e;font:9px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:4px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .ar-page *{box-sizing:border-box}
 .ar-head{display:flex;align-items:center;gap:14px;padding:0 0 10px;border-bottom:2px solid #14232e}
 .ar-head img,.ar-noimg{width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid #d8e2e8;flex:none}

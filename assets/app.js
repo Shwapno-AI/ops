@@ -4538,7 +4538,7 @@
         for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days); avAdd(a, st, sl, days, k); avAdd(tot, st, sl, days, k); }
         if (a.slots && arOk(o) && old(o.c)) per.push({ o, a, v: avRate(a) });
       }
-      res[type] = { tot, v: avRate(tot), worst: per.sort((x, y) => x.v - y.v).slice(0, 3) };
+      res[type] = { tot, v: avRate(tot), worst: per.sort((x, y) => x.v - y.v).slice(0, 5) };
     }
     const skus = d.skus.filter((s) => (s.core || s.promo || s.kvi) && s.nd), nd = new Map();
     for (const o of outs) {
