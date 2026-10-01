@@ -4526,7 +4526,7 @@
     const d = S.sa; if (!d) return null;
     const m = saMonth(), rows = saRows(m).filter(arIn(rl)), audited = new Set(rows.map((r) => r.c)), cats = d.cats.map((_, ci) => saCatAvg(rows, ci));
     return { m, n: rows.length, p: saAvg(rows), audits: rows.reduce((t, r) => t + r.n, 0), notAud: d.masterRows.filter((o) => arIn(rl)(o) && !audited.has(o.c)).length,
-      cats, weak: saWeakest(cats), gc: SA_GRADES.map((g) => [g, rows.filter((r) => r.grade.k === g.k).length]), worst: rows.filter((r) => arOk(r) && isNum(r.p)).sort((a, b) => a.p - b.p).slice(0, 3) };
+      cats, weak: saWeakest(cats), gc: SA_GRADES.map((g) => [g, rows.filter((r) => r.grade.k === g.k).length]), worst: rows.filter((r) => arOk(r) && isNum(r.p)).sort((a, b) => a.p - b.p).slice(0, 5) };
   }
   function arAv(rl) {
     const d = S.av; if (!d) return null;
