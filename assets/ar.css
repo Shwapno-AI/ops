@@ -62,7 +62,7 @@
 .ar-t.ar-wk td.n:last-child,.ar-t.ar-wk th.n:last-child{width:46px}
 .ar-t.ar-wk i{font-style:normal;color:#7a8f9c}
 /* credit card and visit compliance */
-.ar-cc{border-top-color:#b83280}.ar-vc{border-top-color:#dd6b20}
+.ar-cc{border-top-color:#b83280}.ar-dos{border-top-color:#dd6b20}
 .ar-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:#edf1f4}
 .ar-bar span{display:block;height:100%}
 .ar-legend{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:7.8px;color:#50677a}
@@ -102,5 +102,6 @@
 /* weakest leaders or zonals, with skill gap and DOS beside them */
 .ar-bottom{display:grid;grid-template-columns:1fr 290px;gap:8px;align-items:stretch}
 .ar-bottom>.ar-card{min-width:0}
-.ar-sd{border-top-color:#2c5282;gap:4px}
-.ar-sd .ar-tile span{font-size:7.4px}
+.ar-skill{border-top-color:#2c5282;gap:4px}
+/* tile labels set in black and bold */
+.ar-tile.lbl>span{color:#14232e;font-weight:750}

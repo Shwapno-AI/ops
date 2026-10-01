@@ -4471,14 +4471,22 @@
   }
 
   // ---- figures
+  // Lowest achievement, the gross profit lists and availability name outlets open at least a month (launch date
+  // from the outlet register, a month or more before the sales date). An outlet with no launch date counts.
+  function arOldEnough() {
+    const d = new Date(`${S.data.tilldate?.date || new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() - 1);
+    const cut = d.toISOString().slice(0, 10), ld = new Map((S.data.master?.outlets || []).map((o) => [o.c, o.ld]));
+    return (c) => { const x = ld.get(c); return !x || x <= cut; };
+  }
   function arSales(rl, gpN = 4) {
     const r = S.data.tilldate; if (!r) return null;
-    const list = r.outlets.filter(arIn(rl)), a = agg(list);
+    const list = r.outlets.filter(arIn(rl)), a = agg(list), old = arOldEnough();
     const act = list.filter((o) => arOk(o) && o.s > 0); // trading, distributed outlets
-    const ach = act.filter((o) => o.t > 0).map((o) => ({ o, v: o.a / o.t })).sort((x, y) => x.v - y.v);
+    const ach = act.filter((o) => o.t > 0 && old(o.c)).map((o) => ({ o, v: o.a / o.t })).sort((x, y) => x.v - y.v);
     // growth ranks same-store outlets only (the report's own list), so a tiny last-year base can't top the list
     const comp = act.filter((o) => o.ssy && o.sy > 0).map((o) => ({ o, v: o.s / o.sy - 1 }));
-    const gp = act.filter((o) => o.ssy && isNum(o.gv)).map((o) => ({ o, v: o.gv / o.s, ly: o.sy > 0 && isNum(o.gvy) ? o.gvy / o.sy : null }));
+    const gp = act.filter((o) => o.ssy && isNum(o.gv) && old(o.c)).map((o) => ({ o, v: o.gv / o.s, ly: o.sy > 0 && isNum(o.gvy) ? o.gvy / o.sy : null }));
     // lowest 3 and highest 3; with few outlets each shows once
     const ends = (xs, n = 3) => { const lo = [...xs].sort((x, y) => x.v - y.v).slice(0, n); return [lo, [...xs].sort((x, y) => y.v - x.v).filter((x) => !lo.includes(x)).slice(0, n)]; };
     const [deg, gro] = ends(comp), [gpw, gpb] = ends(gp, gpN);
@@ -4519,13 +4527,13 @@
   }
   function arAv(rl) {
     const d = S.av; if (!d) return null;
-    const days = avDays(), N = d.S, outs = d.outlets.filter(arIn(rl)), res = { days };
+    const days = avDays(), N = d.S, outs = d.outlets.filter(arIn(rl)), res = { days }, old = arOldEnough();
     for (const type of ["core", "kvi", "promo"]) {
       const skus = d.skus.filter((s) => s[type]), tot = avAcc(), per = [];
       for (const o of outs) {
         const a = avAcc(), base = o.i * N;
         for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days); avAdd(a, st, sl, days, k); avAdd(tot, st, sl, days, k); }
-        if (a.slots && arOk(o)) per.push({ o, a, v: avRate(a) });
+        if (a.slots && arOk(o) && old(o.c)) per.push({ o, a, v: avRate(a) });
       }
       res[type] = { tot, v: avRate(tot), worst: per.sort((x, y) => x.v - y.v).slice(0, 3) };
     }
@@ -4570,7 +4578,8 @@
     if (sa) {
       // National: achieved is the total sales of every outlet against the target; a leader's page counts its outlets with a target
       const a = sa.a, rep = sa.r, got = rl ? a.a : a.s, ach = a.t > 0 ? got / a.t : null, achTone = ach >= 1 ? "pos" : ach >= 0.9 ? "warn" : "neg";
-      const gpRow = ({ o, v, ly }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2), arSign(isNum(ly) ? v - ly : null, "pp")];
+      const gpRow = ({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.gv), pct(v, 2)];
+      const chg = (v) => `<span class="${v < 0 ? "ar-neg" : v > 0 ? "ar-pos" : ""}">${v > 0 ? "+" : ""}${bdt(v)}</span>`;
       sales = `<div class="ar-tiles ar-five">${arTile("Target till date", bdt(a.t))}${arTile("Achieved", bdt(got), rl ? `${int(a.tn)} outlets with a target` : "Total sales, all outlets")}${arTile("Achievement", pct(ach, 1), got >= a.t ? "On or above target" : `Gap ${bdt(got - a.t)}`, achTone)}
           <div class="ar-tile"><span>Growth vs last year</span><div class="ar-yyr"><b>All outlets</b><em>${arSign(a.gy)}</em></div><div class="ar-yyr"><b>Same-store</b><em>${arSign(a.gss)}</em></div><small>LY ${bdt(a.sy)} · ${int(a.ssn)} same stores</small></div>
           <div class="ar-tile"><span>GP margin · change vs LY</span><strong class="ar-gpv">${pct(a.gp, 2)} <em>${arSign(isNum(a.gp) && isNum(a.gpy) ? a.gp - a.gpy : null, "pp")}</em></strong>
@@ -4578,10 +4587,10 @@
         <div class="ar-grid4 ar-stack">
           <div>
           ${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}
-          ${arMini(`Same-store gross profit margin: lowest ${gpN} and highest ${gpN}`, arT(["Outlet", "GP value", "GP%", "vs LY"], [{ label: `Lowest ${gpN}` }, ...sa.gpw.map(gpRow), ...(sa.gpb.length ? [{ label: `Highest ${gpN}` }] : []), ...sa.gpb.map(gpRow)]))}
+          ${arMini(`Same-store gross profit margin: lowest ${gpN} and highest ${gpN}`, arT(["Outlet", "GP value", "GP%"], [{ label: `Lowest ${gpN}` }, ...sa.gpw.map(gpRow), ...(sa.gpb.length ? [{ label: `Highest ${gpN}` }] : []), ...sa.gpb.map(gpRow)]))}
           </div><div>
           ${arMini("Same-store growth vs last year: worst 3 and best 3", arT(["Outlet", "Sales", "Last year", "Growth"], [{ label: "Worst 3" }, ...sa.deg.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)]), ...(sa.gro.length ? [{ label: "Best 3" }] : []), ...sa.gro.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)])]))}
-          ${arMini(`Weakest categories${S.sku ? ` (Item performance, ${ipPeriod(S.sku, true).replace(/^Data /, "")})` : ""}`, cats ? arT(["Category", "Sales", "Last year", "Growth"], cats.map((x) => [`<span class="ar-o">${esc(x.c1)} <i>· ${esc(x.div)}</i></span>`, bdt(x.ns), bdt(x.nl), arSign(x.g)])) : arNA("Item performance"))}
+          ${arMini(`Weakest categories${S.sku ? ` (Item performance, ${ipPeriod(S.sku, true).replace(/^Data /, "")})` : ""}`, cats ? arT(["Category", "Sales", "Last year", "Change"], cats.map((x) => [`<span class="ar-o">${esc(x.c1)} <i>· ${esc(x.div)}</i></span>`, bdt(x.ns), bdt(x.nl), chg(x.d)])) : arNA("Item performance"))}
           </div>
         </div>`;
       sales = arCard("ar-sales", "Sales", `${rep.closed ? "Closed month" : "Month to date"}, ${esc(rep.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(rep.date))}`, sales);
@@ -4591,21 +4600,21 @@
     const lo = arLoss(rl);
     const reasons = !lo ? "" : `<p class="ar-line"><b>By primary reason:</b> ${lo.reasons.length ? lo.reasons.map((x) => `${esc(x.reason)} ${int(x.n)} <span class="ar-neg">${bdt(x.pl)}</span>`).join(" · ") : "none"}</p>`;
     const loss = arCard("ar-loss", "Loss-making outlets", lo ? `P&L ${esc(fmonth(lo.m))}, ${S.pbasis === "after" ? "after" : "before"} financing cost` : "", lo ? `
-      <div class="ar-tiles three">${arTile("Loss-making", `${int(lo.n)} <small>of ${int(lo.trading)}</small>`, `${pct(lo.trading ? lo.n / lo.trading : null, 0)} of trading outlets`, lo.n ? "neg" : "pos")}${arTile("Total loss", bdt(lo.total), "", "neg")}${arTile("Net outlet P/L", bdt(lo.net), "", lo.net < 0 ? "neg" : "pos")}</div>
+      <div class="ar-tiles three">${arTile("Loss-making", `${int(lo.n)} <small>of ${int(lo.trading)}</small>`, `${pct(lo.trading ? lo.n / lo.trading : null, 0)} of trading outlets`, `${lo.n ? "neg" : "pos"} lbl`)}${arTile("Total loss", bdt(lo.total), "", "neg")}${arTile("Net outlet P/L", bdt(lo.net), "", lo.net < 0 ? "neg" : "pos")}</div>
       ${reasons}
       ${arMini("Biggest losses", arT(["Outlet", "Sales", "P/L"], lo.worst.map((x) => [arO(x.o.c, x.o.nm, sub(x.o)), bdt(x.o.s), `<span class="ar-neg">${bdt(x.pl)}</span>`]), "No loss-making outlets"))}` : arNA("P&L"));
 
     // 3. Consumable and wastage
     const cw = arCw(rl);
-    const cwTile = (k, label) => { const s = cw.s, v = s[k], t = s.targets[k], bad = isNum(v) && isNum(t) && v > t; return arTile(label, pct(v, 2), isNum(t) ? `Target ${pct(t, 2)}` : "No target", isNum(t) ? (bad ? "neg" : "pos") : ""); };
+    const cwTile = (k, label, lbl = "") => { const s = cw.s, v = s[k], t = s.targets[k], bad = isNum(v) && isNum(t) && v > t; return arTile(label, pct(v, 2), isNum(t) ? `Target ${pct(t, 2)}` : "No target", `${isNum(t) ? (bad ? "neg" : "pos") : ""} ${lbl}`); };
     const cwc = arCard("ar-cw", "Consumable and wastage", cw ? `${esc(fdate(cw.from, true))} – ${esc(fdate(cw.to))}` : "", cw ? `
-      <div class="ar-tiles three">${cwTile("consumableRate", "Consumable % on sales")}${cwTile("wastageSalesRate", "Wastage % on sales")}${cwTile("wastagePnpRate", "Wastage % on PNP sales")}</div>
+      <div class="ar-tiles three">${cwTile("consumableRate", "Consumable % on sales", "lbl")}${cwTile("wastageSalesRate", "Wastage % on sales")}${cwTile("wastagePnpRate", "Wastage % on PNP sales")}</div>
       ${arMini("Furthest above target", arT(["Outlet", "Cons.", "Wst. sales", "Wst. PNP", "Above target"], cw.worst.map((r) => [arO(r.code, r.name, rl ? r.zone : r.regionalLeader), pct(r.consumableRate, 2), pct(r.wastageSalesRate, 2), pct(r.wastagePnpRate, 2), `<span class="ar-neg">${bdt(r.excessTotal)}</span>`]), "No outlet above target"))}` : arNA("Consumable and wastage"));
 
     // 4. Store assessment
     const sx = arSa(rl);
     const sac = arCard("ar-sa", "Store assessment", sx ? `${esc(fmonth(sx.m))}, latest audit per outlet` : "", sx ? `
-      <div class="ar-tiles four">${arTile("Score", pct(sx.p, 1), saGrade(sx.p).label, { a: "pos", b: "pos", c: "warn", d: "neg" }[saGrade(sx.p).k] || "")}${arTile("Audits done", int(sx.audits), `${int(sx.n)} outlets`)}${arTile("Not audited", int(sx.notAud), "Outlets this month", sx.notAud ? "warn" : "pos")}${arTile("Weakest category", `<span class="ar-small">${esc(S.sa.cats[sx.weak] || "—")}</span>`, sx.weak >= 0 ? pct(sx.cats[sx.weak], 1) : "")}</div>
+      <div class="ar-tiles three">${arTile("Score", pct(sx.p, 1), saGrade(sx.p).label, { a: "pos", b: "pos", c: "warn", d: "neg" }[saGrade(sx.p).k] || "")}${arTile("Not Visited", int(sx.notAud), "Outlets this month", `${sx.notAud ? "warn" : "pos"} lbl`)}${arTile("Weakest category", `<span class="ar-small">${esc(S.sa.cats[sx.weak] || "—")}</span>`, sx.weak >= 0 ? pct(sx.cats[sx.weak], 1) : "")}</div>
       <div class="ar-grades">${sx.gc.map(([g, n]) => `<span class="ar-g ar-g-${g.k}"><b>${int(n)}</b>${esc(g.label)}</span>`).join("")}</div>
       ${arMini("Lowest scores", arT(["Outlet", "Score", "Grade", "Audit"], sx.worst.map((r) => [arO(r.c, r.nm, rl ? r.dim.zn : r.dim.rl), pct(r.p, 1), esc(r.grade.label), esc(fdate(r.v.date, true))])))}` : arNA("Store assessment"));
 
@@ -4615,7 +4624,7 @@
     const avLists = !av ? "" : `<div class="ar-grid3">${arMini("Lowest Core", arT(["Outlet", "Avail."], avRows(av.core)))}${arMini("Lowest KVI", arT(["Outlet", "Avail."], avRows(av.kvi)))}${arMini("Lowest Promo", arT(["Outlet", "Avail."], avRows(av.promo)))}</div>
         <p class="ar-line"><b>Lowest product divisions:</b> ${av.nd.map((x) => `${esc(x.name)} <span class="ar-neg">${pct(x.v, 1)}</span>`).join(" · ") || "none"}</p>`;
     const avc = arCard("ar-av", "Availability", av ? `${av.days} day${av.days === 1 ? "" : "s"} of cover` : "", av ? `
-      <div class="ar-tiles three">${["core", "kvi", "promo"].map((k) => arTile(`${k === "kvi" ? "KVI" : k[0].toUpperCase() + k.slice(1)} availability`, pct(av[k].v, 1), `${int(av[k].tot.ok)} of ${int(av[k].tot.slots)} available`, av[k].v >= 0.9 ? "pos" : av[k].v >= 0.8 ? "warn" : "neg")).join("")}</div>
+      <div class="ar-tiles three">${["core", "kvi", "promo"].map((k) => arTile(`${k === "kvi" ? "KVI" : k[0].toUpperCase() + k.slice(1)} availability`, pct(av[k].v, 1), `${int(av[k].tot.ok)} of ${int(av[k].tot.slots)} available`, `${av[k].v >= 0.9 ? "pos" : av[k].v >= 0.8 ? "warn" : "neg"} lbl`)).join("")}</div>
       ${avLists}` : arNA("Availability"));
 
     // 6. Receiving
@@ -4624,9 +4633,9 @@
       <div class="ar-tiles three">${arTile("Over-receiving value", bdt(rc.ov), rl ? "Total of its outlets" : "Company", "neg")}${arTile("Over-receiving incidents", int(rc.oi), `Under-receiving ${int(rc.ui)}`)}${arTile("Received vs sold", `<span class="ar-small">${units(rc.r)} / ${units(rc.s)}</span>`, "Units")}</div>
       ${arMini("Highest over-receiving value", arT(["Outlet", "Over value", "Incidents"], rc.worst.map((o) => [arO(o.c, o.nm, rl ? o.dim.zn : o.dim.rl), `<span class="ar-neg">${bdt(o.ov)}</span>`, int(o.oi)])))}` : arNA("Receiving"));
 
-    // 7-8. Visits and credit card, beside receiving in a row of three
-    const vcc = arVcCard(arVc(rl), rl), ccc = arCcCard(arCc(rl), rl);
-    return `<article class="ar-page">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${vcc}${ccc}</div><div class="ar-bottom">${arWeakCard(rl)}${arSdCard(rl)}</div>${arFoot(rl)}</article>`;
+    // 7-8. Credit card and DOS beside receiving in a row of three; skill gap beside the weakest leaders or zonals
+    const ccc = arCcCard(arCc(rl), rl);
+    return `<article class="ar-page">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${ccc}${arDosCard(rl)}</div><div class="ar-bottom">${arWeakCard(rl)}${arSkillCard(rl)}</div>${arFoot(rl)}</article>`;
   }
 
   // ---- weakest groups: regional leaders on National, a leader's zonals on their page. Ranked on the average of
@@ -4701,14 +4710,6 @@
     return { from: d.from, to: d.to, total, n: rows.filter((r) => r.t >= 1).length, prov,
       worst: rows.filter((r) => arOk(r) && r.t >= 1).sort((a, b) => b.t - a.t).slice(0, 3).map((r) => ({ ...r, top: main(r.a) })) };
   }
-  function arVc(rl) {
-    const d = S.ccv?.visit; if (!d) return null;
-    const vis = new Map(d.rows.map((r) => [r[0], r]));
-    const outs = (S.data.master?.outlets || []).filter((o) => o.rl && (!rl || o.rl === rl)).map((o) => { const r = vis.get(o.c) || [o.c, 0, 0, 0]; return { c: o.c, nm: o.n, dim: { rl: o.rl, zn: o.zn || MISS }, pl: r[1], dn: r[2], vd: r[3] }; });
-    const sum = (k) => outs.reduce((s, o) => s + o[k], 0);
-    const not = outs.filter((o) => !o.vd).sort((a, b) => b.pl - a.pl || a.c.localeCompare(b.c));
-    return { from: d.from, to: d.to, planned: d.planned, n: outs.length, not, pl: sum("pl"), dn: sum("dn"), vd: sum("vd") };
-  }
   const arRange = (f, t) => (f && t ? `${esc(fdate(f, true))} – ${esc(fdate(t))}` : "");
   // Credit card: the total beside the split by provider, then the outlets with the highest extra cost.
   function arCcCard(cc, rl) {
@@ -4718,14 +4719,6 @@
       <div class="ar-legend">${cc.prov.map((p) => `<span><i class="ar-c${p.i}"></i>${esc(p.name)} <b>${pct(p.share, 1)}</b></span>`).join("")}</div>`;
     const top = arT(["Outlet", "Extra", "Main source"], cc.worst.map((r) => [arO(r.c, r.nm, sub(r)), `<span class="ar-neg">${bdt(r.t)}</span>`, `${esc(r.top.name)} ${pct(r.t ? r.top.v / r.t : null, 0)}`]), "No extra cost");
     return arCard("ar-cc", "Credit card extra cost", arRange(cc.from, cc.to), `<div class="ar-ccrow">${arTile("Extra amount", bdt(cc.total), `${int(cc.n)} outlets`, "neg")}<div>${bar}</div></div>${arMini("Highest extra cost", top)}`);
-  }
-  // Visits: an outlet is visited when the visit team punched in there on any day of the period.
-  function arVcCard(vc, rl) {
-    if (!vc) return arCard("ar-vc", "Visit compliance", "", arNA("Visit"));
-    const sub = (o) => (rl ? o.dim.zn : o.dim.rl);
-    const tiles = `<div class="ar-tiles three">${arTile("Not visited", int(vc.not.length), `of ${int(vc.n)} outlets, no visit punch`, vc.not.length ? "neg" : "pos")}${arTile("Visit days", int(vc.vd), vc.planned ? `Planned ${int(vc.pl)}` : "Outlet-days with a punch")}${vc.planned ? arTile("On the planned day", pct(vc.pl ? vc.dn / vc.pl : null, 1), `${int(vc.dn)} of ${int(vc.pl)} planned visits`, vc.pl && vc.dn / vc.pl < 0.8 ? "warn" : "") : ""}</div>`;
-    const notT = arT(["Outlet", "Planned visits"], vc.not.slice(0, 3).map((o) => [arO(o.c, o.nm, sub(o)), int(o.pl)]), "Every outlet was visited");
-    return arCard("ar-vc", "Visit compliance", arRange(vc.from, vc.to), `${tiles}${arMini("Not visited", notT)}`);
   }
   // Skill gap (Store Level) from the KPI performance file: the leader's own figure (National on the company page),
   // and who is highest: the leaders on National, the leader's zonals on their page.
@@ -4737,8 +4730,8 @@
     // a leader who is also zonal for some outlets is left out: the KPI zonal row of that name is someone else's
     const zs = rl ? new Set((S.data.master?.outlets || []).filter((o) => o.rl === rl && kname(o.zn) !== kname(rl)).map((o) => kname(o.zn))) : null;
     const cand = rl ? (K.zonal || []).filter((r) => is(r) && zs.has(kname(r.head))) : (K.rho || []).filter((r) => is(r) && r.head !== "National");
-    const top = cand.filter((r) => isNum(r.a?.[m])).sort((a, b) => b.a[m] - a.a[m])[0];
-    return { m, v: me.a[m], t: me.t?.[m], top: top ? { name: top.head, v: top.a[m] } : null };
+    const tops = cand.filter((r) => isNum(r.a?.[m])).sort((a, b) => b.a[m] - a.a[m]).slice(0, 3).map((r) => ({ name: r.head, v: r.a[m], t: r.t?.[m] }));
+    return { m, v: me.a[m], t: me.t?.[m], tops };
   }
   // Days of stock from the compiled DOS file. "Below 30 days" includes exactly 30, as the file's own "up to 30 days".
   function arDos(rl) {
@@ -4746,15 +4739,25 @@
     const mo = arMasterMap(), rows = d.rows.map(([c, v]) => ({ ...(mo.get(c) || { c, nm: "", dim: { rl: MISS, zn: MISS } }), v })).filter(arIn(rl));
     if (!rows.length) return null;
     const lo = rows.filter((r) => r.v <= 30).length;
-    return { m: d.month, n: rows.length, lo, hi: rows.length - lo, avg: rows.reduce((s, r) => s + r.v, 0) / rows.length, top: rows.filter(arOk).sort((a, b) => b.v - a.v)[0] };
+    return { m: d.month, n: rows.length, lo, hi: rows.length - lo, avg: rows.reduce((s, r) => s + r.v, 0) / rows.length, tops: rows.filter(arOk).sort((a, b) => b.v - a.v).slice(0, 3) };
   }
-  function arSdCard(rl) {
-    const sk = arSkill(rl), ds = arDos(rl);
-    const skT = sk ? arTile("Skill gap", pct(sk.v, 1), isNum(sk.t) ? `Target ${pct(sk.t, 0)} or less` : "", isNum(sk.t) ? (Math.round(sk.v * 1000) > Math.round(sk.t * 1000) ? "neg" : "pos") : "") : arTile("Skill gap", "—", "No KPI figure"); // compared as shown, to 0.1%
-    const dsT = ds ? `${arTile("DOS below 30 days", int(ds.lo), `of ${int(ds.n)} outlets`, "pos")}${arTile("DOS over 30 days", int(ds.hi), `Average ${Math.round(ds.avg)} days`, ds.hi ? "neg" : "pos")}` : `${arTile("DOS below 30 days", "—", "No DOS file")}${arTile("DOS over 30 days", "—", "")}`;
-    const bits = [sk?.top && `<b>Highest skill gap:</b> ${esc(sk.top.name)} ${pct(sk.top.v, 1)}`, ds?.top && `<b>Highest DOS:</b> ${esc(ds.top.c)} ${Math.round(ds.top.v)} days`].filter(Boolean);
-    const meta = [sk && `KPI ${fmonth(sk.m)}`, ds?.m && `DOS ${fmonth(ds.m)}`].filter(Boolean).join(" · ");
-    return arCard("ar-sd", "Skill gap and DOS", esc(meta), `<div class="ar-tiles three">${skT}${dsT}</div>${bits.length ? `<p class="ar-line">${bits.join(" · ")}</p>` : ""}`);
+  // DOS: outlets below and over 30 days, and the three highest
+  function arDosCard(rl) {
+    const ds = arDos(rl);
+    if (!ds) return arCard("ar-dos", "Days of stock (DOS)", "", '<p class="ar-empty">No DOS file is loaded.</p>');
+    const sub = (o) => (rl ? o.dim.zn : o.dim.rl);
+    return arCard("ar-dos", "Days of stock (DOS)", esc(fmonth(ds.m)), `<div class="ar-tiles three">${arTile("Below 30 days", int(ds.lo), `of ${int(ds.n)} outlets`, "pos lbl")}${arTile("Over 30 days", int(ds.hi), `${pct(ds.n ? ds.hi / ds.n : null, 0)} of outlets`, `${ds.hi ? "neg" : "pos"} lbl`)}${arTile("Average", `${Math.round(ds.avg)} <small>days</small>`, "All outlets")}</div>
+      ${arMini("Highest DOS", arT(["Outlet", "Days"], ds.tops.map((o) => [arO(o.c, o.nm, sub(o)), `<span class="ar-neg">${Math.round(o.v)}</span>`])))}`);
+  }
+  // Skill gap: the leader's figure against its target, and the three highest (leaders on National, zonals on a leader's page)
+  function arSkillCard(rl) {
+    const sk = arSkill(rl);
+    if (!sk) return arCard("ar-skill", "Skill gap", "", '<p class="ar-empty">No KPI skill gap figure.</p>');
+    // compared as shown, to 0.1%
+    const over = (v, t) => isNum(t) && Math.round(v * 1000) > Math.round(t * 1000);
+    const tile = arTile("Skill gap", pct(sk.v, 1), isNum(sk.t) ? `Target ${pct(sk.t, 0)} or less` : "", `${isNum(sk.t) ? (over(sk.v, sk.t) ? "neg" : "pos") : ""} lbl`);
+    const top = arT([rl ? "Highest zonals" : "Highest leaders", "Skill gap"], sk.tops.map((x) => [`<span class="ar-o"><b>${esc(x.name)}</b></span>`, `<span class="${over(x.v, x.t ?? sk.t) ? "ar-neg" : ""}">${pct(x.v, 1)}</span>`]));
+    return arCard("ar-skill", "Skill gap", `KPI ${esc(fmonth(sk.m))}`, `<div class="ar-ccrow">${tile}<div>${top}</div></div>`);
   }
   const arLeaderIdx = (rl) => (rl ? arRhos().indexOf(rl) + 1 : 0); // 0 = National
 
