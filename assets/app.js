@@ -629,8 +629,11 @@
       ${cwQualityPanel()}
       ${avQualityPanel()}
       ${saQualityPanel()}
+      ${skuQualityPanel()}
+      ${rcQualityPanel()}
+      ${ccvQualityPanel()}
       <section class="panel"><div class="panel-head"><div><h2>How updates work</h2></div></div>
-        <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The server checks the Drive folders every 5 minutes, day and night, and refreshes as soon as a file is added, replaced, renamed or removed; new figures usually show within 5 to 15 minutes (item-performance workbooks take about 10 minutes more to process). It also does a full refresh every hour between 8 am and 11 pm. Receiving is renewed from Power BI every 10 minutes. If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
+        <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The server checks the Drive folders every 5 minutes, day and night, and refreshes as soon as a file is added, replaced, renamed or removed; new figures usually show within 5 to 15 minutes (item-performance workbooks take about 10 minutes more to process). It also does a full refresh every hour between 8 am and 11 pm. Receiving is renewed from Power BI every 10 minutes. The Credit Card and Visit Compliance folder, the Store Assessment folder and the DOS workbook are watched the same way. If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
   }
 
   // A fresh query string on each load, so the browser can't reuse an old cached copy of the connected dashboard.
@@ -5248,6 +5251,53 @@
     return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th>Months</th><th class="num">Audits</th><th>Updated in Drive</th></tr></thead><tbody>
       ${d.source.files.map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td>${(f.months || []).map(fmonth).join(", ")}</td><td class="num">${int(f.audits)}</td><td>${f.modifiedIso ? fdate(f.modifiedIso) : esc(f.modified || "—")}</td></tr>`).join("")}</tbody></table></div>
       <div class="panel-body">${(d.issues || []).map((i) => `<div class="issue"><span>${chip({ cls: lvl[i.level] || "info", label: i.level === "warn" ? "Warning" : "Note" })}</span><div>${esc(i.message)}</div></div>`).join("") || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
+  }
+  // ---- data quality panels for item performance, receiving, credit card and visits
+  const dqWhen = (iso) => (iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" }) : "—");
+  const dqIssue = (cls, label, msg) => `<div class="issue"><span>${chip({ cls, label })}</span><div>${msg}</div></div>`;
+  // a source whose data stops more than 3 days before the till-date sales file
+  const dqStale = (end, what) => {
+    const td = S.data?.tilldate?.date; if (!end || !td) return "";
+    const lag = Math.round((Date.parse(td) - Date.parse(end)) / 864e5);
+    return lag > 3 ? dqIssue("warn", "Warning", `${esc(what)} stops on ${esc(fdate(end))}, ${lag} days before the sales file (${esc(fdate(td))}). Upload a newer file to its Drive folder.`) : "";
+  };
+  // the data loads on demand; check back until it has answered
+  const dqWait = (err, file) => { if (!err) setTimeout(() => S.page === "dq" && render(), 800); return `<p class="muted" style="margin:0">${err ? `${esc(file)} could not be loaded (${esc(err)}).` : "Loading…"}</p>`; };
+  const dqNotInMaster = (codes, what, how = "counted in National totals only") => {
+    const m = new Set((S.data?.master?.outlets || []).map((o) => o.c)), miss = [...new Set(codes)].filter((c) => !m.has(c)).sort();
+    return miss.length ? dqIssue("info", "Note", `${esc(what)}: ${int(miss.length)} outlet code${miss.length === 1 ? " is" : "s are"} not in the outlet register (${esc(how)}):${esc(miss.slice(0, 15).join(", "))}${miss.length > 15 ? " …" : ""}`) : "";
+  };
+  function skuQualityPanel() {
+    const head = `<div class="panel-head"><div><h2>Item performance files</h2><p>One workbook per regional leader in the Item performance Drive folder, recognised by their columns.</p></div></div>`;
+    if (!S.sku) { loadSku(); return `<section class="panel">${head}<div class="panel-body">${dqWait(S.skuErr, "sku.json")}</div></section>`; }
+    const d = S.sku, p = d.period || {};
+    const checks = dqStale(p.end, "Item performance") + dqNotInMaster((d.outlets || []).map((o) => o.c), "Item performance");
+    return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Rows</th><th>Updated in Drive</th></tr></thead><tbody>
+      ${(d.source?.files || []).map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td class="num">${int(f.rows)}</td><td>${f.modifiedIso ? fdate(f.modifiedIso) : esc(f.modified || "—")}</td></tr>`).join("")}</tbody></table></div>
+      <div class="panel-body"><p class="muted" style="margin:0 0 8px">Sales ${esc(fdate(p.start, true))} – ${esc(fdate(p.end))} · ${int(d.outlets?.length)} outlets, ${int(d.sameStoreCount)} same stores · built ${esc(dqWhen(d.generatedAt))}</p>${checks || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
+  }
+  function rcQualityPanel() {
+    const head = `<div class="panel-head"><div><h2>Receiving</h2><p>Read from the Power BI receiving report every 10 minutes; outlets are matched to the outlet register by code.</p></div></div>`;
+    if (!S.rcv) { loadRc(); return `<section class="panel">${head}<div class="panel-body">${dqWait(S.rcErr, "rcv.json")}</div></section>`; }
+    const d = S.rcv, s = d.source || {}, un = d.quality?.unmapped || [];
+    const checks = dqStale(d.range?.end, "Receiving") + (un.length ? dqIssue("info", "Note", `${int(un.length)} outlet code${un.length === 1 ? " is" : "s are"} in Power BI but not in the outlet register (shown as New/Closed outlets (Not Distributed)): ${esc(un.slice(0, 15).join(", "))}${un.length > 15 ? " …" : ""}`) : "");
+    return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>Source</th><th>Data period</th><th class="num">Outlets</th><th>Power BI refreshed</th><th>Read by the dashboard</th></tr></thead><tbody>
+      <tr><td class="cell-primary">Power BI receiving report</td><td>${d.range ? `${esc(fdate(d.range.start, true))} – ${esc(fdate(d.range.end))}` : "—"}</td><td class="num">${int(d.quality?.outlets ?? d.outlets?.length)}</td><td>${esc(dqWhen(s.powerBiRefreshedAt))}</td><td>${esc(dqWhen(s.snapshotAt || d.generatedAt))}</td></tr></tbody></table></div>
+      <div class="panel-body">${checks || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
+  }
+  function ccvQualityPanel() {
+    const head = `<div class="panel-head"><div><h2>Credit card and visit files</h2><p>From the Credit Card and Visit Compliance Drive folder (Dashboard Raw Data), recognised by their columns. Each period comes from the dates in the file name.</p></div></div>`;
+    if (!S.ccv) { loadCcv(); return `<section class="panel">${head}<div class="panel-body">${dqWait(S.ccvErr, "ccv.json")}</div></section>`; }
+    const d = S.ccv, cc = d.cc, v = d.visit;
+    const per = { "credit card": cc && `${fdate(cc.from, true)} – ${fdate(cc.to)}`, attendance: v && `${fdate(v.from, true)} – ${fdate(v.to)}`, "visit plan": v?.from ? fmonth(v.from.slice(0, 7)) : "" };
+    const use = { "credit card": "Credit card extra cost", attendance: "Visit punches", "visit plan": "Planned visits" };
+    const checks = (cc ? dqStale(cc.to, "Credit card extra cost") : dqIssue("warn", "Warning", "No credit card file was recognised in the folder."))
+      + (v ? dqStale(v.to, "Visit attendance") : dqIssue("warn", "Warning", "No attendance file was recognised in the folder."))
+      + (v && !v.planned ? dqIssue("warn", "Warning", `No visit plan for ${esc(fmonth((v.from || "").slice(0, 7)))}: "On the planned day" can't be worked out.`) : "")
+      + (cc ? dqNotInMaster(cc.rows.map((r) => r[0]), "Credit card") : "") + (v ? dqNotInMaster(v.rows.filter((r) => r[3] > 0).map((r) => r[0]), "Visit punches", "not counted in the report") : "");
+    return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th>Used for</th><th>Data period</th><th>Updated in Drive</th></tr></thead><tbody>
+      ${(d.source?.files || []).map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td>${esc(use[f.role] || f.role)}</td><td>${esc(per[f.role] || "—")}</td><td>${esc(f.modified || "—")}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">No files were recognised in the folder.</td></tr>'}</tbody></table></div>
+      <div class="panel-body"><p class="muted" style="margin:0 0 8px">${cc ? `Credit card: ${int(cc.rows.length)} outlets` : ""}${cc && v ? " · " : ""}${v ? `Visits: ${int(v.people)} people punched at ${int(v.rows.filter((r) => r[3] > 0).length)} outlets` : ""} · built ${esc(dqWhen(d.generatedAt))}</p>${checks || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
   }
   function wireSa(root) {
     $$("[data-sasel]", root).forEach((s) => (s.onchange = () => { S.sav[s.dataset.sasel] = s.value; changed(); }));
