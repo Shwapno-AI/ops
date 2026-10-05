@@ -13,7 +13,7 @@
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
-    { group: "Item performance", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"]] },
+    { group: "Item performance", items: [["ipo", "Overview"], ["ipt", "Store level report"], ["ipc", "Categories"], ["ips", "SKUs"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
@@ -3748,17 +3748,24 @@
     S.lastFocus = document.activeElement;
     const days = avDays(), base = o.i * d.S, per = {};
     ["core", "promo", "kvi"].forEach((t) => (per[t] = avAcc()));
-    const miss = [];
+    const miss = [], every = [];
     for (const s of avSkus(type)) {
       const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days);
       ["core", "promo", "kvi"].forEach((t) => { if (s[t]) avAdd(per[t], st, sl, days, k); });
-      if (!AV_OK[k]) miss.push({ k, st, pd: sl > 0 ? sl / 60 : 0, need: sl > 0 ? Math.max(0, (sl / 60) * days - st) : 0, name: s.n, sub: `${s.c} · ${s.cat3 || "—"} · ${avTypeChips(s)}` });
+      const pd = sl > 0 ? sl / 60 : 0, need = sl > 0 ? Math.max(0, pd * days - st) : 0;
+      every.push({ s, k, st, pd, need });
+      if (!AV_OK[k]) miss.push({ k, st, pd, need, name: s.n, sub: `${s.c} · ${s.cat3 || "—"} · ${avTypeChips(s)}` });
     }
     miss.sort((a, b) => b.need - a.need || a.k - b.k);
+    // every SKU of this outlet in the current selection, missing first
+    NCSV.avout = () => [`availability_outlet_${o.c}_${type}`, ["Outlet code", "Outlet", "Zonal", "Regional leader", "SKU code", "SKU", "Product division", "CAT3", "Core", "Promo", "KVI", "Status", "Stock", "Sales per day", `Needed for ${days} days`],
+      every.sort((a, b) => Number(AV_OK[a.k]) - Number(AV_OK[b.k]) || b.need - a.need).map((x) => [o.c, o.n, o.dim.zn, o.dim.rl, x.s.c, x.s.n, x.s.nd || "", x.s.cat3 || "", x.s.core ? "Yes" : "", x.s.promo ? "Yes" : "", x.s.kvi ? "Yes" : "", AV_ST[x.k]?.label || "", x.st, x.pd ? x.pd.toFixed(2) : 0, Math.round(x.need)]), "latest"];
     $("#drawerTitle").textContent = `${o.c} · ${o.n}`;
     $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${esc([o.dim.zn, o.dim.rl, o.dim.fmt, o.kvi ? "KVI outlet" : "", o.ecom ? "E-Commerce outlet" : ""].filter((x) => x && x !== NET_MISS).join(" · "))}</p>
       <div class="stat-grid three">${["core", "promo", "kvi"].map((t) => `<div class="stat"><small>${t.toUpperCase()}</small><strong>${avPct(per[t])}</strong><div style="font-size:12px">${int(per[t].ok)} of ${int(per[t].slots)} available</div></div>`).join("")}</div>
+      <div class="lr-dtools"><span class="muted">The CSV has every SKU of this outlet (${int(every.length)}), missing first.</span>${csvBtn("avout")}</div>
       <div><div class="section-title">Missing or short at ${days} day${days === 1 ? "" : "s"} of cover (${int(miss.length)} items${S.avv.nd || S.avv.cat3 ? ", within the division and CAT3 picked" : ""})</div>${avPairTable(miss, "SKU")}</div>`;
+    wireDyn($("#drawerBody"));
     showDrawer();
   }
   function openAvSku(code, type) {
