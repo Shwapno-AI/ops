@@ -191,3 +191,6 @@ dl.facts dt{color:var(--ink-2)}dl.facts dd{margin:0}
 table.compact th,table.compact td{padding:7px 8px}
 table.compact td:first-child{white-space:normal;min-width:130px;position:static}
 table.compact th:first-child{position:sticky}
+/* Stock gap page */
+.sg-crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+tr.sg-tot td{font-weight:650;background:var(--surface-2)}

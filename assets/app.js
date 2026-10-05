@@ -7,7 +7,7 @@
 
   // ------------------------------------------------------------------ config
   const NAV = [
-    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"]] },
+    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock Gap"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
@@ -659,6 +659,7 @@
       ${skuQualityPanel()}
       ${rcQualityPanel()}
       ${ccvQualityPanel()}
+      ${sgQualityPanel()}
       <section class="panel"><div class="panel-head"><div><h2>How updates work</h2></div></div>
         <div class="panel-body"><p style="margin:0;max-width:72ch">Upload or replace a file in its Google Drive folder. The server checks the Drive folders every 5 minutes, day and night, and refreshes as soon as a file is added, replaced, renamed or removed; new figures usually show within 5 to 15 minutes (item-performance workbooks take about 10 minutes more to process). It also does a full refresh every hour between 8 am and 11 pm. Receiving is renewed from Power BI every 10 minutes. The Credit Card and Visit Compliance folder, the Store Assessment folder and the DOS workbook are watched the same way. If a file is broken, the dashboard keeps the last good data and the problem appears on this page.</p></div></section>`;
   }
@@ -4850,6 +4851,156 @@
       <div class="panel-body"><p class="muted" id="arStatus" style="margin:0 0 10px">Page ${idx} of ${total}.</p><div class="ar-scroll"><div id="arPreview">${arPage(S.arv.rl || null, idx, total)}</div></div></div></section>`;
   }
 
+  // ------------------------------------------------------------------ stock gap (data/stockgap.json)
+  // Inventory counting gap from the Stock Gap Dashboard workbook (RawData): one row per outlet, counting month and
+  // category with the net physical minus SAP value and the sales. The gap is minus that sum (a shortage is a
+  // positive gap) and the gap % divides it by the sales of the rows counted: the rules of the workbook's Top View.
+  function loadSg() {
+    if (S.sg || S.sgLoading) return;
+    S.sgLoading = true; S.sgErr = null;
+    fetch("data/stockgap.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { sgPrep(d); S.sg = d; })
+      .catch((e) => { S.sgErr = e.message; })
+      .finally(() => { S.sgLoading = false; if (S.page === "sg" || S.page === "dq") render(); });
+  }
+  function sgPrep(d) {
+    const mo = new Map((S.data?.master?.outlets || []).map((o) => [o.c, o]));
+    // leader and zonal from the outlet register; closed outlets and codes not in the register get their own groups
+    d.site = d.sites.map(([c, n, type, zn]) => {
+      const m = mo.get(c), closed = /^closed$/i.test(type);
+      return { c, n: m?.n || n || c, type, closed, rl: m?.rl || (closed ? "Closed outlets" : MISS), zn: m?.zn || (closed ? "Closed outlets" : zn || MISS) };
+    });
+    d.N = d.r.s.length;
+    d.years = [...new Set(d.months.map((m) => m.slice(0, 4)))];
+  }
+  const SG_LEVELS = { rl: "Regional leader", zn: "Zonal", outlet: "Outlet" };
+  const sgView = () => (S.sgv ||= { path: [], by: "rl", per: "" });
+  // scope: National, or a chain of picks (leader, zonal, outlet)
+  function sgScope() {
+    const v = sgView(), pick = v.path[v.path.length - 1];
+    return { pick, test: pick ? (s) => (pick.lvl === "outlet" ? s.c === pick.key : s[pick.lvl] === pick.key) : () => true };
+  }
+  // period: one counting month ("m:<index>") or a year ("y:2026"); the latest month by default
+  function sgPeriod(d) {
+    const v = sgView(), last = d.months.length - 1;
+    let p = v.per || `m:${last}`;
+    if (p.startsWith("m:")) { const i = Math.min(last, Math.max(0, +p.slice(2))); const prev = i > 0 ? i - 1 : null; return { key: `m:${i}`, label: fmonth(d.months[i]), set: new Set([i]), prevSet: prev == null ? null : new Set([prev]), prevLabel: prev == null ? "" : fmonth(d.months[prev]) }; }
+    const y = p.slice(2), idx = (yy) => new Set(d.months.map((m, i) => (m.startsWith(yy) ? i : -1)).filter((i) => i >= 0));
+    const months = d.months.filter((m) => m.startsWith(y));
+    return { key: p, label: `${y} (${fmonth(months[0])} – ${fmonth(months[months.length - 1])})`, set: idx(y), prevSet: d.years.includes(String(+y - 1)) ? idx(String(+y - 1)) : null, prevLabel: String(+y - 1) };
+  }
+  // one pass over the rows: totals by month, by category and month, and by group for the period and the one before
+  function sgCompute(d, test, per, groupOf) {
+    const M = d.months.length, C = d.cats.length, r = d.r;
+    const gap = new Float64Array(M), sales = new Float64Array(M), cat = Array.from({ length: C }, () => new Float64Array(M));
+    const outM = Array.from({ length: M }, () => new Set()), grp = new Map();
+    for (let i = 0; i < d.N; i++) {
+      const s = d.site[r.s[i]]; if (!test(s)) continue;
+      const m = r.m[i], g = -r.n[i], v = r.v[i];
+      gap[m] += g; sales[m] += v; cat[r.c[i]][m] += g; outM[m].add(r.s[i]);
+      const inP = per.set.has(m), inQ = per.prevSet?.has(m);
+      if (groupOf && (inP || inQ)) {
+        const k = groupOf(s), x = grp.get(k) || { key: k, s, gap: 0, sales: 0, pgap: 0, psales: 0, outs: new Set() };
+        if (inP) { x.gap += g; x.sales += v; x.outs.add(r.s[i]); } else { x.pgap += g; x.psales += v; }
+        grp.set(k, x);
+      }
+    }
+    return { gap, sales, cat, outM, grp };
+  }
+  const sgPct = (g, s) => (s > 0 ? g / s : null);
+  // change in gap %: a rise is bad (red), a fall is good (green)
+  const sgDelta = (v) => (isNum(v) ? `<span class="${v > 0.00001 ? "down" : v < -0.00001 ? "up" : ""}">${v > 0 ? "▲ +" : v < 0 ? "▼ −" : ""}${Math.abs(v * 100).toFixed(2)} pp</span>` : "—");
+  const sgSum = (arr, set) => [...set].reduce((t, i) => t + arr[i], 0);
+  function sgChart(d, A) {
+    const host = $("#sgTrend"); if (!host) return;
+    const M = d.months.length, W = Math.round(Math.max(320, Math.min(1200, host.clientWidth || 900))), H = 230, ml = 58, mr = 46, mt = 16, mb = 34;
+    const maxG = Math.max(1, ...A.gap), pcts = [...A.gap].map((g, i) => sgPct(g, A.sales[i])), maxP = Math.max(0.001, ...pcts.filter(isNum));
+    const bw = (W - ml - mr) / M, X = (i) => ml + i * bw, Yg = (v) => mt + (1 - Math.max(0, v) / maxG) * (H - mt - mb), Yp = (v) => mt + (1 - v / maxP) * (H - mt - mb);
+    let svg = "";
+    for (let k = 0; k <= 4; k++) { const y = mt + (k / 4) * (H - mt - mb); svg += `<line x1="${ml}" x2="${W - mr}" y1="${y}" y2="${y}" style="stroke:var(--grid)"/><text x="${ml - 6}" y="${y + 3.5}" text-anchor="end" class="cw-axis">${bdt(maxG * (1 - k / 4))}</text><text x="${W - mr + 6}" y="${y + 3.5}" class="cw-axis">${(maxP * (1 - k / 4) * 100).toFixed(2)}%</text>`; }
+    A.gap.forEach((g, i) => { if (!A.sales[i] && !g) return; const y = Yg(g); svg += `<rect x="${X(i) + bw * 0.15}" y="${y}" width="${bw * 0.7}" height="${Math.max(0, H - mb - y)}" rx="1.5" style="fill:var(--series-1)" opacity="${g < 0 ? 0.35 : 0.85}"><title>${fmonth(d.months[i])}: gap ${bdt(g)} on sales ${bdt(A.sales[i])} (${pct(sgPct(g, A.sales[i]), 2)})</title></rect>`; });
+    const line = pcts.map((p, i) => (isNum(p) ? `${X(i) + bw / 2},${Yp(p)}` : null)).filter(Boolean);
+    if (line.length > 1) svg += `<polyline points="${line.join(" ")}" fill="none" style="stroke:var(--series-3)" stroke-width="2"/>`;
+    d.months.forEach((m, i) => { if (m.endsWith("-01") || i === M - 1) svg += `<text x="${X(i) + bw / 2}" y="${H - mb + 14}" text-anchor="middle" class="cw-axis">${esc(fmonth(m))}</text>`; });
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Stock gap by month">${svg}</svg>
+      <p class="muted" style="margin:4px 0 0;font-size:12px"><span style="display:inline-block;width:10px;height:10px;background:var(--series-1);border-radius:2px"></span> Counting gap (left axis) · <span style="display:inline-block;width:14px;height:2px;background:var(--series-3);vertical-align:middle"></span> Gap % on sales (right axis). Months with no count are blank.</p>`;
+  }
+  function pageSG() {
+    if (!S.sg) { loadSg(); return `<p class="empty">${S.sgErr ? `The stock gap data could not be loaded (${esc(S.sgErr)}). Upload the Stock Gap Dashboard workbook to the Drive folder.` : "Loading stock gap data…"}</p>`; }
+    const d = S.sg, v = sgView(), { pick, test } = sgScope(), per = sgPeriod(d);
+    const lvl = pick?.lvl || "nat", next = { nat: v.by, rl: "zn", zn: "outlet", outlet: null }[lvl];
+    const groupOf = next ? (s) => (next === "outlet" ? s.c : s[next]) : null;
+    const A = sgCompute(d, test, per, groupOf);
+    const g = sgSum(A.gap, per.set), s = sgSum(A.sales, per.set), p = sgPct(g, s);
+    const pg = per.prevSet ? sgSum(A.gap, per.prevSet) : null, ps = per.prevSet ? sgSum(A.sales, per.prevSet) : null, pp = per.prevSet ? sgPct(pg, ps) : null;
+    const counted = new Set([...per.set].flatMap((i) => [...A.outM[i]])).size;
+    const catTot = d.cats.map((c, ci) => ({ c, ci, g: sgSum(A.cat[ci], per.set) })).filter((x) => x.g).sort((a, b) => b.g - a.g);
+    const worst = catTot[0];
+    // scope bar: breadcrumbs back up the path
+    const crumbs = [`<button class="btn" data-sgup="0"${v.path.length ? "" : " disabled"}>National</button>`, ...v.path.map((x, i) => `<span class="muted">›</span><button class="btn" data-sgup="${i + 1}"${i === v.path.length - 1 ? " disabled" : ""}>${esc(x.lvl === "outlet" ? `${x.key} ${x.name || ""}` : x.key)}</button>`)].join("");
+    const perOpts = [...d.months.map((m, i) => [`m:${i}`, fmonth(m)]).reverse(), ...d.years.slice().reverse().map((y) => [`y:${y}`, `Year ${y}`])];
+    const tools = `<select class="sel" data-sgper aria-label="Period">${perOpts.map(([k, t]) => `<option value="${k}" ${k === per.key ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+    // categories like the workbook's Top View: the last 6 counting months and every year, share of the latest year
+    const counts = d.months.map((_, i) => i).filter((i) => A.sales[i] || A.gap[i]), recent = counts.slice(-6), ly = d.years[d.years.length - 1];
+    const yIdx = (y) => new Set(d.months.map((m, i) => (m.startsWith(y) ? i : -1)).filter((i) => i >= 0)), lyTot = sgSum(A.gap, yIdx(ly));
+    const gcell = (x) => `<td class="num"><span class="${x > 0.5 ? "down" : x < -0.5 ? "up" : ""}">${x ? bdt(x) : "—"}</span></td>`;
+    const catRows = d.cats.map((c, ci) => ({ c, recent: recent.map((i) => A.cat[ci][i]), years: d.years.map((y) => sgSum(A.cat[ci], yIdx(y))) })).filter((x) => x.years.some((y) => y)).sort((a, b) => b.years[b.years.length - 1] - a.years[a.years.length - 1]);
+    NCSV.sgcat = () => [`stock_gap_by_category_${pick ? kname(pick.key) : "national"}`, ["Category", ...recent.map((i) => fmonth(d.months[i])), ...d.years, `Share of ${ly}`], catRows.map((x) => [x.c, ...x.recent.map(Math.round), ...x.years.map(Math.round), pcsv(lyTot ? x.years[x.years.length - 1] / lyTot : null)]), d.months[d.months.length - 1]];
+    const catPanel = `<section class="panel"><div class="panel-head"><div><h2>Gap by category</h2><p>Counting gap (shortage positive, in red) for the last 6 counting months and each year, largest ${esc(ly)} gap first; the share is of the ${esc(ly)} total.</p></div><div class="panel-tools">${csvBtn("sgcat")}</div></div>
+      <div class="table-wrap" style="max-height:520px"><table class="compact"><thead><tr><th>Category</th>${recent.map((i) => `<th class="num">${esc(fmonth(d.months[i]))}</th>`).join("")}${d.years.map((y) => `<th class="num">${y}</th>`).join("")}<th class="num">Share ${esc(ly)}</th></tr></thead><tbody>
+      ${catRows.map((x) => `<tr><td class="cell-primary">${esc(x.c)}</td>${x.recent.map(gcell).join("")}${x.years.map(gcell).join("")}<td class="num">${pct(lyTot ? x.years[x.years.length - 1] / lyTot : null, 1)}</td></tr>`).join("")}
+      <tr class="sg-tot"><td class="cell-primary">Total gap</td>${recent.map((i) => gcell(A.gap[i])).join("")}${d.years.map((y) => gcell(sgSum(A.gap, yIdx(y)))).join("")}<td class="num">100%</td></tr>
+      <tr class="sg-tot"><td class="cell-primary">Sales counted</td>${recent.map((i) => `<td class="num">${bdt(A.sales[i])}</td>`).join("")}${d.years.map((y) => `<td class="num">${bdt(sgSum(A.sales, yIdx(y)))}</td>`).join("")}<td></td></tr>
+      <tr class="sg-tot"><td class="cell-primary">Gap % on sales</td>${recent.map((i) => `<td class="num">${pct(sgPct(A.gap[i], A.sales[i]), 2)}</td>`).join("")}${d.years.map((y) => `<td class="num">${pct(sgPct(sgSum(A.gap, yIdx(y)), sgSum(A.sales, yIdx(y))), 2)}</td>`).join("")}<td></td></tr>
+      </tbody></table></div></section>`;
+    // breakdown: the next level down for the period, or the outlet's months
+    let table;
+    if (next) {
+      const rows = [...A.grp.values()].filter((x) => x.sales || x.gap).map((x) => ({ ...x, name: next === "outlet" ? `${x.s.c} ${x.s.n}` : x.key, sub: next === "outlet" ? `${x.s.zn} · ${x.s.rl}${x.s.closed ? " · closed" : ""}` : `${int(x.outs.size)} outlets counted`, p: sgPct(x.gap, x.sales), pp: sgPct(x.pgap, x.psales) }));
+      table = mountTable("sg-b", {
+        title: `By ${SG_LEVELS[next].toLowerCase()}, ${per.label}`, file: `stock_gap_by_${next}_${per.key.replace(":", "_")}`,
+        desc: (n) => `${int(n)} ${next === "outlet" ? "outlets" : "groups"} counted in ${esc(per.label)}, largest gap first${per.prevSet ? `; change is the gap % against ${esc(per.prevLabel)}` : ""}. Click a row to open it.`,
+        tools: lvl === "nat" ? Object.entries(SG_LEVELS).map(([k, t]) => `<button class="btn" aria-pressed="${v.by === k}" data-sgby="${k}">${esc(t)}</button>`).join("") : "",
+        rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "gap", pageSize: 25,
+        rowAttr: (x) => `data-sgpick="${esc(x.key)}" data-sglvl="${next}" data-sgname="${esc(next === "outlet" ? x.s.n : "")}" tabindex="0" role="button"`,
+        cols: [{ k: "name", label: SG_LEVELS[next], val: (x) => x.name, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name },
+          { k: "zn", label: "Zonal", hide: 1, csv: (x) => (next === "outlet" ? x.s.zn : "") }, { k: "rl", label: "Regional leader", hide: 1, csv: (x) => (next === "outlet" ? x.s.rl : next === "zn" ? x.s.rl : "") },
+          ...(next === "outlet" ? [] : [{ k: "n", label: "Outlets counted", num: 1, val: (x) => x.outs.size, fmt: (x) => int(x.outs.size) }]),
+          { k: "sales", label: "Sales counted", num: 1, fmt: (x) => bdt(x.sales), csv: (x) => Math.round(x.sales) },
+          { k: "gap", label: "Counting gap", num: 1, fmt: (x) => `<span class="${x.gap > 0.5 ? "down" : "up"}">${bdt(x.gap)}</span>`, csv: (x) => Math.round(x.gap) },
+          { k: "p", label: "Gap % on sales", num: 1, fmt: (x) => `<strong>${pct(x.p, 2)}</strong>`, csv: (x) => pcsv(x.p) },
+          ...(per.prevSet ? [{ k: "pp", label: `Gap % ${per.prevLabel}`, num: 1, fmt: (x) => pct(x.pp, 2), csv: (x) => pcsv(x.pp) },
+            { k: "chg", label: "Change", num: 1, val: (x) => (isNum(x.p) && isNum(x.pp) ? x.p - x.pp : null), fmt: (x) => (isNum(x.p) && isNum(x.pp) ? sgDelta(x.p - x.pp) : "—"), csv: (x) => (isNum(x.p) && isNum(x.pp) ? ((x.p - x.pp) * 100).toFixed(3) : "") }] : [])],
+      });
+    } else {
+      const rows = counts.map((i) => ({ key: d.months[i], m: i, gap: A.gap[i], sales: A.sales[i], p: sgPct(A.gap[i], A.sales[i]) })).reverse();
+      table = mountTable("sg-b", { title: "Counting months", file: `stock_gap_${kname(pick.key)}_months`, desc: (n) => `${int(n)} counting months for this outlet, latest first.`, rows, key: (x) => x.key, searchText: (x) => fmonth(x.key), defaultSort: "m", pageSize: 25,
+        cols: [{ k: "m", label: "Month", val: (x) => x.m, fmt: (x) => esc(fmonth(x.key)), csv: (x) => fmonth(x.key) }, { k: "sales", label: "Sales counted", num: 1, fmt: (x) => bdt(x.sales), csv: (x) => Math.round(x.sales) },
+          { k: "gap", label: "Counting gap", num: 1, fmt: (x) => `<span class="${x.gap > 0.5 ? "down" : "up"}">${bdt(x.gap)}</span>`, csv: (x) => Math.round(x.gap) }, { k: "p", label: "Gap % on sales", num: 1, fmt: (x) => `<strong>${pct(x.p, 2)}</strong>`, csv: (x) => pcsv(x.p) }] });
+    }
+    AFTER.push(() => {
+      sgChart(d, A);
+      $$("[data-sgup]").forEach((b) => (b.onclick = () => { v.path = v.path.slice(0, +b.dataset.sgup); S.tables["sg-b"] && (S.tables["sg-b"].page = 1); render(); }));
+      $$("[data-sgper]").forEach((b) => (b.onchange = () => { v.per = b.value; render(); }));
+      $$("[data-sgby]").forEach((b) => (b.onclick = () => { v.by = b.dataset.sgby; S.tables["sg-b"] && (S.tables["sg-b"].page = 1); render(); }));
+      $$("[data-sgpick]").forEach((n) => { const go = () => { v.path = [...v.path, { lvl: n.dataset.sglvl, key: n.dataset.sgpick, name: n.dataset.sgname }]; S.tables["sg-b"] && (S.tables["sg-b"].page = 1, S.tables["sg-b"].q = ""); render(); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    });
+    const who = pick ? (pick.lvl === "outlet" ? `${pick.key} ${pick.name || ""}` : pick.key) : "National";
+    const dir = (now, before) => (isNum(now) && isNum(before) ? sgDelta(now - before) + ` vs ${esc(per.prevLabel)}` : "");
+    return `<section class="panel"><div class="panel-head"><div><h2>Stock gap · ${esc(who)}</h2><p>Inventory counting gap (physical minus SAP stock, net of the initial adjustment; a shortage counts as a positive gap) and the gap % on the sales of the outlets counted. From ${esc(d.source?.file || "the Stock Gap Dashboard workbook")}, ${esc(fmonth(d.months[0]))} to ${esc(fmonth(d.months[d.months.length - 1]))}.</p></div>
+        <div class="panel-tools">${tools}</div></div><div class="panel-body"><div class="sg-crumbs">${crumbs}</div></div></section>
+      <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
+        ${kpi({ label: "Counting gap", value: bdt(g), sub: esc(per.label), foot: `<span>${pg != null ? `${esc(per.prevLabel)} ${bdt(pg)}` : ""}</span>`, accent: `var(--${g > 0 ? "bad" : "good"})` })}
+        ${kpi({ label: "Gap % on sales", value: pct(p, 2), sub: dir(p, pp), foot: `<span>${pp != null ? `${esc(per.prevLabel)} ${pct(pp, 2)}` : ""}</span>`, accent: `var(--${isNum(p) && isNum(pp) && p > pp ? "bad" : "good"})` })}
+        ${kpi({ label: "Sales counted", value: bdt(s), sub: "Sales of the outlets counted", foot: `<span>${int(counted)} outlet${counted === 1 ? "" : "s"} counted</span>` })}
+        ${kpi({ label: "Largest category gap", value: worst ? esc(worst.c) : "—", sub: worst ? `${bdt(worst.g)} · ${pct(g ? worst.g / g : null, 1)} of the gap` : "", foot: `<span>${esc(per.label)}</span>`, accent: "var(--warn)" })}
+      </div>
+      <section class="panel"><div class="panel-head"><div><h2>Gap by month</h2><p>Monthly counting gap and gap % on sales for ${esc(who)}, every month in the workbook.</p></div></div><div class="panel-body"><div id="sgTrend"></div></div></section>
+      ${table}
+      ${catPanel}`;
+  }
+
   // ------------------------------------------------------------------ store assessment (data/sa.json)
   // Store Operations Compliance Audit: each audit scores one outlet on 41 questions in 6 categories (290 points).
   // An outlet's score for a month is its latest audit that month; every audit stays visible in the outlet drawer.
@@ -5486,6 +5637,7 @@
         ["Outlet wise profitability (P&L)", F.pf, "By the 10th, for last month", "prev", d.pnl?.months?.[d.pnl.months.length - 1], 10],
         ["Compiled DOS", F.pf, "By the 10th, for last month", "prev", d.dos?.month, 10],
         ["KPI performance (RHO and zonal)", F.pf, "By the 25th, for last month", "prev", d.kpi?.months?.[d.kpi.months.length - 1], 25],
+        ["Stock Gap Dashboard workbook (RawData)", F.pf, "By the 10th, for last month", "prev", S.sg?.months?.[S.sg.months.length - 1], 10],
       ]],
       ["Automatic", [
         ["Receiving (Power BI report)", "No upload", "Read every 10 minutes", "auto", S.rcv?.range?.end],
@@ -5523,7 +5675,7 @@
   }
   function uploadSchedulePanel() {
     // the dates come from every source; load any that are missing and check back
-    const need = [[S.net, S.netErr, loadNet], [S.cw, S.cwErr, loadCw], [S.av, S.avErr, loadAv], [S.sa, S.saErr, loadSa], [S.sku, S.skuErr, loadSku], [S.ccv, S.ccvErr, loadCcv], [S.rcv, S.rcErr, loadRc]];
+    const need = [[S.net, S.netErr, loadNet], [S.cw, S.cwErr, loadCw], [S.av, S.avErr, loadAv], [S.sa, S.saErr, loadSa], [S.sku, S.skuErr, loadSku], [S.ccv, S.ccvErr, loadCcv], [S.rcv, S.rcErr, loadRc], [S.sg, S.sgErr, loadSg]];
     const waiting = need.filter(([x, e]) => !x && !e);
     waiting.forEach(([, , load]) => load());
     if (waiting.length) setTimeout(() => S.page === "dq" && render(), 900);
@@ -5583,6 +5735,16 @@
     return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th>Used for</th><th>Data period</th><th>Updated in Drive</th></tr></thead><tbody>
       ${(d.source?.files || []).map((f) => `<tr><td class="cell-primary">${esc(f.name)}</td><td>${esc(use[f.role] || f.role)}</td><td>${esc(per[f.role] || "—")}</td><td>${esc(f.modified || "—")}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">No files were recognised in the folder.</td></tr>'}</tbody></table></div>
       <div class="panel-body"><p class="muted" style="margin:0 0 8px">${cc ? `Credit card: ${int(cc.rows.length)} outlets` : ""}${cc && v ? " · " : ""}${v ? `Visits: ${int(v.people)} people punched at ${int(v.rows.filter((r) => r[3] > 0).length)} outlets` : ""} · built ${esc(dqWhen(d.generatedAt))}</p>${checks || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
+  }
+  function sgQualityPanel() {
+    const head = `<div class="panel-head"><div><h2>Stock gap file</h2><p>The Stock Gap Dashboard workbook (cumulative, one file) anywhere in the main Drive folder; its name must mention "stock gap" and its RawData sheet must have Site, Cat Name, Net (PHY-SAP) Value, Sales and Month Of Inventory.</p></div></div>`;
+    if (!S.sg) { loadSg(); return `<section class="panel">${head}<div class="panel-body">${dqWait(S.sgErr, "stockgap.json")}</div></section>`; }
+    const d = S.sg, src = d.source || {}, open = d.site.filter((x) => !x.closed);
+    // a monthly file: whether it is due is shown in the upload schedule
+    const checks = dqNotInMaster(open.map((x) => x.c), "Stock gap", "shown as New/Closed outlets (Not Distributed)");
+    return `<section class="panel">${head}<div class="table-wrap"><table><thead><tr><th>File</th><th>Sheet</th><th class="num">Rows</th><th>Months</th><th class="num">Outlets</th><th>Built</th></tr></thead><tbody>
+      <tr><td class="cell-primary">${esc(src.file || "—")}</td><td>${esc(src.sheet || "")}</td><td class="num">${int(src.rows || d.N)}</td><td>${esc(fmonth(d.months[0]))} – ${esc(fmonth(d.months[d.months.length - 1]))}</td><td class="num">${int(d.site.length)} <span class="muted">(${int(d.site.length - open.length)} closed)</span></td><td>${esc(dqWhen(d.generatedAt))}</td></tr></tbody></table></div>
+      <div class="panel-body">${checks || '<p class="muted" style="margin:0">All checks passed.</p>'}</div></section>`;
   }
   function wireSa(root) {
     $$("[data-sasel]", root).forEach((s) => (s.onchange = () => { S.sav[s.dataset.sasel] = s.value; changed(); }));
@@ -5941,7 +6103,7 @@
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change

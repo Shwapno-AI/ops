@@ -65,6 +65,9 @@ jobs:
       - name: Download credit card and visit files and build ccv.json
         continue-on-error: true
         run: python scripts/ccv/refresh.py
+      - name: Build stockgap.json from the Stock Gap Dashboard workbook
+        continue-on-error: true
+        run: python scripts/stockgap/refresh.py
       - name: Drop cached files this run did not use
         if: always()
         run: find /tmp/drive-cache -type f ! -newer /tmp/run-start -delete; du -sh /tmp/drive-cache || true
@@ -78,10 +81,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json; then echo "No data changes."; exit 0; fi
+          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json; then echo "No data changes."; exit 0; fi
           git config user.name "ops-dashboard-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json
+          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
           # Someone may have pushed code while this run was busy: replay the data commit on top and retry.
           pushed=0

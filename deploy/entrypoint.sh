@@ -26,6 +26,7 @@ refresh() {
   python3 /app/scripts/sa/refresh.py || echo "Store assessment refresh failed; keeping the last good data."
   python3 /app/scripts/sku/refresh.py || echo "Item performance refresh failed; keeping the last good data."
   python3 /app/scripts/ccv/refresh.py || echo "Credit card and visit refresh failed; keeping the last good data."
+  python3 /app/scripts/stockgap/refresh.py || echo "Stock gap refresh failed; keeping the last good data."
   find "$DRIVE_CACHE" -type f ! -newer /tmp/run-start -delete 2>/dev/null || true
   echo "Refresh finished at $(date '+%d %b %H:%M')."
 }
