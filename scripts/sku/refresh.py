@@ -48,6 +48,7 @@ MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
 OUT_RL = OUT.with_name("sku-rl.json")
 CW = Path(os.environ.get("CW_OUT") or ROOT / "data" / "cw.json")  # SKU x regional leader, loaded only when the SKUs page is set to one leader
 TOP = 15  # gaining / declining SKUs kept per outlet
+MISS = "New/Closed outlets (Not Distributed)"  # outlets not in the Zone Distribution
 OUTLET_DIR = OUT.parent / "sku-outlet"  # one file per outlet with its full SKU list (built on the server, not committed)
 OUTLET_FILES = os.environ.get("SKU_OUTLET_FILES", "1") != "0"  # the GitHub workflow turns them off (they are never committed)
 
@@ -264,7 +265,9 @@ def main():
                 v = [num(g(k)) for k in VALS]
                 n_file += 1
                 m = master.get(code, {})
-                rl = m.get("rl") or str(g("rl") or "").strip() or "New/Closed outlets (Not Distributed)"
+                # an outlet missing from the Zone Distribution counts as New/Closed (Not Distributed); the leader named
+                # in the file is used only when no outlet register could be read at all
+                rl = (m.get("rl") or MISS) if master else (str(g("rl") or "").strip() or MISS)
                 o = outlets.get(code)
                 if o is None:
                     oname = str(g("oname") or code)
@@ -320,7 +323,11 @@ def main():
     outs = []
     for code, o in outlets.items():
         m = master.get(code, {})
-        outs.append({"c": code, "n": o["n"], "ss": code in same, "t": rnd(o["t"]), "rl": m.get("rl") or o["rlf"] or None, "zn": m.get("zn") or o["znf"] or None,
+        if master and code not in master:
+            rl_, zn_ = MISS, MISS  # not in the Zone Distribution
+        else:
+            rl_, zn_ = m.get("rl") or o["rlf"] or None, m.get("zn") or o["znf"] or None
+        outs.append({"c": code, "n": o["n"], "ss": code in same, "t": rnd(o["t"]), "rl": rl_, "zn": zn_,
                      **{k: m.get(k) for k in ("div", "dis", "fmt", "own", "pnp", "loc")}})
     total = sum(o["t"][0] for o in outs)
     period = data_period(total, [f["modifiedIso"] for f in files_meta])
