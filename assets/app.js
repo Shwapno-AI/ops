@@ -4909,6 +4909,7 @@
     return { gap, sales, cat, outM, grp };
   }
   const sgPct = (g, s) => (s > 0 ? g / s : null);
+  const sgSlug = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
   // change in gap %: a rise is bad (red), a fall is good (green)
   const sgDelta = (v) => (isNum(v) ? `<span class="${v > 0.00001 ? "down" : v < -0.00001 ? "up" : ""}">${v > 0 ? "▲ +" : v < 0 ? "▼ −" : ""}${Math.abs(v * 100).toFixed(2)} pp</span>` : "—");
   const sgSum = (arr, set) => [...set].reduce((t, i) => t + arr[i], 0);
@@ -4925,6 +4926,36 @@
     d.months.forEach((m, i) => { if (m.endsWith("-01") || i === M - 1) svg += `<text x="${X(i) + bw / 2}" y="${H - mb + 14}" text-anchor="middle" class="cw-axis">${esc(fmonth(m))}</text>`; });
     host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Stock gap by month">${svg}</svg>
       <p class="muted" style="margin:4px 0 0;font-size:12px"><span style="display:inline-block;width:10px;height:10px;background:var(--series-1);border-radius:2px"></span> Counting gap (left axis) · <span style="display:inline-block;width:14px;height:2px;background:var(--series-3);vertical-align:middle"></span> Gap % on sales (right axis). Months with no count are blank.</p>`;
+  }
+  // One category's gap for the page's scope and period, by regional leader, zonal or outlet (the workbook has no Cat 3)
+  function openSgCategory(ci, lv) {
+    const d = S.sg, v = sgView(), { pick, test } = sgScope(), per = sgPeriod(d), r = d.r;
+    lv = lv || v.catBy || (pick?.lvl === "zn" ? "outlet" : pick?.lvl === "rl" ? "zn" : "rl");
+    v.catBy = lv;
+    const g = new Map();
+    let tg = 0, ts = 0;
+    for (let i = 0; i < d.N; i++) {
+      if (r.c[i] !== ci || !per.set.has(r.m[i])) continue;
+      const s = d.site[r.s[i]]; if (!test(s)) continue;
+      const k = lv === "outlet" ? s.c : s[lv], x = g.get(k) || { k, s, gap: 0, sales: 0, outs: new Set() };
+      x.gap -= r.n[i]; x.sales += r.v[i]; x.outs.add(s.c); g.set(k, x);
+      tg -= r.n[i]; ts += r.v[i];
+    }
+    const rows = [...g.values()].filter((x) => x.gap || x.sales).sort((a, b) => b.gap - a.gap);
+    const name = (x) => (lv === "outlet" ? `${x.s.c} ${x.s.n}` : x.k), who = pick ? (pick.lvl === "outlet" ? `${pick.key} ${pick.name || ""}` : pick.key) : "National";
+    NCSV.sgcatd = () => [`stock_gap_${sgSlug(d.cats[ci])}_by_${lv}_${per.key.replace(":", "_")}`, [SG_LEVELS[lv], ...(lv === "outlet" ? ["Outlet name", "Zonal", "Regional leader"] : lv === "zn" ? ["Regional leader"] : []), ...(lv === "outlet" ? [] : ["Outlets counted"]), "Category sales counted", "Category counting gap", "Gap % on category sales", "Share of the category gap"],
+      rows.map((x) => [lv === "outlet" ? x.s.c : x.k, ...(lv === "outlet" ? [x.s.n, x.s.zn, x.s.rl] : lv === "zn" ? [x.s.rl] : []), ...(lv === "outlet" ? [] : [x.outs.size]), Math.round(x.sales), Math.round(x.gap), pcsv(sgPct(x.gap, x.sales)), pcsv(tg ? x.gap / tg : null)]), d.months[d.months.length - 1]];
+    S.lastFocus = document.activeElement;
+    $("#drawerTitle").textContent = `${d.cats[ci]} · ${per.label}`;
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${esc(who)}. Where this category's counting gap comes from; shortage positive (red). The workbook has no Cat 3 level, so the drill-down is by leader, zonal and outlet.</p>
+      <div class="stat-grid three"><div class="stat"><small>Category gap</small><strong>${bdt(tg)}</strong></div><div class="stat"><small>Gap % on category sales</small><strong>${pct(sgPct(tg, ts), 2)}</strong></div><div class="stat"><small>Category sales counted</small><strong>${bdt(ts)}</strong></div></div>
+      <div class="lr-dtools"><span style="display:flex;gap:6px;flex-wrap:wrap">${Object.entries(SG_LEVELS).map(([k, t]) => `<button class="btn" aria-pressed="${lv === k}" data-sgcatby="${k}">${esc(t)}</button>`).join("")}</span>${csvBtn("sgcatd")}</div>
+      <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>${esc(SG_LEVELS[lv])}</th><th class="num">Sales</th><th class="num">Gap</th><th class="num">Gap %</th><th class="num">Share</th></tr></thead><tbody>
+      ${rows.slice(0, 200).map((x) => `<tr><td><span class="cell-primary">${esc(name(x))}</span><span class="cell-secondary">${esc(lv === "outlet" ? `${x.s.zn} · ${x.s.rl}` : `${int(x.outs.size)} outlets`)}</span></td><td class="num">${bdt(x.sales)}</td><td class="num"><span class="${x.gap > 0.5 ? "down" : "up"}">${bdt(x.gap)}</span></td><td class="num">${pct(sgPct(x.gap, x.sales), 2)}</td><td class="num">${pct(tg ? x.gap / tg : null, 1)}</td></tr>`).join("") || '<tr><td colspan="5" class="empty">No counts for this category in the period.</td></tr>'}
+      </tbody></table></div>${rows.length > 200 ? `<p class="muted" style="margin:0;font-size:12px">Showing 200 of ${int(rows.length)}; the CSV has all of them.</p>` : ""}`;
+    $$("[data-sgcatby]", $("#drawerBody")).forEach((b) => (b.onclick = () => openSgCategory(ci, b.dataset.sgcatby)));
+    wireDyn($("#drawerBody"));
+    showDrawer();
   }
   function pageSG() {
     if (!S.sg) { loadSg(); return `<p class="empty">${S.sgErr ? `The stock gap data could not be loaded (${esc(S.sgErr)}). Upload the Stock Gap Dashboard workbook to the Drive folder.` : "Loading stock gap data…"}</p>`; }
@@ -4946,10 +4977,10 @@
     const yIdx = (y) => new Set(d.months.map((m, i) => (m.startsWith(y) ? i : -1)).filter((i) => i >= 0)), lyTot = sgSum(A.gap, yIdx(ly));
     const gcell = (x) => `<td class="num"><span class="${x > 0.5 ? "down" : x < -0.5 ? "up" : ""}">${x ? bdt(x) : "—"}</span></td>`;
     const catRows = d.cats.map((c, ci) => ({ c, recent: recent.map((i) => A.cat[ci][i]), years: d.years.map((y) => sgSum(A.cat[ci], yIdx(y))) })).filter((x) => x.years.some((y) => y)).sort((a, b) => b.years[b.years.length - 1] - a.years[a.years.length - 1]);
-    NCSV.sgcat = () => [`stock_gap_by_category_${pick ? kname(pick.key) : "national"}`, ["Category", ...recent.map((i) => fmonth(d.months[i])), ...d.years, `Share of ${ly}`], catRows.map((x) => [x.c, ...x.recent.map(Math.round), ...x.years.map(Math.round), pcsv(lyTot ? x.years[x.years.length - 1] / lyTot : null)]), d.months[d.months.length - 1]];
-    const catPanel = `<section class="panel"><div class="panel-head"><div><h2>Gap by category</h2><p>Counting gap (shortage positive, in red) for the last 6 counting months and each year, largest ${esc(ly)} gap first; the share is of the ${esc(ly)} total.</p></div><div class="panel-tools">${csvBtn("sgcat")}</div></div>
+    NCSV.sgcat = () => [`stock_gap_by_category_${pick ? sgSlug(pick.key) : "national"}`, ["Category", ...recent.map((i) => fmonth(d.months[i])), ...d.years, `Share of ${ly}`], catRows.map((x) => [x.c, ...x.recent.map(Math.round), ...x.years.map(Math.round), pcsv(lyTot ? x.years[x.years.length - 1] / lyTot : null)]), d.months[d.months.length - 1]];
+    const catPanel = `<section class="panel"><div class="panel-head"><div><h2>Gap by category</h2><p>Counting gap (shortage positive, in red) for the last 6 counting months and each year, largest ${esc(ly)} gap first; the share is of the ${esc(ly)} total. Click a category to see which leaders, zonals and outlets its ${esc(per.label)} gap comes from.</p></div><div class="panel-tools">${csvBtn("sgcat")}</div></div>
       <div class="table-wrap" style="max-height:520px"><table class="compact"><thead><tr><th>Category</th>${recent.map((i) => `<th class="num">${esc(fmonth(d.months[i]))}</th>`).join("")}${d.years.map((y) => `<th class="num">${y}</th>`).join("")}<th class="num">Share ${esc(ly)}</th></tr></thead><tbody>
-      ${catRows.map((x) => `<tr><td class="cell-primary">${esc(x.c)}</td>${x.recent.map(gcell).join("")}${x.years.map(gcell).join("")}<td class="num">${pct(lyTot ? x.years[x.years.length - 1] / lyTot : null, 1)}</td></tr>`).join("")}
+      ${catRows.map((x) => `<tr class="k-click" data-sgcat="${d.cats.indexOf(x.c)}" tabindex="0" role="button" title="Where the ${esc(x.c)} gap comes from"><td class="cell-primary">${esc(x.c)}</td>${x.recent.map(gcell).join("")}${x.years.map(gcell).join("")}<td class="num">${pct(lyTot ? x.years[x.years.length - 1] / lyTot : null, 1)}</td></tr>`).join("")}
       <tr class="sg-tot"><td class="cell-primary">Total gap</td>${recent.map((i) => gcell(A.gap[i])).join("")}${d.years.map((y) => gcell(sgSum(A.gap, yIdx(y)))).join("")}<td class="num">100%</td></tr>
       <tr class="sg-tot"><td class="cell-primary">Sales counted</td>${recent.map((i) => `<td class="num">${bdt(A.sales[i])}</td>`).join("")}${d.years.map((y) => `<td class="num">${bdt(sgSum(A.sales, yIdx(y)))}</td>`).join("")}<td></td></tr>
       <tr class="sg-tot"><td class="cell-primary">Gap % on sales</td>${recent.map((i) => `<td class="num">${pct(sgPct(A.gap[i], A.sales[i]), 2)}</td>`).join("")}${d.years.map((y) => `<td class="num">${pct(sgPct(sgSum(A.gap, yIdx(y)), sgSum(A.sales, yIdx(y))), 2)}</td>`).join("")}<td></td></tr>
@@ -4975,7 +5006,7 @@
       });
     } else {
       const rows = counts.map((i) => ({ key: d.months[i], m: i, gap: A.gap[i], sales: A.sales[i], p: sgPct(A.gap[i], A.sales[i]) })).reverse();
-      table = mountTable("sg-b", { title: "Counting months", file: `stock_gap_${kname(pick.key)}_months`, desc: (n) => `${int(n)} counting months for this outlet, latest first.`, rows, key: (x) => x.key, searchText: (x) => fmonth(x.key), defaultSort: "m", pageSize: 25,
+      table = mountTable("sg-b", { title: "Counting months", file: `stock_gap_${sgSlug(pick.key)}_months`, desc: (n) => `${int(n)} counting months for this outlet, latest first.`, rows, key: (x) => x.key, searchText: (x) => fmonth(x.key), defaultSort: "m", pageSize: 25,
         cols: [{ k: "m", label: "Month", val: (x) => x.m, fmt: (x) => esc(fmonth(x.key)), csv: (x) => fmonth(x.key) }, { k: "sales", label: "Sales counted", num: 1, fmt: (x) => bdt(x.sales), csv: (x) => Math.round(x.sales) },
           { k: "gap", label: "Counting gap", num: 1, fmt: (x) => `<span class="${x.gap > 0.5 ? "down" : "up"}">${bdt(x.gap)}</span>`, csv: (x) => Math.round(x.gap) }, { k: "p", label: "Gap % on sales", num: 1, fmt: (x) => `<strong>${pct(x.p, 2)}</strong>`, csv: (x) => pcsv(x.p) }] });
     }
@@ -4984,6 +5015,7 @@
       $$("[data-sgup]").forEach((b) => (b.onclick = () => { v.path = v.path.slice(0, +b.dataset.sgup); S.tables["sg-b"] && (S.tables["sg-b"].page = 1); render(); }));
       $$("[data-sgper]").forEach((b) => (b.onchange = () => { v.per = b.value; render(); }));
       $$("[data-sgby]").forEach((b) => (b.onclick = () => { v.by = b.dataset.sgby; S.tables["sg-b"] && (S.tables["sg-b"].page = 1); render(); }));
+      $$("[data-sgcat]").forEach((n) => { const go = () => openSgCategory(+n.dataset.sgcat); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
       $$("[data-sgpick]").forEach((n) => { const go = () => { v.path = [...v.path, { lvl: n.dataset.sglvl, key: n.dataset.sgpick, name: n.dataset.sgname }]; S.tables["sg-b"] && (S.tables["sg-b"].page = 1, S.tables["sg-b"].q = ""); render(); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     });
     const who = pick ? (pick.lvl === "outlet" ? `${pick.key} ${pick.name || ""}` : pick.key) : "National";
