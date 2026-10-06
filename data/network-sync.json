@@ -2,14 +2,14 @@
   "folderId": "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "folderUrl": "https://drive.google.com/drive/folders/1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "method": "public-link",
-  "syncedAt": "2026-10-01T05:54:52Z",
+  "syncedAt": "2026-10-06T09:57:20Z",
   "files": {
     "outletMaster": {
-      "driveName": "Performance final & Zone distribution file/Zone Distribution Sep 2026 w location type.xlsx",
-      "driveId": "1_glVK5nD5Rm2e6onBJNOYgdhJ9MZ85sO",
-      "driveModified": "Sep 28",
-      "bytes": 183454,
-      "sha256": "a025ac7a0abe281a6cfcf498e2c9c67c9ee3668ee02d1ac86323c2b5f23f5aff"
+      "driveName": "Performance final & Zone distribution file/Zone Distribution Oct 2026 w location type.xlsx",
+      "driveId": "1OuOPGvEfGVjBtv2j1jkmmx63jKUTKIFj",
+      "driveModified": "1:51 am",
+      "bytes": 187729,
+      "sha256": "85b15c2c234d4c0266d0686abf0ed2042b6b4a60e4980c2f2012e9bbfd6a3626"
     },
     "dayWiseTarget": {
       "driveName": "outlet-network-dashboard-main/day-wise-target.xlsx",
@@ -19,18 +19,18 @@
       "sha256": "7b9bfa8c2ab4c3096b73de6e7700ba16c3a9ec3f44450c9eaf17aa355c1fadd5"
     },
     "dayWiseSales": {
-      "driveName": "Daily/OPS  _ T (37).xlsx",
-      "driveId": "1Hmt8r_u9nIicNuB42I87g_MCO-Dbxkwo",
-      "driveModified": "10:14 pm",
-      "bytes": 4015805,
-      "sha256": "bb9f7b182375cf66e7c5031da973a46d8c883471669dffbd5092ba001fe63a83"
+      "driveName": "Daily/Article W Sales.xlsx",
+      "driveId": "17-p7xb_deJfOxaJ_6Ke7XLiGQMc-QbKq",
+      "driveModified": "2:05 am",
+      "bytes": 711445,
+      "sha256": "5714d9314c4b8342a2241f39758a430b8070368c6cc0bf7ee1b9faf382172ef8"
     },
     "lastMonth": {
-      "driveName": "Month-end/260831 Business Performance Report V 0- Till 31 Aug 2026.xlsx",
-      "driveId": "1sg7POSt98TaBPEQcFqDSdfwan6y3hT7f",
-      "driveModified": "Sep 23",
-      "bytes": 9968041,
-      "sha256": "e2712b071456e77161195d17b493ef7ed0cc8928f25eb1c1a873dc9e548cc137"
+      "driveName": "Daily/261005 Business Performance Report V 0- Till 5 Oct 2026.xlsx",
+      "driveId": "1e1hLa7RZ82iNIPIL6mkgg_7lUDDi2mLa",
+      "driveModified": "2:02 am",
+      "bytes": 10148593,
+      "sha256": "68ea595c8bd42650ce62f25a78d53cfbf175cc851f2a9286e28c36d5da316c59"
     }
   }
 }
