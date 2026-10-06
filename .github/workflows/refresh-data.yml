@@ -86,10 +86,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
-          # Someone may have pushed code while this run was busy: replay the data commit on top and retry.
+          # Someone may have pushed code or another data refresh while this run was busy: replay the data commit
+          # on top and retry. The data files are whole snapshots and this run's are the newest, so a conflict on
+          # them keeps this run's copy (-X theirs = the commit being replayed). A failed rebase is cleared first.
           pushed=0
           for attempt in 1 2 3; do
-            if git pull --rebase --autostash origin main && git push; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
+            if git pull --rebase -X theirs --autostash origin main && git push; then pushed=1; break; fi
             echo "Push attempt $attempt failed; retrying."; sleep $((attempt * 10))
           done
           if [ "$pushed" != 1 ]; then echo "::error::Could not push the refreshed data."; exit 1; fi
