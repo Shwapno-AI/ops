@@ -81,10 +81,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/master.json; then echo "No data changes."; exit 0; fi
+          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json; then echo "No data changes."; exit 0; fi
           git config user.name "ops-dashboard-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/master.json
+          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
           # Someone may have pushed code or another data refresh while this run was busy: replay the data commit
           # on top and retry. The data files are whole snapshots and this run's are the newest, so a conflict on

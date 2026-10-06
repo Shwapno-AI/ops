@@ -346,24 +346,6 @@ def main():
         dos, dos_rows = read_dos(pick["dos"]["path"], ckp)
         log(f"  DOS: {dos_rows} Core/Promo/KVI rows for {len(dos)} outlets")
 
-    # Safeguard: a zone file that maps fewer than half the outlets (an old file, or one laid out differently) is
-    # replaced by the outlet register the main build wrote to data.json, which keeps the last good register when
-    # Drive has none, so the pages never lose their leaders and zonals.
-    seen = stock_outlets | set(dos)
-    mapped = sum(1 for o in seen if o in zones)
-    if seen and mapped < 0.5 * len(seen):
-        try:
-            md = json.loads(Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json").read_text(encoding="utf-8"))
-            mo = (md.get("master") or {}).get("outlets") or []
-        except (OSError, ValueError):
-            mo = []
-        if mo:
-            log(f"::warning::{pick['zones']['name']} maps only {mapped} of {len(seen)} outlets; using the outlet register from data.json ({md['master'].get('file', '')}).")
-            zones = {o["c"]: {**{k: o.get(k) or "" for k in ("n", "rh", "zh", "div", "dis", "fmt", "own", "pnp", "loc", "area")}, "rl": o.get("rl") or MISS, "zn": o.get("zn") or MISS} for o in mo if o.get("c")}
-            pick["zones"] = {**pick["zones"], "name": f"{md['master'].get('file', 'data.json')} (outlet register; {pick['zones']['name']} could not be used)"}
-        else:
-            log(f"::warning::{pick['zones']['name']} maps only {mapped} of {len(seen)} outlets and no outlet register is available.")
-
     # Outlets: every outlet with stock or sales. An outlet with zero Core+KVI+Promo stock,
     # or zero Core+KVI+Promo DOS, is excluded everywhere.
     candidates = sorted(stock_outlets | set(dos))
