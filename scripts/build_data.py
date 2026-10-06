@@ -20,6 +20,8 @@ from openpyxl import load_workbook
 MOTHER = (os.environ.get("DATA_FOLDER_ID") or "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l").strip()
 TILL_FOLDER = re.compile(r"daily|till", re.I)  # a sub-folder name that marks till-date reports (preferred, not required)
 OUT = os.environ.get("DATA_OUT") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "data.json")
+# the last good outlet register, used when Drive has none (see build())
+MASTER_KEEP = os.environ.get("MASTER_KEEP") or os.path.join(os.path.dirname(OUT), "master.json")
 CODE_RE = re.compile(r"^[A-Z]{1,2}\d{2,4}$")
 MONTH_RE = re.compile(r"^([A-Za-z]{3})'(\d{2})$")
 MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_abbr) if m}
@@ -717,6 +719,28 @@ def build(root):
         issue("warn", "monthend", "No closed month-end file found.")
 
     master = max(found["master"], key=lambda m: (m["latest_launch"] or dt.date.min, len(m["outlets"])), default=None)
+    # Safeguard: the last good outlet register is kept in data/master.json. When Drive has no readable register, or
+    # only one older than the kept copy (by its latest launch date), the kept copy is used and a warning is shown,
+    # so a missing or wrong file never leaves the dashboard without leaders and zonals.
+    kept = None
+    try:
+        with open(MASTER_KEEP, encoding="utf-8") as fh:
+            kept = json.load(fh)
+        kept["latest_launch"] = as_date(dt.date.fromisoformat(kept["latest_launch"])) if kept.get("latest_launch") else None
+    except (OSError, ValueError, KeyError, TypeError):
+        kept = None
+    if kept and kept.get("outlets") and (master is None or (kept["latest_launch"] and (master["latest_launch"] or dt.date.min) < kept["latest_launch"])):
+        why = "No readable outlet register (zone distribution) in Drive" if master is None else f"{master['file']} is older than the last good register (latest launch {master['latest_launch']} vs {kept['latest_launch']})"
+        issue("warn", "performance", f"{why}; kept the last good one, {kept['file']} ({len(kept['outlets'])} outlets). Upload the current Zone Distribution file to fix this.")
+        master = {"file": kept["file"], "outlets": kept["outlets"], "latest_launch": kept["latest_launch"], "folder": "kept copy"}
+    elif master is not None:
+        try:
+            os.makedirs(os.path.dirname(MASTER_KEEP), exist_ok=True)
+            with open(MASTER_KEEP + ".tmp", "w", encoding="utf-8") as fh:
+                json.dump({"file": master["file"], "saved": dt.date.today().isoformat(), "latest_launch": master["latest_launch"], "outlets": master["outlets"]}, fh, ensure_ascii=False, separators=(",", ":"), default=str)
+            os.replace(MASTER_KEEP + ".tmp", MASTER_KEEP)
+        except OSError as e:
+            print(f"Could not save the last good outlet register ({e}).")
     if master is None:
         issue("warn", "performance", "No outlet master (zone distribution) found; filters will use the names in the sales files.")
 
