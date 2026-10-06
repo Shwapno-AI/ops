@@ -4598,10 +4598,10 @@
             <div class="ar-gpb"><i class="lo"><b>${int(sa.gpBands.lo)}</b>Below 15%</i><i class="mid"><b>${int(sa.gpBands.mid)}</b>15–18%</i><i class="hi"><b>${int(sa.gpBands.hi)}</b>Above 18%</i></div></div></div>
         <div class="ar-grid4 ar-stack">
           <div>
-          ${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}
+          <div class="ar-box ar-box-red">${arMini("Lowest achievement", arT(["Outlet", "Achieved", "Target", "Ach."], sa.worstAch.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.a), bdt(o.t), `<span class="ar-neg">${pct(v, 1)}</span>`])))}</div>
           ${arMini("Gross profit margin", arT(["Outlet", "GP%"], [{ label: `Lowest ${gpN}` }, ...sa.gpw.map(gpRow), ...(sa.gpb.length ? [{ label: `Highest ${gpN}` }] : []), ...sa.gpb.map(gpRow)]))}
           </div><div>
-          ${arMini("Same-store growth vs last year: worst 3 and best 3", arT(["Outlet", "Sales", "Last year", "Growth"], [{ label: "Worst 3" }, ...sa.deg.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)]), ...(sa.gro.length ? [{ label: "Best 3" }] : []), ...sa.gro.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)])]))}
+          <div class="ar-box ar-box-amber">${arMini("Same-store growth vs last year: worst 3 and best 3", arT(["Outlet", "Sales", "Last year", "Growth"], [{ label: "Worst 3" }, ...sa.deg.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)]), ...(sa.gro.length ? [{ label: "Best 3" }] : []), ...sa.gro.map(({ o, v }) => [arO(o.c, o.nm, sub(o)), bdt(o.s), bdt(o.sy), arSign(v)])]))}</div>
           ${arMini(`Weakest categories${S.sku ? ` (Item performance, ${ipPeriod(S.sku, true).replace(/^Data /, "")})` : ""}`, cats ? arT(["Category", "Sales", "Last year", "Change"], cats.map((x) => [`<span class="ar-o">${esc(x.c1)} <i>· ${esc(x.div)}</i></span>`, bdt(x.ns), bdt(x.nl), chg(x.d)])) : arNA("Item performance"))}
           </div>
         </div>`;

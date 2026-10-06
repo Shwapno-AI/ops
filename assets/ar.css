@@ -106,3 +106,8 @@
 /* tile labels set in black and bold */
 .ar-tile.lbl>span{color:#14232e;font-weight:750}
 .ar-g em{font-style:normal;font-weight:600;opacity:.85}
+/* framed lists in the Sales card: border and a coloured top line, like the cards */
+.ar-box{border:1px solid #d6e0e6;border-top:3px solid #7a8d99;border-radius:7px;padding:2px 6px 2px}
+.ar-box-red{border-top-color:#c8102e}.ar-box-amber{border-top-color:#b7791f}
+.ar-page{gap:3px}
+.ar-t tr.ar-grp td{padding:0 3px;line-height:1.3}
