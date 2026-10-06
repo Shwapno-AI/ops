@@ -19,8 +19,11 @@ Environment:
   SKU_OUT        output file (default: data/sku.json)
   DATA_OUT       data.json with the outlet master and the same-store list (default: data/data.json)
   DRIVE_CACHE    shared download cache (see scripts/network/fetch_drive_data.py)
-Usage: python scripts/sku/refresh.py [--local DIR]   # DIR of .xlsx files instead of Drive
+Usage: python scripts/sku/refresh.py [--local DIR]   # DIR of .xlsx / .csv files instead of Drive
+
+The workbooks may also come as CSV exports with the same columns (one file per regional leader).
 """
+import csv
 import datetime as dt
 import hashlib
 import heapq
@@ -159,13 +162,26 @@ def data_period(total, modified_dates):
     return None
 
 
+def is_csv(name):
+    return str(name).lower().endswith(".csv")
+
+
+def table_rows(path):
+    """Rows of the first sheet of an .xlsx workbook, or of a .csv export with the same columns."""
+    if is_csv(path):
+        with open(path, encoding="utf-8-sig", errors="replace", newline="") as fh:
+            yield from csv.reader(fh)
+    else:
+        yield from xlsx_stream.rows(path)
+
+
 def sources(workdir):
-    """Download (or list) the workbooks; returns [(path, name, modified, drive_id)]."""
+    """Download (or list) the workbooks and CSV exports; returns [(path, name, modified, drive_id)]."""
     import fetch_drive_data as drive
-    items = [i for i in drive.walk(FOLDER) if drive.is_spreadsheet(i)]
+    items = [i for i in drive.walk(FOLDER) if drive.is_spreadsheet(i) or is_csv(i["name"])]
     out = []
     for n, item in enumerate(items):
-        dest = Path(workdir) / f"{n}.xlsx"
+        dest = Path(workdir) / f"{n}{'.csv' if is_csv(item['name']) else '.xlsx'}"
         try:
             dest.write_bytes(drive.fetch_bytes(item))
         except Exception as err:  # noqa: BLE001
@@ -186,7 +202,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="sku-") as work:
         if local:
-            files = [(p, p.name, str(p.stat().st_mtime), p.name) for p in sorted(Path(local).glob("*.xlsx"))]
+            files = [(p, p.name, str(p.stat().st_mtime), p.name) for p in sorted(Path(local).iterdir()) if p.suffix.lower() in (".xlsx", ".csv")]
         else:
             log(f"Listing Drive folder {FOLDER}…")
             files = sources(work)
@@ -194,7 +210,7 @@ def main():
         picked = []
         for path, name, mod, fid in files:
             try:
-                first = next(xlsx_stream.rows(path), None)
+                first = next(table_rows(path), None)
             except Exception:  # noqa: BLE001 - not a readable workbook
                 first = None
             hm = header_map(first or [])
@@ -234,7 +250,7 @@ def main():
         ow = OutletWriter(OUT.parent / "sku-outlet.tmp")  # [sku, sales this, sales last, gp this, gp last, qty this, qty last]
         for path, name, mod, fid, hm in picked:
             n_file = 0
-            it = xlsx_stream.rows(path)
+            it = table_rows(path)
             next(it, None)
             for r in it:
                 g = lambda k: r[hm[k]] if k in hm and hm[k] < len(r) else None  # noqa: E731
