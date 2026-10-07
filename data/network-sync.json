@@ -2,14 +2,14 @@
   "folderId": "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "folderUrl": "https://drive.google.com/drive/folders/1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "method": "public-link",
-  "syncedAt": "2026-10-07T06:55:06Z",
+  "syncedAt": "2026-10-07T10:19:14Z",
   "files": {
     "outletMaster": {
       "driveName": "Performance final & Zone distribution file/Zone Distribution Oct 2026 w location type.xlsx",
-      "driveId": "1nzfp0NhYzJA9p5dDEzPkXrs3mi-GqmjA",
-      "driveModified": "3:33 am",
-      "bytes": 187696,
-      "sha256": "5f3c9f2008e825894ec101437322af026d825e8f41b1c639276d293e583de3b5"
+      "driveId": "1tepJqt-iYWbNUwC-0rNNxsXnq7n7RnQk",
+      "driveModified": "1:42 am",
+      "bytes": 187678,
+      "sha256": "7466dcb6ff730060483167645d2a0ab26460f7074f0d5f9b2d8836c3cad4bb6d"
     },
     "dayWiseTarget": {
       "driveName": "outlet-network-dashboard-main/day-wise target.xlsx",
@@ -21,7 +21,7 @@
     "dayWiseSales": {
       "driveName": "Daily/Article W Sales.xlsx",
       "driveId": "17-p7xb_deJfOxaJ_6Ke7XLiGQMc-QbKq",
-      "driveModified": "2:05 am",
+      "driveModified": "Oct 6",
       "bytes": 711445,
       "sha256": "5714d9314c4b8342a2241f39758a430b8070368c6cc0bf7ee1b9faf382172ef8"
     },
