@@ -6347,39 +6347,53 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     const book = xlBook([{ name: "Answer", cols: t.cols.map((c) => ({ h: c.h, f: fx(c.f), w: c.f === "t" ? 26 : 13 })), rows }]), url = URL.createObjectURL(book), a = document.createElement("a");
     a.href = url; a.download = `ask-ai_${t.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 60)}.xlsx`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
-  const AI_SUGGEST = ["How is sales achievement for each regional leader?", "Which zonals are the weakest?", "Top 10 outlets with the lowest Core availability", "Which categories are declining the most vs last year?", "কোন ক্যাটাগরিতে Core availability সবচেয়ে কম?", "60% er niche Core availability koyta outlet ache? RHO wise bolo", "Stock gap by category last month", "Loss-making outlets with their main reason"];
+  const AI_SUGGEST = [
+    ["📈", "Sales", "How is sales achievement for each regional leader?"], ["⚠️", "Zonals", "Which zonals are the weakest?"],
+    ["📦", "Availability", "Top 10 outlets with the lowest Core availability"], ["🛒", "Categories", "Which categories are declining the most vs last year?"],
+    ["বাং", "বাংলা", "কোন ক্যাটাগরিতে Core availability সবচেয়ে কম?"], ["Ab", "Banglish", "60% er niche Core availability koyta outlet ache? RHO wise bolo"],
+    ["🔍", "Stock gap", "Stock gap by category last month"], ["💸", "Loss", "Loss-making outlets with their main reason"]];
+  const AI_TOPICS = ["Sales & target", "Growth", "Gross profit", "Loss-making", "Consumable & wastage", "Availability", "Store assessment", "Item performance", "Receiving", "Visits", "Credit card", "DOS", "Stock gap", "KPI"];
   function aiRender() {
     let host = $("#aiPanel");
-    if (!host) { host = document.createElement("aside"); host.id = "aiPanel"; host.className = "ai-panel"; document.body.append(host); }
-    let fab = $("#aiFab");
-    if (!fab) { fab = document.createElement("button"); fab.id = "aiFab"; fab.className = "ai-fab"; fab.type = "button"; fab.innerHTML = "✦ Ask AI"; fab.onclick = () => { AI.open = !AI.open; aiRender(); if (AI.open) aiProviders(); }; document.body.append(fab); }
-    host.hidden = !AI.open; fab.hidden = AI.open;
+    if (!host) { host = document.createElement("aside"); host.id = "aiPanel"; host.className = "ai-panel"; host.setAttribute("role", "dialog"); host.setAttribute("aria-label", "Ask AI"); document.body.append(host); }
+    const fab = $("#aiFab");
+    if (fab && !fab.onclick) fab.onclick = () => { AI.open = !AI.open; aiRender(); if (AI.open) aiProviders(); };
+    fab?.setAttribute("aria-pressed", String(AI.open));
+    host.hidden = !AI.open;
     if (!AI.open) return;
-    const provs = AI.providers || [], pick = aiLS.get("aiProv");
+    const provs = AI.providers || [], pick = aiLS.get("aiProv"), ready = provs.length && !AI.busy;
     AI.tables = [];
+    const avatar = '<span class="ai-av" aria-hidden="true">✦</span>';
     const body = AI.items.length ? AI.items.map((it) => {
-      if (it.who === "user") return `<div class="ai-msg ai-user">${esc(it.text)}</div>`;
-      if (it.who === "err") return `<div class="ai-msg ai-err">${esc(it.text)}</div>`;
-      const cards = (it.used || []).map((u) => { const ti = AI.tables.push(u.out) - 1, t = u.out, show = t.rows.slice(0, 8); return `<div class="ai-card"><div class="ai-card-h"><span>${esc(t.title)} · ${int(t.rows.length)} rows</span><button type="button" class="btn" data-aixl="${ti}">⬇ Excel</button></div>
-        <div class="table-wrap"><table class="compact"><thead><tr>${t.cols.map((c) => `<th>${esc(c.h)}</th>`).join("")}</tr></thead><tbody>${show.map((r) => `<tr>${r.map((v, i) => `<td>${esc(aiCell(v, t.cols[i].f))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.rows.length > 8 ? `<p class="muted ai-more">First 8 of ${int(t.rows.length)}; the Excel has all.</p>` : ""}</div>`; }).join("");
-      return `<div class="ai-msg ai-bot">${aiMd(it.text)}</div>${cards}<div class="ai-meta"><span>${esc(it.provider || "")}${it.used?.length ? ` · Looked up: ${esc([...new Set(it.used.map((u) => u.name.replace(/_/g, " ")))].join(", "))}` : ""}</span><button type="button" class="ai-copy" data-aicopy="${esc(it.text)}">Copy</button></div>`;
-    }).join("") : `<div class="ai-hello"><h3>Ask anything about this dashboard</h3><p class="muted">I read the same data you see: sales and targets, growth, gross profit, loss-making outlets, consumable and wastage, availability, store assessment, item performance, receiving, visits, credit card, DOS, stock gap and KPIs. Ask in English, বাংলা or Banglish.</p>${AI_SUGGEST.map((q) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
-    host.innerHTML = `<header class="ai-head"><div><b>✦ Ask AI</b><div class="ai-sub">${provs.length ? `<select id="aiProv" class="sel" aria-label="AI">${provs.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>` : ""}<span class="muted"> · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div></div>
-        <div class="ai-tools"><button type="button" class="btn" id="aiReset" title="New conversation">⟲</button><button type="button" class="btn" id="aiClose" title="Close">✕</button></div></header>
-      <div class="ai-body" id="aiBody">${AI.providers === null ? '<p class="muted">Connecting…</p>' : provs.length ? body : `<div class="ai-msg ai-err">${esc(AI.err || "Ask AI isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div>`}${AI.busy ? '<div class="ai-msg ai-bot ai-typing">Looking it up…</div>' : ""}</div>
-      <footer class="ai-foot"><div class="ai-input"><textarea id="aiText" rows="2" placeholder="Ask about sales, availability, outlets, categories…" ${provs.length && !AI.busy ? "" : "disabled"}></textarea><button type="button" class="btn primary" id="aiSend" ${provs.length && !AI.busy ? "" : "disabled"}>➤</button></div>
-        <p class="muted ai-note">Enter to send · Shift+Enter for a new line. Figures come from the dashboard's data; the AI can still misread a question, so check key figures.</p></footer>`;
+      if (it.who === "user") return `<div class="ai-row ai-row-user"><div class="ai-msg ai-user">${esc(it.text)}</div></div>`;
+      if (it.who === "err") return `<div class="ai-row">${avatar}<div class="ai-msg ai-err"><b>Couldn't answer.</b> ${esc(it.text)}</div></div>`;
+      const cards = (it.used || []).map((u) => { const ti = AI.tables.push(u.out) - 1, t = u.out, show = t.rows.slice(0, 8); return `<div class="ai-card"><div class="ai-card-h"><div><b>${esc(t.title)}</b><small>${int(t.rows.length)} rows</small></div><button type="button" class="ai-xl" data-aixl="${ti}">⬇ Excel</button></div>
+        <div class="ai-tw"><table><thead><tr>${t.cols.map((c) => `<th>${esc(c.h)}</th>`).join("")}</tr></thead><tbody>${show.map((r) => `<tr>${r.map((v, i) => `<td>${esc(aiCell(v, t.cols[i].f))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.rows.length > 8 ? `<p class="ai-more">Showing 8 of ${int(t.rows.length)} · the Excel has every row</p>` : ""}</div>`; }).join("");
+      return `<div class="ai-row">${avatar}<div class="ai-stack"><div class="ai-msg ai-bot">${aiMd(it.text)}</div>${cards}<div class="ai-meta"><span>${esc(it.provider || "")}${it.used?.length ? ` · Looked up: ${esc([...new Set(it.used.map((u) => u.name.replace(/_/g, " ")))].join(", "))}` : ""}</span><button type="button" class="ai-copy" data-aicopy="${esc(it.text)}">⧉ Copy</button></div></div></div>`;
+    }).join("") : `<div class="ai-hello"><div class="ai-hero">${avatar}<div><h3>Hi! What would you like to know?</h3><p>I answer from the same data you see on this dashboard, in English, বাংলা or Banglish.</p></div></div>
+        <div class="ai-topics">${AI_TOPICS.map((t) => `<span>${esc(t)}</span>`).join("")}</div>
+        <h4>Try asking</h4><div class="ai-sugs">${AI_SUGGEST.map(([ic, tag, q]) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}"><i aria-hidden="true">${ic}</i><span><small>${esc(tag)}</small>${esc(q)}</span></button>`).join("")}</div></div>`;
+    const off = AI.providers === null ? '<div class="ai-wait"><span class="ai-dots"><i></i><i></i><i></i></span> Connecting…</div>'
+      : `<div class="ai-row">${avatar}<div class="ai-msg ai-err">${esc(AI.err || "Ask AI isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div></div>`;
+    host.innerHTML = `<header class="ai-head">${avatar}<div class="ai-title"><b>Ask AI</b><span>Operations dashboard assistant · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div>
+        <div class="ai-tools"><button type="button" class="ai-ib" id="aiReset" title="New conversation" aria-label="New conversation">⟲</button><button type="button" class="ai-ib" id="aiClose" title="Close" aria-label="Close">✕</button></div>
+        ${provs.length ? `<label class="ai-prov"><span>Model</span><select id="aiProv" aria-label="AI model">${provs.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></label>` : ""}</header>
+      <div class="ai-body" id="aiBody">${provs.length ? body : off}${AI.busy ? `<div class="ai-row">${avatar}<div class="ai-msg ai-bot ai-typing"><span class="ai-dots"><i></i><i></i><i></i></span> Looking it up…</div></div>` : ""}</div>
+      <footer class="ai-foot"><div class="ai-input"><textarea id="aiText" rows="1" placeholder="Ask about sales, availability, outlets, categories…" ${ready ? "" : "disabled"}></textarea><button type="button" class="ai-send" id="aiSend" aria-label="Send" ${ready ? "" : "disabled"}>➤</button></div>
+        <p class="ai-note">Enter to send · Shift+Enter for a new line · Figures come from the dashboard; check key numbers before sharing.</p></footer>`;
     const send = () => { const t = $("#aiText"); const v = t.value; t.value = ""; aiAsk(v); };
+    const ta = $("#aiText"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(140, ta.scrollHeight) + "px"; };
     $("#aiSend").onclick = send;
-    $("#aiText").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
-    $("#aiClose").onclick = () => { AI.open = false; aiRender(); };
+    ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+    ta.oninput = grow;
+    $("#aiClose").onclick = () => { AI.open = false; aiRender(); fab?.focus(); };
     $("#aiReset").onclick = () => { AI.history = []; AI.items = []; aiRender(); };
     $("#aiProv") && ($("#aiProv").onchange = (e) => aiLS.set("aiProv", e.target.value));
     $$("[data-aiq]", host).forEach((b) => (b.onclick = () => aiAsk(b.dataset.aiq)));
     $$("[data-aixl]", host).forEach((b) => (b.onclick = () => aiDownload(+b.dataset.aixl)));
-    $$("[data-aicopy]", host).forEach((b) => (b.onclick = () => { navigator.clipboard?.writeText(b.dataset.aicopy); b.textContent = "Copied"; }));
+    $$("[data-aicopy]", host).forEach((b) => (b.onclick = () => { navigator.clipboard?.writeText(b.dataset.aicopy); b.textContent = "✓ Copied"; }));
     const bodyEl = $("#aiBody"); bodyEl.scrollTop = bodyEl.scrollHeight;
-    if (!AI.busy) $("#aiText")?.focus();
+    if (!AI.busy) ta.focus();
   }
   function aiProviders() {
     if (AI.providers !== null) return;
@@ -6434,7 +6448,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", () => { closeDrawer(); closeRail(); });
   $("#drawerClose").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !closeReport()) { closeDrawer(); closeRail(); } });
+  document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (AI.open) { AI.open = false; aiRender(); return; } if (!closeReport()) { closeDrawer(); closeRail(); } });
   $("#reportClose").addEventListener("click", closeReport);
   $("#reportPrint").addEventListener("click", () => window.print());
   $("#reportPng").addEventListener("click", reportPng);
