@@ -160,13 +160,18 @@ def list_public(folder_id: str) -> list[dict]:
 SKIP_SUBFOLDERS = {s.strip() for s in (os.environ.get("WALK_SKIP_FOLDERS") or "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF").split(",") if s.strip()}
 
 
+# Previous months' files belong in a sub-folder named "Archive" (or "Old …") inside their folder: every refresh
+# and the Drive watch skip those, so an old file can be kept without ever being read again.
+ARCHIVE_RE = re.compile(r"^\s*(archive|old)\b", re.I)
+
+
 def walk(folder_id: str, path: str = "", depth: int = 0) -> list[dict]:
     items = list_with_api(folder_id) if API_KEY else list_public(folder_id)
     found: list[dict] = []
     for item in items:
         item["path"] = f"{path}{item['name']}"
         if item["mimeType"] == FOLDER_MIME:
-            if item["id"] in SKIP_SUBFOLDERS:
+            if item["id"] in SKIP_SUBFOLDERS or ARCHIVE_RE.match(item["name"]):
                 continue
             if depth < MAX_DEPTH:
                 found.extend(walk(item["id"], item["path"] + "/", depth + 1))
