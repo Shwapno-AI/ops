@@ -395,12 +395,16 @@ def build() -> dict:
         {"code": {"outlet code", "code", "store code"}, "name": {"outlet name", "store name"}},
     )
     target_header = target_rows[target_header_row]
+    # Only the first column of each date counts: the October 2026 workbook repeats the 1-31 date headings in
+    # further blocks to the right (other daily figures and shares), which must not overwrite the taka target.
     date_columns: list[tuple[int, str]] = []
+    seen_dates: set[str] = set()
     for i, value in enumerate(target_header):
         if i in (target_cols["code"], target_cols["name"]):
             continue
         date = excel_date_to_iso(value)
-        if re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", date) and date not in seen_dates:
+            seen_dates.add(date)
             date_columns.append((i, date))
     if not date_columns:
         raise ValueError(f"No daily target date columns found in {TARGET_FILE.name}.")
