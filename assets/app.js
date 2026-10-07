@@ -4653,7 +4653,7 @@
   // ---- weakest groups: regional leaders on National, a leader's zonals on their page. Ranked on the average of
   // each group's position across six measures (1 = best), so no single figure decides it.
   const AR_MEASURES = [["ach", 1, "Ach."], ["ssg", 1, "SS growth"], ["lossShare", -1, "Loss outlets"], ["wst", -1, "Wastage %"], ["sa", 1, "Store score"], ["core", 1, "Core avail."]];
-  function arWeakest(rl) {
+  function arWeakest(rl, all = false) {
     const inScope = arIn(rl), key = (o) => (rl ? o.dim?.zn : o.dim?.rl), G = new Map();
     (S.data.master?.outlets || []).forEach((o) => { if (rl && o.rl !== rl) return; const k = rl ? o.zn : o.rl; if (!k) return; const g = G.get(k) || { name: k, full: rl ? "" : o.rh || "", outlets: 0, rk: {} }; g.outlets++; G.set(k, g); });
     const at = (o) => G.get(key(o));
@@ -4685,7 +4685,8 @@
     const list = [...G.values()], cnt = {};
     AR_MEASURES.forEach(([k, dir]) => { const xs = list.filter((g) => isNum(g[k])).sort((a, b) => dir * (b[k] - a[k])); cnt[k] = xs.length; xs.forEach((g, i) => (g.rk[k] = i + 1)); });
     list.forEach((g) => { const v = Object.values(g.rk); g.avg = v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; });
-    return { n: list.length, cnt, rows: list.filter((g) => isNum(g.avg)).sort((a, b) => b.avg - a.avg || (a.ach ?? 9) - (b.ach ?? 9)).slice(0, 3) }; // a tie goes to the lower achievement
+    const ranked = list.filter((g) => isNum(g.avg)).sort((a, b) => b.avg - a.avg || (a.ach ?? 9) - (b.ach ?? 9)); // a tie goes to the lower achievement
+    return { n: list.length, cnt, rows: all ? ranked : ranked.slice(0, 3) };
   }
   function arWeakCard(rl) {
     const wk = arWeakest(rl);
@@ -5533,7 +5534,7 @@
   }
 
   // ---- monthly outlet-wise report: one row per outlet with every figure the dashboard has for it
-  function monthlyOutletReport() {
+  function monthlyOutletReport(withBook = true) {
     const d = S.data, r = d.tilldate, ym = (r?.date || "").slice(0, 7);
     const master = d.master?.outlets || [], tdBy = new Map((r?.outlets || []).map((o) => [o.c, o]));
     const codes = [...master.map((o) => o.c), ...[...tdBy.keys()].filter((c) => !master.some((m) => m.c === c) && tdBy.get(c).s > 0)];
@@ -5615,7 +5616,7 @@
       ["DOS", d.dos?.month ? `${fmonth(d.dos.month)} (${d.dos.file})` : "—"],
       ["Zonal skill gap", km ? `KPI performance ${fmonth(km)}` : "—"],
     ];
-    return { ym, book: xlBook([{ name: "Outlet wise", cols, rows, freeze: 2 }, { name: "About", cols: [{ h: "Item", w: 26 }, { h: "Covers", w: 70 }], rows: about }]) };
+    return { ym, cols, rows, about, book: withBook ? xlBook([{ name: "Outlet wise", cols, rows, freeze: 2 }, { name: "About", cols: [{ h: "Item", w: 26 }, { h: "Covers", w: 70 }], rows: about }]) : null };
   }
   function monthlyReportPanel() {
     const ym = (S.data.tilldate?.date || "").slice(0, 7);
@@ -6128,6 +6129,268 @@
   }
   const closeRail = () => { $("#rail").classList.remove("open"); if ($("#drawer").hidden) $("#scrim").hidden = true; };
 
+  // ------------------------------------------------------------------ Ask AI
+  // A chat panel on every page. The AI (Azure OpenAI or Qwen, through the server relay at /api/ai, which holds the
+  // keys) never computes figures itself: it calls the lookups below, which run here in the browser on the same data
+  // and with the same rules as the dashboard pages, and then writes the answer from what they return.
+  const AI = { open: false, busy: false, providers: null, err: "", history: [], items: [], tables: [] };
+  const aiLS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
+  // formats: t text, n whole number, n1 one decimal, p1/p2 percent, bdt taka
+  const aiFmt = (v, f) => (v == null || v === "" || (typeof v === "number" && !isFinite(v)) ? "" : f === "bdt" ? bdt(v) : f === "p1" ? pct(v, 1) : f === "p2" ? pct(v, 2) : f === "n1" ? Number(v).toFixed(1) : f === "n" ? int(v) : String(v));
+  const aiTable = (title, cols, rows, extra = {}) => ({ title, cols, rows, ...extra });
+  const aiLeaders = () => arRhos();
+  // names match by whole words, ignoring Mr./Ms./Md. and punctuation: "riaz", "Mr. Riaz" and "Riaz Uddin" all find Mr. Riaz
+  const aiWords = (s) => String(s || "").toLowerCase().replace(/[^a-z ]+/g, " ").split(/\s+/).filter((w) => w && !/^(mr|ms|mrs|md|mohammad|muhammad)$/.test(w));
+  function aiFind(name, list, alias = () => "") {
+    const q = aiWords(name); if (!q.length) return null;
+    const same = (a, b) => a.length === b.length && a.every((w, i) => w === b[i]);
+    return list.find((x) => same(aiWords(x), q)) || list.find((x) => q.every((w) => aiWords(`${x} ${alias(x)}`).includes(w))) || null;
+  }
+  function aiLeader(name) {
+    const mo = S.data.master?.outlets || [];
+    return name ? aiFind(name, aiLeaders(), (r) => mo.find((o) => o.rl === r)?.rh) : null;
+  }
+  function aiZonal(name) {
+    const mo = S.data.master?.outlets || [];
+    return name ? aiFind(name, [...new Set(mo.map((o) => o.zn).filter(Boolean))], (z) => mo.find((o) => o.zn === z)?.zh) : null;
+  }
+  const aiWaitData = async () => { for (let i = 0; i < 120 && !(arReady() && (S.sg || S.sgErr)); i++) { loadSg(); await new Promise((r) => setTimeout(r, 500)); } };
+
+  const AI_TOOLS = [
+    { name: "data_overview", description: "Which period each data source covers (sales till date, P&L month, consumable and wastage dates, availability snapshot, store assessment month, item performance period, receiving dates, visits, credit card, DOS month, stock gap months, KPI month). Call it when the user asks about dates or freshness.", parameters: { type: "object", properties: {} } },
+    { name: "leader_overview", description: "Headline figures for National or one regional leader, like the Priority Tasks report: sales target, achieved, achievement, growth vs last year, GP margin, loss-making outlets, consumable and wastage vs target, store assessment score and grades, Core/KVI/Promo availability, over-receiving, credit card extra cost, DOS ranges, skill gap.", parameters: { type: "object", properties: { leader: { type: "string", description: "Regional leader name (e.g. Mr. Riaz); leave empty for National" } } } },
+    { name: "group_ranking", description: "Compare regional leaders (or the zonals of one leader, or all zonals) on six measures: sales achievement, same-store growth, share of loss-making outlets, wastage % on sales, store assessment score and Core availability, with the average rank (higher = weaker).", parameters: { type: "object", properties: { level: { type: "string", enum: ["leader", "zonal"] }, leader: { type: "string", description: "For zonals: only this leader's zonals" } }, required: ["level"] } },
+    { name: "outlet_table", description: "Outlet-level table (one row per outlet) from the monthly outlet-wise report. Filter by leader/zonal, filter rows with conditions on any column, sort and take the top rows. Columns: " + "COLS_PLACEHOLDER", parameters: { type: "object", properties: {
+      leader: { type: "string" }, zonal: { type: "string" },
+      columns: { type: "array", items: { type: "string" }, description: "Columns to return besides Outlet code, Outlet, Regional leader, Zonal (exact names from the list)" },
+      where: { type: "array", items: { type: "object", properties: { column: { type: "string" }, op: { type: "string", enum: ["<", "<=", ">", ">=", "=", "!=", "contains"] }, value: {} }, required: ["column", "op", "value"] }, description: "Percent columns are fractions: 80% = 0.8" },
+      sort_by: { type: "string" }, order: { type: "string", enum: ["asc", "desc"] }, limit: { type: "integer", description: "Rows to show (default 15, max 100); the Excel download has every matching row" } } } },
+    { name: "category_performance", description: "Sales by category (Division · Cat 01) this period vs last year from the item performance data (Store level report), for National or one leader; consumables and home delivery left out.", parameters: { type: "object", properties: { leader: { type: "string" }, order: { type: "string", enum: ["worst", "best"], description: "worst = biggest decline first" }, limit: { type: "integer" } } } },
+    { name: "availability_breakdown", description: "Availability (% of outlet-SKU pairs available at the dashboard's days of cover) for Core, KVI, Promo or all three, grouped by leader, zonal, outlet, category (CAT3) or product division; optionally only groups below a level.", parameters: { type: "object", properties: { type: { type: "string", enum: ["core", "kvi", "promo", "all"] }, by: { type: "string", enum: ["leader", "zonal", "outlet", "category", "division"] }, leader: { type: "string" }, below: { type: "number", description: "Only groups below this availability, as a fraction (0.8 = 80%)" }, order: { type: "string", enum: ["asc", "desc"] }, limit: { type: "integer" } }, required: ["type", "by"] } },
+    { name: "stock_gap", description: "Inventory counting gap (shortage positive) and gap % on the sales of the outlets counted, from the stock gap workbook, by leader, zonal, outlet, category or month.", parameters: { type: "object", properties: { by: { type: "string", enum: ["leader", "zonal", "outlet", "category", "month"] }, leader: { type: "string" }, period: { type: "string", description: "YYYY-MM, YYYY or 'latest' (default latest month)" }, limit: { type: "integer" } }, required: ["by"] } },
+    { name: "kpi_scores", description: "KPI performance (latest month): each KPI's target and actual for National, a regional leader or a zonal.", parameters: { type: "object", properties: { head: { type: "string", description: "Leader or zonal name; empty for National" }, level: { type: "string", enum: ["rho", "zonal"] } } } },
+  ];
+
+  const AI_RUN = {
+    data_overview() {
+      const d = S.data, about = monthlyOutletReport(false).about.filter((r) => !/^(Generated|Outlets)$/.test(r[0]));
+      return aiTable("Data periods", [{ h: "Source", f: "t" }, { h: "Covers", f: "t" }], [...about,
+        ["Stock gap", S.sg ? `${fmonth(S.sg.months[0])} – ${fmonth(S.sg.months[S.sg.months.length - 1])}` : "—"], ["KPI performance", d.kpi?.months?.length ? fmonth(d.kpi.months[d.kpi.months.length - 1]) : "—"]]);
+    },
+    leader_overview({ leader } = {}) {
+      const rl = leader ? aiLeader(leader) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}". Leaders: ${aiLeaders().join(", ")}` };
+      const sa = arSales(rl, 3), lo = arLoss(rl), cw = arCw(rl), sx = arSa(rl), av = arAv(rl), rc = arRc(rl), cc = arCc(rl), ds = arDos(rl), sk = arSkill(rl);
+      const a = sa?.a, got = a ? (rl ? a.a : a.s) : null, R = [];
+      const add = (k, v, f) => R.push([k, v, f]);
+      if (a) { add("Sales target till date", a.t, "bdt"); add("Achieved", got, "bdt"); add("Achievement", a.t > 0 ? got / a.t : null, "p1"); add("Growth vs last year (all outlets)", a.gy, "p1"); add("Same-store growth", a.gss, "p1"); add("GP margin", a.gp, "p2"); add("GP margin last year", a.gpy, "p2"); }
+      if (lo) { add(`Loss-making outlets (${fmonth(lo.m)})`, lo.n, "n"); add("Trading outlets", lo.trading, "n"); add("Loss-making over 6 months old", lo.old, "n"); add("Total loss", lo.total, "bdt"); add("Net outlet P/L", lo.net, "bdt"); add("Biggest loss reason", lo.reasons[0] ? `${lo.reasons[0].reason} (${lo.reasons[0].n} outlets)` : "—", "t"); }
+      if (cw) CWK.forEach((k) => { add(CWM[k].label, cw.s[k], "p2"); add(`${CWM[k].label} target`, cw.s.targets[k], "p2"); });
+      if (sx) { add(`Store assessment score (${fmonth(sx.m)})`, sx.p, "p1"); add("Outlets not visited by audit", sx.notAud, "n"); sx.gc.forEach(([g, n]) => add(`Store grade ${g.label}`, n, "n")); }
+      if (av) ["core", "kvi", "promo"].forEach((k) => add(`${k === "kvi" ? "KVI" : k[0].toUpperCase() + k.slice(1)} availability`, av[k].v, "p1"));
+      if (rc) { add("Over-receiving value", rc.ov, "bdt"); add("Over-receiving incidents", rc.oi, "n"); }
+      if (cc) { add("Credit card extra cost", cc.total, "bdt"); add("Biggest credit card source", cc.prov[0] ? `${cc.prov[0].name} ${pct(cc.prov[0].share, 1)}` : "—", "t"); }
+      if (ds) { add(`DOS below 30 days (${fmonth(ds.m)})`, ds.lo, "n"); add("DOS 30-45 days", ds.mid, "n"); add("DOS over 45 days", ds.hi, "n"); }
+      if (sk) { add(`Skill gap (${fmonth(sk.m)})`, sk.v, "p1"); add("Skill gap target", sk.t, "p1"); }
+      return aiTable(`${rl || "National"}: headline figures`, [{ h: "Measure", f: "t" }, { h: "Value", f: "mixed" }], R.map(([k, v, f]) => [k, { v, f }]));
+    },
+    group_ranking({ level, leader } = {}) {
+      const rl = leader ? aiLeader(leader) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}".` };
+      let rows;
+      if (level === "zonal" && !rl) rows = aiLeaders().flatMap((r) => arWeakest(r, true).rows.map((g) => ({ ...g, leader: r })));
+      else rows = arWeakest(level === "zonal" ? rl : null, true).rows.map((g) => ({ ...g, leader: level === "zonal" ? rl : g.name }));
+      const cols = [{ h: level === "zonal" ? "Zonal" : "Regional leader", f: "t" }, ...(level === "zonal" ? [{ h: "Regional leader", f: "t" }] : []), { h: "Outlets", f: "n" }, { h: "Achievement", f: "p1" }, { h: "Same-store growth", f: "p1" }, { h: "Loss-making share", f: "p1" }, { h: "Wastage % on sales", f: "p2" }, { h: "Store score", f: "p1" }, { h: "Core availability", f: "p1" }, { h: "Average rank (higher = weaker)", f: "n1" }];
+      return aiTable(level === "zonal" ? `Zonals${rl ? ` of ${rl}` : ""} ranked, weakest first` : "Regional leaders ranked, weakest first", cols,
+        rows.map((g) => [level === "zonal" ? g.name : g.full || g.name, ...(level === "zonal" ? [g.leader] : []), g.outlets, g.ach, g.ssg, g.lossShare, g.wst, g.sa, g.core, g.avg]));
+    },
+    outlet_table({ leader, zonal, columns = [], where = [], sort_by, order = "desc", limit = 15 } = {}) {
+      const rep = monthlyOutletReport(false), H = rep.cols.map((c) => c.h), ix = (name) => { const k = String(name || "").toLowerCase(); return H.findIndex((h) => h.toLowerCase() === k) >= 0 ? H.findIndex((h) => h.toLowerCase() === k) : H.findIndex((h) => h.toLowerCase().includes(k)); };
+      const rl = leader ? aiLeader(leader) : null, zn = zonal ? aiZonal(zonal) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}".` };
+      if (zonal && !zn) return { error: `No zonal matches "${zonal}".` };
+      const bad = [...columns, ...where.map((w) => w.column), sort_by].filter((c) => c && ix(c) < 0);
+      if (bad.length) return { error: `Unknown column(s): ${bad.join(", ")}. Use names from the list.` };
+      let rows = rep.rows.filter((r) => (!rl || r[2] === rl) && (!zn || r[4] === zn));
+      for (const w of where) {
+        const i = ix(w.column), v = w.value;
+        rows = rows.filter((r) => { const x = r[i]; if (w.op === "contains") return String(x ?? "").toLowerCase().includes(String(v).toLowerCase()); if (x == null || x === "") return false; const a = typeof x === "number" ? x : String(x), b = typeof x === "number" ? Number(v) : String(v); return w.op === "<" ? a < b : w.op === "<=" ? a <= b : w.op === ">" ? a > b : w.op === ">=" ? a >= b : w.op === "=" ? a == b : a != b; }); // eslint-disable-line eqeqeq
+      }
+      if (sort_by) { const i = ix(sort_by); rows = [...rows].sort((p, q) => { const a = p[i], b = q[i]; if (a == null || a === "") return 1; if (b == null || b === "") return -1; return (typeof a === "number" ? a - b : String(a).localeCompare(String(b))) * (order === "asc" ? 1 : -1); }); }
+      const keep = [0, 1, 2, 4, ...columns.map(ix).filter((i) => i > 4)], uniq = [...new Set(keep)];
+      const f = (c) => (c.f === "t" ? "t" : /target|achieved|sales|value|p\/l|cost|above/i.test(c.h) && c.f === "n" ? "bdt" : c.f);
+      return aiTable(`Outlets${rl ? ` of ${rl}` : ""}${zn ? ` · ${zn}` : ""}`, uniq.map((i) => ({ h: H[i], f: f(rep.cols[i]) })), rows.map((r) => uniq.map((i) => r[i])), { shown: Math.min(100, Math.max(1, limit)) });
+    },
+    category_performance({ leader, order = "worst", limit = 10 } = {}) {
+      const d = S.sku; if (!d) return { error: "Item performance data is not loaded." };
+      const rl = leader ? aiLeader(leader) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}".` };
+      const codes = new Set(d.outlets.filter(arIn(rl)).map((o) => o.c)), g = new Map();
+      d.cube.forEach((r) => { if (!codes.has(r[0]) || /^consumables$/i.test(r[1]) || /^consumables$/i.test(r[2]) || /home delivery/i.test(r[1])) return; const k = `${r[1]}|${r[2]}`, x = g.get(k) || { div: r[1], c1: r[2], ns: 0, nl: 0 }; x.ns += r[3] || 0; x.nl += r[4] || 0; g.set(k, x); });
+      const rows = [...g.values()].map((x) => ({ ...x, d: x.ns - x.nl, g: x.nl > 0 ? x.ns / x.nl - 1 : null })).sort((a, b) => (order === "best" ? b.d - a.d : a.d - b.d));
+      return aiTable(`Categories${rl ? ` of ${rl}` : ""}, ${order === "best" ? "biggest growth" : "biggest decline"} first (${ipPeriod(d, true).replace(/^Data /, "")})`, [{ h: "Category", f: "t" }, { h: "Division", f: "t" }, { h: "Sales", f: "bdt" }, { h: "Sales last year", f: "bdt" }, { h: "Change", f: "bdt" }, { h: "Growth", f: "p1" }],
+        rows.map((x) => [x.c1, x.div, x.ns, x.nl, x.d, x.g]), { shown: Math.min(100, limit) });
+    },
+    availability_breakdown({ type = "core", by = "leader", leader, below, order = "asc", limit = 15 } = {}) {
+      const d = S.av; if (!d) return { error: "Availability data is not loaded." };
+      const rl = leader ? aiLeader(leader) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}".` };
+      const days = avDays(), N = d.S, skus = d.skus.filter((s) => (type === "all" ? s.core || s.kvi || s.promo : s[type])), g = new Map();
+      const key = (o, s) => (by === "leader" ? o.dim.rl : by === "zonal" ? o.dim.zn : by === "outlet" ? o.c : by === "category" ? s.cat3 || "—" : s.nd || "—");
+      for (const o of d.outlets) {
+        if ((rl && o.dim.rl !== rl) || (by === "outlet" && !arOk(o))) continue; // outlet rankings name distributed outlets only
+        const base = o.i * N;
+        for (const s of skus) {
+          const k = key(o, s), x = g.get(k) || { k, o, a: avAcc(), outs: new Set() }, st = d.stock[base + s.i], sl = d.sales60[base + s.i];
+          avAdd(x.a, st, sl, days, avStatus(st, sl, days)); x.outs.add(o.c); g.set(k, x);
+        }
+      }
+      let rows = [...g.values()].map((x) => ({ ...x, v: avRate(x.a) })).filter((x) => isNum(x.v) && (below == null || x.v < below)).sort((a, b) => (order === "desc" ? b.v - a.v : a.v - b.v));
+      const label = { leader: "Regional leader", zonal: "Zonal", outlet: "Outlet", category: "Category (CAT3)", division: "Product division" }[by];
+      return aiTable(`${type === "all" ? "Core, KVI and Promo" : type.toUpperCase()} availability by ${label.toLowerCase()}${rl ? ` (${rl})` : ""}, ${days} days of cover`,
+        [{ h: label, f: "t" }, ...(by === "outlet" ? [{ h: "Outlet name", f: "t" }, { h: "Zonal", f: "t" }, { h: "Regional leader", f: "t" }] : []), { h: "Availability", f: "p1" }, { h: "Available pairs", f: "n" }, { h: "All pairs", f: "n" }, ...(by === "outlet" ? [] : [{ h: "Outlets", f: "n" }])],
+        rows.map((x) => [x.k, ...(by === "outlet" ? [x.o.n, x.o.dim.zn, x.o.dim.rl] : []), x.v, x.a.ok, x.a.slots, ...(by === "outlet" ? [] : [x.outs.size])]), { shown: Math.min(100, limit) });
+    },
+    stock_gap({ by = "leader", leader, period = "latest", limit = 15 } = {}) {
+      const d = S.sg; if (!d) return { error: "Stock gap data is not loaded." };
+      const rl = leader ? aiLeader(leader) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}".` };
+      const last = d.months.length - 1, mi = /^\d{4}-\d{2}$/.test(period) ? d.months.indexOf(period) : -1;
+      const per = /^\d{4}$/.test(period) ? { set: new Set(d.months.map((m, i) => (m.startsWith(period) ? i : -1)).filter((i) => i >= 0)), label: period } : { set: new Set([mi >= 0 ? mi : last]), label: fmonth(d.months[mi >= 0 ? mi : last]) };
+      per.prevSet = null;
+      const test = (s) => !rl || s.rl === rl;
+      if (by === "month") {
+        const A = sgCompute(d, test, { set: new Set(d.months.map((_, i) => i)), prevSet: null }, null);
+        return aiTable(`Stock gap by month${rl ? ` (${rl})` : ""}`, [{ h: "Month", f: "t" }, { h: "Counting gap", f: "bdt" }, { h: "Sales counted", f: "bdt" }, { h: "Gap % on sales", f: "p2" }],
+          d.months.map((m, i) => [fmonth(m), A.gap[i], A.sales[i], sgPct(A.gap[i], A.sales[i])]).filter((r) => r[1] || r[2]).reverse(), { shown: Math.min(100, limit) });
+      }
+      if (by === "category") {
+        const A = sgCompute(d, test, per, null), tot = sgSum(A.gap, per.set);
+        return aiTable(`Stock gap by category, ${per.label}${rl ? ` (${rl})` : ""}`, [{ h: "Category", f: "t" }, { h: "Counting gap", f: "bdt" }, { h: "Share of the gap", f: "p1" }],
+          d.cats.map((c, ci) => [c, sgSum(A.cat[ci], per.set)]).filter((r) => r[1]).sort((a, b) => b[1] - a[1]).map((r) => [r[0], r[1], tot ? r[1] / tot : null]), { shown: Math.min(100, limit) });
+      }
+      const k = by === "outlet" ? "outlet" : by === "zonal" ? "zn" : "rl", A = sgCompute(d, test, per, (s) => (k === "outlet" ? s.c : s[k]));
+      return aiTable(`Stock gap by ${by}, ${per.label}${rl ? ` (${rl})` : ""}`, [{ h: by === "outlet" ? "Outlet" : by === "zonal" ? "Zonal" : "Regional leader", f: "t" }, ...(by === "outlet" ? [{ h: "Outlet name", f: "t" }] : []), { h: "Counting gap", f: "bdt" }, { h: "Sales counted", f: "bdt" }, { h: "Gap % on sales", f: "p2" }, { h: "Outlets counted", f: "n" }],
+        [...A.grp.values()].sort((a, b) => b.gap - a.gap).map((x) => [x.key, ...(by === "outlet" ? [x.s.n] : []), x.gap, x.sales, sgPct(x.gap, x.sales), x.outs.size]), { shown: Math.min(100, limit) });
+    },
+    kpi_scores({ head, level = "rho" } = {}) {
+      const K = S.data.kpi, m = K?.months?.[K.months.length - 1]; if (!m) return { error: "No KPI data." };
+      const list = level === "zonal" ? K.zonal : K.rho, want = head ? kname(head) : "national";
+      const rows = (list || []).filter((r) => kname(r.head) === want || (!head && r.head === "National"));
+      if (!rows.length) return { error: `No ${level === "zonal" ? "zonal" : "RHO"} KPI head matches "${head}".` };
+      return aiTable(`KPI performance ${fmonth(m)}: ${rows[0].head}`, [{ h: "KPI", f: "t" }, { h: "Better when", f: "t" }, { h: "Target", f: "n1" }, { h: "Actual", f: "n1" }],
+        rows.map((r) => [r.metric, r.dir, r.t?.[m], r.a?.[m]]));
+    },
+  };
+  const aiCell = (v, f) => (v && typeof v === "object" && "f" in v ? aiFmt(v.v, v.f) : aiFmt(v, f));
+  // what the model sees: formatted text, the first rows only
+  function aiForModel(res) {
+    if (res.error) return { error: res.error };
+    const n = res.shown || 40;
+    return { title: res.title, total_rows: res.rows.length, showing: Math.min(n, res.rows.length), columns: res.cols.map((c) => c.h), rows: res.rows.slice(0, n).map((r) => r.map((v, i) => aiCell(v, res.cols[i].f))) };
+  }
+  function aiSystem() {
+    const r = S.data.tilldate;
+    return `You are the Ask AI assistant of Shwapno's Operations Dashboard (a retail chain in Bangladesh). Today's sales data runs to ${r ? fdate(r.date) : "unknown"}.
+Rules:
+- Get every figure from the tools; never invent or estimate numbers. If a tool returns an error, fix the call (e.g. use a listed leader name) or say what is missing.
+- Answer in the user's language: English, Bangla (বাংলা) or Banglish, matching how they asked.
+- Be brief: one or two sentences with the key figure first, then at most a short bullet list. Mention the period the figure covers.
+- Money is in taka (৳) with Lac/Cr as the tools give it. Percent columns are already formatted.
+- The full table of each lookup is shown to the user with an Excel download, so do not repeat long lists; name the top few only.
+Regional leaders: ${aiLeaders().join(", ")}.`;
+  }
+  const aiToolSpec = () => AI_TOOLS.map((t) => ({ type: "function", function: { ...t, description: t.description.replace("COLS_PLACEHOLDER", monthlyOutletReport(false).cols.map((c) => c.h).join("; ")) } }));
+
+  async function aiAsk(text) {
+    if (AI.busy || !text.trim()) return;
+    const provider = $("#aiProv")?.value;
+    if (!provider) return;
+    AI.busy = true; AI.err = "";
+    AI.items.push({ who: "user", text }); aiRender();
+    await aiWaitData();
+    const msgs = [{ role: "system", content: aiSystem() }, ...AI.history, { role: "user", content: text }], used = [];
+    try {
+      for (let round = 0; round < 6; round++) {
+        const res = await fetch("api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, messages: msgs, tools: aiToolSpec() }) });
+        const j = await res.json().catch(() => ({ error: `The AI relay answered ${res.status}.` }));
+        if (!res.ok || j.error) throw new Error(j.error || `The AI relay answered ${res.status}.`);
+        const m = j.message || {};
+        if (m.tool_calls?.length) {
+          msgs.push({ role: "assistant", content: m.content || null, tool_calls: m.tool_calls });
+          for (const tc of m.tool_calls) {
+            let args = {};
+            try { args = JSON.parse(tc.function?.arguments || "{}"); } catch { /* empty arguments */ }
+            const fn = AI_RUN[tc.function?.name];
+            let out;
+            try { out = fn ? fn(args) : { error: "Unknown lookup." }; } catch (e) { out = { error: `The lookup failed (${e.message}).` }; }
+            if (!out.error) used.push({ name: tc.function.name, out });
+            msgs.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(aiForModel(out)) });
+          }
+          continue;
+        }
+        const answer = m.content || "(no answer)";
+        AI.history.push({ role: "user", content: text }, { role: "assistant", content: answer });
+        AI.history = AI.history.slice(-12);
+        AI.items.push({ who: "ai", text: answer, used, provider: (AI.providers || []).find((p) => p.id === provider)?.label || provider });
+        break;
+      }
+    } catch (e) { AI.items.push({ who: "err", text: e.message }); }
+    AI.busy = false; aiRender();
+  }
+  // light markdown: **bold**, bullet lines, line breaks
+  const aiMd = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split(/\n/).map((l) => (/^\s*[-•*]\s+/.test(l) ? `<li>${l.replace(/^\s*[-•*]\s+/, "")}</li>` : l ? `<p>${l}</p>` : "")).join("").replace(/(<li>.*?<\/li>)+/g, (x) => `<ul>${x}</ul>`);
+  function aiDownload(ti) {
+    const t = AI.tables[ti]; if (!t) return;
+    const fx = (f) => (f === "bdt" ? "n" : f === "mixed" ? "t" : f);
+    const rows = t.rows.map((r) => r.map((v, i) => (v && typeof v === "object" && "f" in v ? aiFmt(v.v, v.f) : v)));
+    const book = xlBook([{ name: "Answer", cols: t.cols.map((c) => ({ h: c.h, f: fx(c.f), w: c.f === "t" ? 26 : 13 })), rows }]), url = URL.createObjectURL(book), a = document.createElement("a");
+    a.href = url; a.download = `ask-ai_${t.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 60)}.xlsx`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  const AI_SUGGEST = ["How is sales achievement for each regional leader?", "Which zonals are the weakest?", "Top 10 outlets with the lowest Core availability", "Which categories are declining the most vs last year?", "কোন ক্যাটাগরিতে Core availability সবচেয়ে কম?", "60% er niche Core availability koyta outlet ache? RHO wise bolo", "Stock gap by category last month", "Loss-making outlets with their main reason"];
+  function aiRender() {
+    let host = $("#aiPanel");
+    if (!host) { host = document.createElement("aside"); host.id = "aiPanel"; host.className = "ai-panel"; document.body.append(host); }
+    let fab = $("#aiFab");
+    if (!fab) { fab = document.createElement("button"); fab.id = "aiFab"; fab.className = "ai-fab"; fab.type = "button"; fab.innerHTML = "✦ Ask AI"; fab.onclick = () => { AI.open = !AI.open; aiRender(); if (AI.open) aiProviders(); }; document.body.append(fab); }
+    host.hidden = !AI.open; fab.hidden = AI.open;
+    if (!AI.open) return;
+    const provs = AI.providers || [], pick = aiLS.get("aiProv");
+    AI.tables = [];
+    const body = AI.items.length ? AI.items.map((it) => {
+      if (it.who === "user") return `<div class="ai-msg ai-user">${esc(it.text)}</div>`;
+      if (it.who === "err") return `<div class="ai-msg ai-err">${esc(it.text)}</div>`;
+      const cards = (it.used || []).map((u) => { const ti = AI.tables.push(u.out) - 1, t = u.out, show = t.rows.slice(0, 8); return `<div class="ai-card"><div class="ai-card-h"><span>${esc(t.title)} · ${int(t.rows.length)} rows</span><button type="button" class="btn" data-aixl="${ti}">⬇ Excel</button></div>
+        <div class="table-wrap"><table class="compact"><thead><tr>${t.cols.map((c) => `<th>${esc(c.h)}</th>`).join("")}</tr></thead><tbody>${show.map((r) => `<tr>${r.map((v, i) => `<td>${esc(aiCell(v, t.cols[i].f))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.rows.length > 8 ? `<p class="muted ai-more">First 8 of ${int(t.rows.length)}; the Excel has all.</p>` : ""}</div>`; }).join("");
+      return `<div class="ai-msg ai-bot">${aiMd(it.text)}</div>${cards}<div class="ai-meta"><span>${esc(it.provider || "")}${it.used?.length ? ` · Looked up: ${esc([...new Set(it.used.map((u) => u.name.replace(/_/g, " ")))].join(", "))}` : ""}</span><button type="button" class="ai-copy" data-aicopy="${esc(it.text)}">Copy</button></div>`;
+    }).join("") : `<div class="ai-hello"><h3>Ask anything about this dashboard</h3><p class="muted">I read the same data you see: sales and targets, growth, gross profit, loss-making outlets, consumable and wastage, availability, store assessment, item performance, receiving, visits, credit card, DOS, stock gap and KPIs. Ask in English, বাংলা or Banglish.</p>${AI_SUGGEST.map((q) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
+    host.innerHTML = `<header class="ai-head"><div><b>✦ Ask AI</b><div class="ai-sub">${provs.length ? `<select id="aiProv" class="sel" aria-label="AI">${provs.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>` : ""}<span class="muted"> · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div></div>
+        <div class="ai-tools"><button type="button" class="btn" id="aiReset" title="New conversation">⟲</button><button type="button" class="btn" id="aiClose" title="Close">✕</button></div></header>
+      <div class="ai-body" id="aiBody">${AI.providers === null ? '<p class="muted">Connecting…</p>' : provs.length ? body : `<div class="ai-msg ai-err">${esc(AI.err || "Ask AI isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div>`}${AI.busy ? '<div class="ai-msg ai-bot ai-typing">Looking it up…</div>' : ""}</div>
+      <footer class="ai-foot"><div class="ai-input"><textarea id="aiText" rows="2" placeholder="Ask about sales, availability, outlets, categories…" ${provs.length && !AI.busy ? "" : "disabled"}></textarea><button type="button" class="btn primary" id="aiSend" ${provs.length && !AI.busy ? "" : "disabled"}>➤</button></div>
+        <p class="muted ai-note">Enter to send · Shift+Enter for a new line. Figures come from the dashboard's data; the AI can still misread a question, so check key figures.</p></footer>`;
+    const send = () => { const t = $("#aiText"); const v = t.value; t.value = ""; aiAsk(v); };
+    $("#aiSend").onclick = send;
+    $("#aiText").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+    $("#aiClose").onclick = () => { AI.open = false; aiRender(); };
+    $("#aiReset").onclick = () => { AI.history = []; AI.items = []; aiRender(); };
+    $("#aiProv") && ($("#aiProv").onchange = (e) => aiLS.set("aiProv", e.target.value));
+    $$("[data-aiq]", host).forEach((b) => (b.onclick = () => aiAsk(b.dataset.aiq)));
+    $$("[data-aixl]", host).forEach((b) => (b.onclick = () => aiDownload(+b.dataset.aixl)));
+    $$("[data-aicopy]", host).forEach((b) => (b.onclick = () => { navigator.clipboard?.writeText(b.dataset.aicopy); b.textContent = "Copied"; }));
+    const bodyEl = $("#aiBody"); bodyEl.scrollTop = bodyEl.scrollHeight;
+    if (!AI.busy) $("#aiText")?.focus();
+  }
+  function aiProviders() {
+    if (AI.providers !== null) return;
+    fetch("api/ai/providers", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((p) => { AI.providers = Array.isArray(p) ? p : []; })
+      .catch(() => { AI.providers = []; AI.err = "Ask AI isn't reachable here (the relay runs on the server; set AZURE_OPENAI_* or QWEN_* in Coolify)."; })
+      .finally(aiRender);
+  }
+  // local preview only: let the lookups be tried without an AI behind them
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__aiRun = (name, args) => { const out = AI_RUN[name](args || {}); return out.error ? out : aiForModel(out); };
+
   // ------------------------------------------------------------------ render
   function render() {
     renderNav(); renderTop(); renderPills();
@@ -6190,6 +6453,7 @@
       S.data = d;
       if (!d.tilldate && d.monthend) S.period = "monthend";
       route();
+      aiRender();
     })
     .catch((e) => {
       $("#view").innerHTML = `<p class="empty">The data file could not be loaded (${esc(e.message)}). Run the "Refresh data" workflow on GitHub, then reload this page.</p>`;

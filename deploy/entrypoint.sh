@@ -66,4 +66,12 @@ refresh() {
   done
 ) &
 
+# Ask AI relay: keys come from AZURE_OPENAI_* / QWEN_* environment variables; restarted if it ever stops
+(
+  while true; do
+    python3 /app/scripts/ai/server.py || echo "Ask AI relay stopped; restarting."
+    sleep 5
+  done
+) &
+
 exec nginx -g 'daemon off;'
