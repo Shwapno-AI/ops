@@ -6140,7 +6140,7 @@
   const aiTable = (title, cols, rows, extra = {}) => ({ title, cols, rows, ...extra });
   const aiLeaders = () => arRhos();
   // names match by whole words, ignoring Mr./Ms./Md. and punctuation: "riaz", "Mr. Riaz" and "Riaz Uddin" all find Mr. Riaz
-  const aiWords = (s) => String(s || "").toLowerCase().replace(/[^a-z ]+/g, " ").split(/\s+/).filter((w) => w && !/^(mr|ms|mrs|md|mohammad|muhammad)$/.test(w));
+  const aiWords = (s) => String(s || "").toLowerCase().replace(/[^a-z ]+/g, " ").split(/\s+/).filter((w) => w && !/^(mr|ms|mrs|md|mohammad|muhammad|bhai|bhaiya|vai|sir|apa|apu)$/.test(w));
   function aiFind(name, list, alias = () => "") {
     const q = aiWords(name); if (!q.length) return null;
     const same = (a, b) => a.length === b.length && a.every((w, i) => w === b[i]);
@@ -6347,12 +6347,49 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     const book = xlBook([{ name: "Answer", cols: t.cols.map((c) => ({ h: c.h, f: fx(c.f), w: c.f === "t" ? 26 : 13 })), rows }]), url = URL.createObjectURL(book), a = document.createElement("a");
     a.href = url; a.download = `ask-ai_${t.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 60)}.xlsx`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
+  // Try asking: [topic, question, shown under "Popular"]. Every question is one the lookups can answer.
+  const AI_TOPIC_ICON = { Sales: "📈", Growth: "🚀", "Gross profit": "💰", "Loss-making": "💸", "Consumable & wastage": "🗑️", Availability: "📦", "Store assessment": "📋", Categories: "🛒", Receiving: "🚚", Visits: "🗓️", "Credit card": "💳", DOS: "⏳", "Stock gap": "🔍", KPI: "🎯", Zonals: "⚠️", "বাংলা": "বাং", Banglish: "Ab", Data: "🕒" };
   const AI_SUGGEST = [
-    ["📈", "Sales", "How is sales achievement for each regional leader?"], ["⚠️", "Zonals", "Which zonals are the weakest?"],
-    ["📦", "Availability", "Top 10 outlets with the lowest Core availability"], ["🛒", "Categories", "Which categories are declining the most vs last year?"],
-    ["বাং", "বাংলা", "কোন ক্যাটাগরিতে Core availability সবচেয়ে কম?"], ["Ab", "Banglish", "60% er niche Core availability koyta outlet ache? RHO wise bolo"],
-    ["🔍", "Stock gap", "Stock gap by category last month"], ["💸", "Loss", "Loss-making outlets with their main reason"]];
-  const AI_TOPICS = ["Sales & target", "Growth", "Gross profit", "Loss-making", "Consumable & wastage", "Availability", "Store assessment", "Item performance", "Receiving", "Visits", "Credit card", "DOS", "Stock gap", "KPI"];
+    ["Sales", "How is sales achievement for each regional leader?", 1],
+    ["Sales", "Which 10 outlets have the lowest achievement this month?"],
+    ["Sales", "What is the national target, achieved sales and achievement till date?"],
+    ["Growth", "Same-store growth vs last year for each regional leader"],
+    ["Growth", "Top 10 outlets with the biggest decline vs last year", 1],
+    ["Growth", "Which outlets are growing the most vs last year?"],
+    ["Gross profit", "Which outlets have a GP margin below 15%?", 1],
+    ["Gross profit", "National GP margin this month vs last year"],
+    ["Loss-making", "Loss-making outlets with their main reason", 1],
+    ["Loss-making", "How many loss-making outlets are older than 6 months?"],
+    ["Loss-making", "Which regional leader has the highest share of loss-making outlets?"],
+    ["Consumable & wastage", "Top 10 outlets with the highest wastage % on sales"],
+    ["Consumable & wastage", "Is consumable % on sales within target for each regional leader?"],
+    ["Availability", "Top 10 outlets with the lowest Core availability", 1],
+    ["Availability", "KVI availability by product division"],
+    ["Availability", "Promo availability by regional leader"],
+    ["Availability", "Which categories have Core availability below 60%?"],
+    ["Store assessment", "Outlets with the lowest store assessment score"],
+    ["Store assessment", "How many outlets are graded Critical or Needs work?"],
+    ["Categories", "Which categories are declining the most vs last year?", 1],
+    ["Categories", "Which categories grew the most for Mr. Riaz?"],
+    ["Receiving", "Top 10 outlets by over-receiving value"],
+    ["Visits", "Outlets with planned visits but few visits on the planned day"],
+    ["Credit card", "Which outlets have the highest credit card extra cost?"],
+    ["DOS", "Which outlets have DOS over 45 days?"],
+    ["Stock gap", "Stock gap by category last month", 1],
+    ["Stock gap", "Which outlets have the highest stock gap % this year?"],
+    ["Stock gap", "Stock gap trend by month"],
+    ["KPI", "Show National KPI target vs actual"],
+    ["KPI", "How is Mr. Sunny doing on his KPIs?"],
+    ["Zonals", "Which zonals are the weakest?", 1],
+    ["Zonals", "Rank Mr. Kaushik's zonals from weakest to strongest"],
+    ["বাংলা", "কোন ক্যাটাগরিতে Core availability সবচেয়ে কম?", 1],
+    ["বাংলা", "এই মাসে কোন রিজিওনাল লিডারের অর্জন সবচেয়ে কম?"],
+    ["বাংলা", "লস করা আউটলেট কয়টি, আর প্রধান কারণ কী?"],
+    ["Banglish", "60% er niche Core availability koyta outlet ache? RHO wise bolo", 1],
+    ["Banglish", "Wastage target er upore koyta outlet ache?"],
+    ["Banglish", "Riaz bhai er zone e stock gap koto?"],
+    ["Data", "Which dates does each data source cover?"],
+  ];
   function aiRender() {
     let host = $("#aiPanel");
     if (!host) { host = document.createElement("aside"); host.id = "aiPanel"; host.className = "ai-panel"; host.setAttribute("role", "dialog"); host.setAttribute("aria-label", "Ask AI"); document.body.append(host); }
@@ -6371,8 +6408,8 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
         <div class="ai-tw"><table><thead><tr>${t.cols.map((c) => `<th>${esc(c.h)}</th>`).join("")}</tr></thead><tbody>${show.map((r) => `<tr>${r.map((v, i) => `<td>${esc(aiCell(v, t.cols[i].f))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.rows.length > 8 ? `<p class="ai-more">Showing 8 of ${int(t.rows.length)} · the Excel has every row</p>` : ""}</div>`; }).join("");
       return `<div class="ai-row">${avatar}<div class="ai-stack"><div class="ai-msg ai-bot">${aiMd(it.text)}</div>${cards}<div class="ai-meta"><span>${esc(it.provider || "")}${it.used?.length ? ` · Looked up: ${esc([...new Set(it.used.map((u) => u.name.replace(/_/g, " ")))].join(", "))}` : ""}</span><button type="button" class="ai-copy" data-aicopy="${esc(it.text)}">⧉ Copy</button></div></div></div>`;
     }).join("") : `<div class="ai-hello"><div class="ai-hero">${avatar}<div><h3>Hi! What would you like to know?</h3><p>I answer from the same data you see on this dashboard, in English, বাংলা or Banglish.</p></div></div>
-        <div class="ai-topics">${AI_TOPICS.map((t) => `<span>${esc(t)}</span>`).join("")}</div>
-        <h4>Try asking</h4><div class="ai-sugs">${AI_SUGGEST.map(([ic, tag, q]) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}"><i aria-hidden="true">${ic}</i><span><small>${esc(tag)}</small>${esc(q)}</span></button>`).join("")}</div></div>`;
+        <div class="ai-topics" role="group" aria-label="Filter questions">${["Popular", "All", ...Object.keys(AI_TOPIC_ICON)].map((t) => `<button type="button" data-aitopic="${esc(t)}" aria-pressed="${(AI.topic || "Popular") === t}">${esc(t)}</button>`).join("")}</div>
+        <h4>Try asking${AI.topic && AI.topic !== "Popular" && AI.topic !== "All" ? ` · ${esc(AI.topic)}` : ""}</h4><div class="ai-sugs">${AI_SUGGEST.filter(([t, , pop]) => ((AI.topic || "Popular") === "Popular" ? pop : AI.topic === "All" || t === AI.topic)).map(([tag, q]) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}"><i aria-hidden="true">${AI_TOPIC_ICON[tag]}</i><span><small>${esc(tag)}</small>${esc(q)}</span></button>`).join("")}</div></div>`;
     const off = AI.providers === null ? '<div class="ai-wait"><span class="ai-dots"><i></i><i></i><i></i></span> Connecting…</div>'
       : `<div class="ai-row">${avatar}<div class="ai-msg ai-err">${esc(AI.err || "Ask AI isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div></div>`;
     host.innerHTML = `<header class="ai-head">${avatar}<div class="ai-title"><b>Ask AI</b><span>Operations dashboard assistant · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div>
@@ -6390,9 +6427,10 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     $("#aiReset").onclick = () => { AI.history = []; AI.items = []; aiRender(); };
     $("#aiProv") && ($("#aiProv").onchange = (e) => aiLS.set("aiProv", e.target.value));
     $$("[data-aiq]", host).forEach((b) => (b.onclick = () => aiAsk(b.dataset.aiq)));
+    $$("[data-aitopic]", host).forEach((b) => (b.onclick = () => { AI.topic = b.dataset.aitopic; aiRender(); }));
     $$("[data-aixl]", host).forEach((b) => (b.onclick = () => aiDownload(+b.dataset.aixl)));
     $$("[data-aicopy]", host).forEach((b) => (b.onclick = () => { navigator.clipboard?.writeText(b.dataset.aicopy); b.textContent = "✓ Copied"; }));
-    const bodyEl = $("#aiBody"); bodyEl.scrollTop = bodyEl.scrollHeight;
+    const bodyEl = $("#aiBody"); bodyEl.scrollTop = AI.items.length || AI.busy ? bodyEl.scrollHeight : 0; // the start screen stays at its top
     if (!AI.busy) ta.focus();
   }
   function aiProviders() {

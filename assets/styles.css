@@ -251,7 +251,9 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ai-hero h3{margin:0 0 3px;font-size:16px}
 .ai-hero p{margin:0;font-size:13px;color:var(--ink-2)}
 .ai-topics{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 4px}
-.ai-topics span{font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line-soft)}
+.ai-topics button{font:inherit;font-size:11.5px;padding:3px 10px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line-soft);cursor:pointer}
+.ai-topics button:hover{border-color:var(--ai-deep)}
+.ai-topics button[aria-pressed="true"]{background:var(--ai-green);color:var(--ai-ink);border-color:var(--ai-green-2);font-weight:600}
 .ai-hello h4{margin:16px 0 8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)}
 .ai-sugs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ai-sug{display:flex;gap:10px;align-items:flex-start;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.4;cursor:pointer;color:var(--ink);transition:border-color .15s,transform .15s}
