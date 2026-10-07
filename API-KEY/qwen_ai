@@ -1,0 +1,14 @@
+# Qwen settings for Shaki Local DB -- Chat With Data
+# (works for Qwen on Alibaba Cloud Model Studio, or any AI with an OpenAI-compatible API)
+# 1) Save this file as:  D:\Shaki\1. DB\_auth\qwen_ai.txt
+# 2) Fill in the values after the = signs:
+#    label    = the name users see in the chat's AI menu
+#    endpoint = the OpenAI-compatible base URL from Model Studio's API page
+#               (it ends with /compatible-mode/v1 -- it differs by region / workspace)
+#    model    = the model name you have access to (e.g. qwen-plus, qwen-max, qwen-flash)
+#    key      = your Model Studio API key
+
+label=Ali-baba Qwen
+endpoint=https://ws-d4rwqeh4q74575mg.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+model=qwen3.8-flash
+key=sk-ws-H.DHXDYPI.Hp5p.MEQCIF0CDMGvyldnZyksNs6OfQBDsikp-a5iZjUfDeSw6M7LAiAva4W_3K5zjLiBzr590M37yU9DBjPAZuZ4OAQko4BZnA
