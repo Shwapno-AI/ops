@@ -155,7 +155,7 @@ def classify(path):
             return "pnl", (wb, heads)
     for rows in heads.values():
         f = flat(rows)
-        if {"code", "dos"} <= f:
+        if "dos" in f and f & {"code", "outlet code"}:
             return "dos", (wb, heads)
     for rows in heads.values():
         f = flat(rows)
@@ -641,11 +641,12 @@ def parse_dos(path, wb, heads):
     src = os.path.basename(path)
     best = None
     for t, rows in heads.items():
-        hi = next((i for i, row in enumerate(rows) if {"code", "dos"} <= {norm(v) for v in row if v is not None}), None)
+        # the code column is headed "CODE" or "Outlet Code" depending on the month's file
+        hi = next((i for i, row in enumerate(rows) if (lambda h: "dos" in h and h & {"code", "outlet code"})({norm(v) for v in row if v is not None})), None)
         if hi is None:
             continue
         idx = header_map(rows[hi])
-        ci, di = idx["code"], idx["dos"]
+        ci, di = idx.get("code", idx.get("outlet code")), idx["dos"]
         out = {}
         for n, row in enumerate(wb[t].iter_rows(values_only=True)):
             if n <= hi:
