@@ -10,7 +10,7 @@
     { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock Gap"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
-    { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"]] },
+    { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
     { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"]] },
@@ -28,7 +28,8 @@
   const IP_PAGES = new Set(["ipo", "ipt", "ipc", "ips"]);
   const SA_PAGES = new Set(["sao", "sav", "sas", "saq", "sac"]);
   // Every page whose data can be narrowed by outlet (or, for KPI performance, by leader) shows the sidebar filters.
-  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
+  const PNL_PAGES = new Set(["loss", "profit"]); // pages built on the outlet P&L
+  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", "profit", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
@@ -54,9 +55,9 @@
   ];
 
   const S = { data: null, page: "overview", period: "tilldate", filters: {}, openDim: null, tables: {}, level: "rl", bands: new Set(), lastFocus: null,
-    cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", plevel: "rl", ageDrill: null,
+    cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", prstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
-    gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
+    gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
     cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
@@ -160,13 +161,13 @@
   }
   const dimVal = (o, k) => (k !== "age" ? o.dim[k] : S.data?.master ? (o.dim.age ||= outletAgeBand(o.c)) : AGE_NA);
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)));
-  const baseList = () => (S.page === "performance" ? kpiPeople() : SA_PAGES.has(S.page) ? (S.sa ? saRows() : []) :NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : S.page === "loss" ? pnlList() : rep()?.outlets || []);
+  const baseList = () => (S.page === "performance" ? kpiPeople() : SA_PAGES.has(S.page) ? (S.sa ? saRows() : []) :NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : PNL_PAGES.has(S.page) ? pnlList() : rep()?.outlets || []);
   // Sales pages also follow the Stores switch (same store = the report's list vs last year, or vs last month
   // on pages compared with last month).
   const scopeCmp = () => (["growth", "footfall", "ranking"].includes(S.page) ? S.cmp : "y");
   const scopeName = () => { const n = SCOPES.find((x) => x[0] === S.scope)[1]; return S.scope === "own" || S.scope === "fran" ? `${n.toLowerCase()} outlets` : n.toLowerCase(); };
   const storesOk = (o) => !SALES_PAGES.has(S.page) || inScope(o, S.scope, scopeCmp());
-  const inViewAllStores = () => baseList().filter((o) => matches(o) && (S.page !== "loss" || lossAgeOk(o)));
+  const inViewAllStores = () => baseList().filter((o) => matches(o) && (!PNL_PAGES.has(S.page) || lossAgeOk(o)));
   const inView = () => inViewAllStores().filter(storesOk);
   // Loss page outlet-age filter: open a year or more, or under a year (outlets without an opening date only under All).
   function lossAgeOk(o) {
@@ -422,7 +423,7 @@
       const when = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" }).replace("Sept", "Sep");
       const fresh = (upTo, t) => { $("#fresh").textContent = `${upTo ? upTo + " · " : ""}updated ${when(t)}`; $("#fresh").title = "When the data was last refreshed from Google Drive"; };
       const r0 = rep();
-      fresh(S.page === "performance" && d.kpi?.months?.length ? `KPI ${fmonth(d.kpi.months[d.kpi.months.length - 1])}` : S.page === "loss" && d.pnl ? `P&L ${fmonth(d.pnl.months[d.pnl.months.length - 1])}` : r0 ? `Data to ${fdate(r0.date, true)}` : "", d.generated);
+      fresh(S.page === "performance" && d.kpi?.months?.length ? `KPI ${fmonth(d.kpi.months[d.kpi.months.length - 1])}` : PNL_PAGES.has(S.page) && d.pnl ? `P&L ${fmonth(d.pnl.months[d.pnl.months.length - 1])}` : r0 ? `Data to ${fdate(r0.date, true)}` : "", d.generated);
       if (AV_PAGES.has(S.page)) {
         const a = S.av;
         if (a) { const st = (a.files || []).find((f) => f.kind === "stock"); fresh(st?.modified ? `Stock ${fdate(st.modified.slice(0, 10), true)}` : "", a.generatedAt); }
@@ -460,7 +461,7 @@
         return;
       }
       const r = rep();
-      $("#scope").textContent = S.page === "loss" && d.pnl ? `Outlet P&L for ${S.pm === "ytd" ? "the year to date" : fmonth(S.pm || d.pnl.months[d.pnl.months.length - 1])}. ${int(inView().filter((o) => o.s >= 1).length)} trading outlets in view${S.lage === "old" ? ", open 1 year or more" : S.lage === "new" ? ", open under 1 year" : ""}.` : showP && r ? `${r.closed ? "Closed month" : "Month to date"}, ${r.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(r.date)}.${SALES_PAGES.has(S.page) ? ` ${int(inView().length)} outlets in view${S.scope === "all" ? "" : `, ${scopeName()}`}.` : " Company-wide figures."}` : "";
+      $("#scope").textContent = PNL_PAGES.has(S.page) && d.pnl ? `Outlet P&L for ${S.pm === "ytd" ? "the year to date" : fmonth(S.pm || d.pnl.months[d.pnl.months.length - 1])}. ${int(inView().filter((o) => o.s >= 1).length)} trading outlets in view${S.lage === "old" ? ", open 1 year or more" : S.lage === "new" ? ", open under 1 year" : ""}.` : showP && r ? `${r.closed ? "Closed month" : "Month to date"}, ${r.splm_label?.replace(/^Same Day SPLM\s*/i, "") || fdate(r.date)}.${SALES_PAGES.has(S.page) ? ` ${int(inView().length)} outlets in view${S.scope === "all" ? "" : `, ${scopeName()}`}.` : " Company-wide figures."}` : "";
     }
   }
   function changed() {
@@ -727,7 +728,7 @@
       t.insertAdjacentHTML("beforeend", ' <span class="hint-i" aria-hidden="true">ⓘ</span>');
       d.classList.add("hint-text");
     });
-    $$("[data-age-band]", root).forEach((b) => (b.onclick = () => openAgeOutlets(b.dataset.ageBand, b.dataset.ageScope === "loss")));
+    $$("[data-age-band]", root).forEach((b) => (b.onclick = () => openAgeOutlets(b.dataset.ageBand, b.dataset.ageScope)));
     $$("[data-outlet]", root).forEach((tr) => { tr.onclick = () => openOutlet(tr.dataset.outlet); tr.onkeydown = (e) => { if (e.key === "Enter") openOutlet(tr.dataset.outlet); }; });
     $$("[data-pnl]", root).forEach((tr) => { tr.onclick = () => openPnl(tr.dataset.pnl); tr.onkeydown = (e) => { if (e.key === "Enter") openPnl(tr.dataset.pnl); }; });
     $$("[data-khead]", root).forEach((tr) => { tr.onclick = (e) => { e.stopPropagation(); openHead(tr.dataset.khead); }; tr.onkeydown = (e) => { if (e.key === "Enter") { e.stopPropagation(); openHead(tr.dataset.khead); } }; });
@@ -772,6 +773,8 @@
     $$("[data-gclear]", root).forEach((b) => (b.onclick = () => { delete S.gdrill[b.dataset.gclear]; render(); }));
     $$("[data-lreason]", root).forEach((b) => (b.onclick = () => openLossReason(b.dataset.lreason, b.dataset.lrl)));
     $$("[data-lstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openLossStatus(n.dataset.lstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
+    $$("[data-pstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openProfitStatus(n.dataset.pstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
+    $$("[data-pformat]", root).forEach((b) => (b.onclick = () => openProfitFormat(b.dataset.pformat)));
     // Leader tables (leaderDrill): level switch, drill down a level, breadcrumb back.
     // Re-render in place; only bring the table back into view when its title has scrolled above the header.
     const dGo = (n, follow) => {
@@ -1332,27 +1335,27 @@
   function ageDrillLink(bandName, scope, value, label, cls = "") {
     return `<button type="button" class="age-drill-link ${cls}" data-age-band="${esc(bandName)}" data-age-scope="${scope}" aria-label="${esc(label + ": " + bandName)}" title="${esc(label + ": " + bandName)}">${value}</button>`;
   }
-  function openAgeOutlets(bandName, onlyLoss) {
+  function openAgeOutlets(bandName, scope) {
     if (!S.data.pnl) return;
     S.lastFocus = document.activeElement;
-    S.ageDrill = { bandName, onlyLoss, outlet: null };
+    S.ageDrill = { bandName, scope, outlet: null };
     delete S.tables["age-outlets"];
     drawAgeOutlets();
   }
   function drawAgeOutlets() {
     const context = S.ageDrill;
     if (!context) return;
-    const { bandName, onlyLoss } = context;
+    const { bandName, scope } = context;
     const rows = inView().map((o) => ({ o, ...pnlCalc(o) }))
-      .filter((x) => !x.closed && ageBand(x.age) === bandName && (!onlyLoss || x.loss))
+      .filter((x) => !x.closed && ageBand(x.age) === bandName && (scope === "loss" ? x.loss : scope === "profit" ? isProfit(x) : true))
       .map((x) => ({ ...x, key: x.o.c, name: x.o.nm, sub: `${x.o.c}, ${x.o.dim.rl}, ${x.o.dim.zn}`, s: x.o.s }));
     const periodName = S.pm === "ytd" ? "Year to date" : fmonth(S.pm);
     const basisName = S.pbasis === "after" ? "after financing cost" : "before financing cost";
-    $("#drawerTitle").textContent = `${onlyLoss ? "Loss-making outlets" : "Trading outlets"}: ${bandName}`;
+    $("#drawerTitle").textContent = `${scope === "loss" ? "Loss-making outlets" : scope === "profit" ? "Profit-making outlets" : "Trading outlets"}: ${bandName}`;
     $("#drawerBody").innerHTML = mountTable("age-outlets", {
-      title: `${periodName}, ${basisName}`, file: `outlets_by_age_${bandName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${onlyLoss ? "loss" : "all"}_${S.pm}_${S.pbasis}`,
+      title: `${periodName}, ${basisName}`, file: `outlets_by_age_${bandName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${scope === "loss" || scope === "profit" ? scope : "all"}_${S.pm}_${S.pbasis}`,
       desc: (n) => `${int(n)} outlets within the selected dashboard filters. Click an outlet for its cost breakdown.`,
-      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "pl", defaultDir: "asc",
+      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "pl", defaultDir: scope === "profit" ? "desc" : "asc",
       rowAttr: (x) => `data-pnl="${esc(x.key)}" tabindex="0"`,
       cols: [
         nameCol("outlet"),
@@ -1582,6 +1585,158 @@
       </div>
       <p class="muted" style="margin:0">${int(young)} of the ${int(losses.length)} loss-making outlets opened less than a year ago.</p>
       ${leadPanel}<div class="lr-row">${grp}<div class="lr-stack">${agePanel}${reasonPanel}</div></div>${list}`;
+  }
+  // ------------------------------------------------------------------ profit-making outlets (outlet P&L)
+  // The same P&L, month, basis and outlet-age switches as the loss page, seen from the profitable side:
+  // trading outlets with P/L of zero or more.
+  const PROFIT_STATUS = {
+    back: { label: "Back to profit", cls: "good" }, grow: { label: "Profit growing", cls: "good" },
+    shrink: { label: "Profit shrinking", cls: "warn" }, first: { label: "No prior month", cls: "idle" }, ytd: { label: "Profit year to date", cls: "good" },
+  };
+  const profitSt = (x) => (S.pm === "ytd" ? "ytd" : !isNum(x.pl0) ? "first" : x.pl0 < 0 ? "back" : x.pl >= x.pl0 ? "grow" : "shrink");
+  const isProfit = (x) => !x.closed && isNum(x.pl) && x.pl >= 0;
+  // Drawer list of profitable outlets, with a CSV of exactly what is shown.
+  function openProfitRows(title, rows, stats, file) {
+    const ytd = S.pm === "ytd";
+    S.lastFocus = document.activeElement; S.ageDrill = null;
+    NCSV.profitdrill = () => [file, ["Outlet code", "Outlet", "Regional leader", "Zonal", "Sales", "GP margin", "P/L", "Net margin", ...(ytd ? [] : ["P/L last month", "Change"]), "Status"],
+      rows.map((x) => [x.o.c, x.o.nm, x.o.dim.rl, x.o.dim.zn, Math.round(x.o.s || 0), pcsv(x.gpp), isNum(x.pl) ? Math.round(x.pl) : "", pcsv(ratio(x.pl, x.o.s)), ...(ytd ? [] : [isNum(x.pl0) ? Math.round(x.pl0) : "", isNum(x.chg) ? Math.round(x.chg) : ""]), PROFIT_STATUS[profitSt(x)].label]), ytd ? "ytd" : S.pm];
+    $("#drawerTitle").textContent = title;
+    $("#drawerBody").innerHTML = `<div class="stat-grid three">${stats.map(([l, v, cls]) => `<div class="stat"><small>${l}</small><strong${cls ? ` class="${cls}"` : ""}>${v}</strong></div>`).join("")}</div>
+      <div class="lr-dtools"><span class="muted">${int(rows.length)} outlets. Click an outlet for its full breakdown.</span>${csvBtn("profitdrill")}</div>
+      <div class="table-wrap" style="max-height:560px"><table class="compact"><thead><tr><th>Outlet</th><th class="num">Sales</th><th class="num">P/L</th><th class="num">Net margin</th>${ytd ? "" : '<th class="num">P/L last month</th>'}</tr></thead><tbody>
+      ${rows.map((x) => `<tr data-pnl="${esc(x.o.c)}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(x.o.nm)}</span><span class="cell-secondary">${esc(x.o.c)}, ${esc(x.o.dim.rl)}, ${esc(x.o.dim.zn)}</span></td><td class="num">${bdt(x.o.s)}</td><td class="num"><strong class="${x.pl < 0 ? "down" : "up"}">${bdt(x.pl)}</strong></td><td class="num">${pct(ratio(x.pl, x.o.s), 1)}</td>${ytd ? "" : `<td class="num"><span class="${x.pl0 < 0 ? "down" : "up"}">${bdt(x.pl0)}</span></td>`}</tr>`).join("") || `<tr><td colspan="${ytd ? 4 : 5}" class="empty">No outlets.</td></tr>`}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  function openProfitStatus(kind) {
+    const all = lossRowsInView();
+    const def = {
+      back: ["Back to profit", "Loss-making last month, profitable this month", (x) => isProfit(x) && isNum(x.pl0) && x.pl0 < 0],
+      grow: ["Profit growing", "Profitable both months, more profit this month", (x) => isProfit(x) && profitSt(x) === "grow"],
+      shrink: ["Profit shrinking", "Profitable both months, less profit this month", (x) => isProfit(x) && profitSt(x) === "shrink"],
+      lost: ["Profit lost", "Profitable last month, loss-making this month", (x) => x.loss && isNum(x.pl0) && x.pl0 >= 0],
+      established: ["Established outlets in profit", "Profitable outlets open a year or more", (x) => isProfit(x) && x.age != null && x.age >= 12],
+    }[kind];
+    const rows = all.filter(def[2]).sort((a, b) => (kind === "lost" ? a.pl - b.pl : b.pl - a.pl));
+    const sumPl = rows.reduce((t, x) => t + (x.pl || 0), 0), sumPl0 = rows.reduce((t, x) => t + (x.pl0 || 0), 0);
+    openProfitRows(`${def[0]}, ${S.pm === "ytd" ? "year to date" : fmonth(S.pm)}`, rows,
+      [[def[1], int(rows.length)], [S.pm === "ytd" ? "P/L year to date" : "P/L this month", `<span class="${sumPl < 0 ? "down" : "up"}">${bdt(sumPl)}</span>`], ["P/L last month", `<span class="${sumPl0 < 0 ? "down" : "up"}">${bdt(sumPl0)}</span>`]],
+      `profit_${kind}_${S.pbasis}`);
+  }
+  function openProfitFormat(fmt) {
+    const rows = lossRowsInView().filter((x) => isProfit(x) && (!fmt || x.o.dim.fmt === fmt)).sort((a, b) => b.pl - a.pl), tot = rows.reduce((t, x) => t + x.pl, 0);
+    openProfitRows(`Profit-making outlets, ${fmt || "all formats"}`, rows,
+      [["Profit-making outlets", int(rows.length)], ["Total profit", `<span class="up">${bdt(tot)}</span>`], ["Average per outlet", bdt(rows.length ? tot / rows.length : null)]],
+      `profit_format_${lossSlug(fmt || "all")}_${S.pm}_${S.pbasis}`);
+  }
+  function pageProfit() {
+    const P = S.data.pnl;
+    if (!P) return `<p class="empty">No outlet P&L file is loaded yet. Add one to the Performance folder.</p>`;
+    pnlList();
+    const ytd = S.pm === "ytd";
+    const every = inView().map((o) => ({ o, ...pnlCalc(o) }));
+    const closedL = every.filter((x) => x.closed), all = every.filter((x) => !x.closed);
+    const profits = all.filter(isProfit);
+    profits.forEach((x) => (x.pst = profitSt(x)));
+    const sum = (arr, k) => arr.reduce((t, x) => t + (x[k] || 0), 0);
+    const totP = sum(profits, "pl"), net = sum(all, "pl"), salesP = profits.reduce((t, x) => t + (x.o.s || 0), 0);
+    const basisLbl = S.pbasis === "after" ? "after financing cost" : "before financing cost";
+    const periodName = ytd ? `year to date (${P.months.length} months)` : fmonth(S.pm);
+    const monthSel = `<select class="sel" data-sel="pm" aria-label="Month">${P.months.map((m) => `<option value="${m}" ${m === S.pm ? "selected" : ""}>${fmonth(m)}</option>`).join("")}${P.months.length > 1 ? `<option value="ytd" ${ytd ? "selected" : ""}>Year to date, ${fmonth(P.months[0])} to ${fmonth(P.months[P.months.length - 1])}</option>` : ""}</select>`;
+    const basisSeg = seg("pbasis", [["before", "Before financing cost"], ["after", "After financing cost"]], "P&L basis");
+    const ageSeg = seg("lage", [["all", "All outlets"], ["old", "Open 1 year or more"], ["new", "Under 1 year"]], "Outlet age");
+
+    // age bands
+    const bands = [...AGE_BANDS.map((b) => b[0]), "Opening date unknown"].map((b) => {
+      const inB = all.filter((x) => ageBand(x.age) === b), pB = inB.filter(isProfit);
+      return { b, n: inB.length, p: pB.length, profit: sum(pB, "pl") };
+    }).filter((x) => x.n);
+    const agePanel = `<section class="panel"><div class="panel-head"><div><h2>Profit-making outlets by age</h2><p>How many outlets of each age make money. Click a number for the outlets.</p></div></div>
+      <div class="table-wrap"><table class="compact lr-age"><thead><tr><th>Outlet age</th><th class="num">Outlets</th><th class="num">Profit-making</th><th class="num">Share</th><th class="num">Total profit</th></tr></thead><tbody>
+      ${bands.map((x) => `<tr><td class="cell-primary">${esc(x.b)}</td><td class="num">${ageDrillLink(x.b, "all", int(x.n), "View all trading outlets")}</td><td class="num">${ageDrillLink(x.b, "profit", int(x.p), "View profit-making outlets")}</td><td class="num">${ageDrillLink(x.b, "profit", pct(x.p / x.n), "View outlets behind the profit-making share")}</td><td class="num up">${ageDrillLink(x.b, "profit", bdt(x.profit), "View outlets contributing to total profit", "up")}</td></tr>`).join("")}
+      </tbody></table></div></section>`;
+
+    // by format
+    const fm = new Map();
+    all.forEach((x) => { const k = x.o.dim.fmt || MISS, r = fm.get(k) || { k, n: 0, p: 0, profit: 0, s: 0 }; r.n++; if (isProfit(x)) { r.p++; r.profit += x.pl; r.s += x.o.s || 0; } fm.set(k, r); });
+    const fmRows = [...fm.values()].filter((r) => r.n).sort((a, b) => b.profit - a.profit);
+    NCSV.pformat = () => [`profit_by_format_${S.pm}_${S.pbasis}`, ["Format", "Trading outlets", "Profit-making", "Share", "Total profit (Tk)", "Average per outlet (Tk)", "Net margin"], fmRows.map((r) => [r.k, r.n, r.p, pcsv(r.p / r.n), Math.round(r.profit), r.p ? Math.round(r.profit / r.p) : "", pcsv(ratio(r.profit, r.s))]), S.pm];
+    const maxP = Math.max(...fmRows.map((r) => r.profit), 1);
+    const plnk = (v, fmt) => (v ? `<button type="button" class="age-drill-link" data-pformat="${esc(fmt)}" title="${esc(`Profit-making outlets${fmt ? `, ${fmt}` : ""}`)}">${v}</button>` : '<span class="muted">0</span>');
+    const formatPanel = `<section class="panel"><div class="panel-head"><div><h2>Profit by format, ${esc(periodName)}</h2><p>Profit-making outlets and their profit, by store format. Net margin is profit on their sales. Click a number for the outlets.</p></div><div class="panel-tools">${csvBtn("pformat")}</div></div>
+      <div class="table-wrap" style="max-height:none"><table class="compact lr-rt pr-fmt"><thead><tr><th>Format</th><th class="num">Profit-making</th><th class="num">Share</th><th class="num">Total profit</th><th class="num">Net margin</th><th>Share of profit</th></tr></thead><tbody>
+      ${fmRows.map((r) => `<tr><td class="cell-primary">${esc(r.k)}</td><td class="num">${plnk(r.p ? `${int(r.p)} <span class="muted">of ${int(r.n)}</span>` : 0, r.k)}</td><td class="num">${pct(r.p / r.n, 0)}</td><td class="num up">${r.p ? bdt(r.profit) : "—"}</td><td class="num">${pct(ratio(r.profit, r.s), 1)}</td><td><div class="lr-bar pr-bar"><i style="width:${(Math.max(0, r.profit) / maxP) * 100}%"></i><span>${totP ? pct(r.profit / totP, 0) : "—"}</span></div></td></tr>`).join("")}
+      </tbody><tfoot><tr class="lr-total"><td>Total</td><td class="num">${plnk(int(profits.length), "")}</td><td class="num">${pct(profits.length / (all.length || 1), 0)}</td><td class="num up">${bdt(totP)}</td><td class="num">${pct(ratio(totP, salesP), 1)}</td><td></td></tr></tfoot></table></div></section>`;
+
+    // by regional leader > zonal > outlet; the profit-making list below follows the drill
+    const D = leaderDrill("pv", "profit-grp", all.map((x) => x.o), "click an outlet for its cost breakdown"), at = D.at, V = D.V;
+    const inPath = all.filter((x) => D.inPath(x.o));
+    let grpRows;
+    if (at === "outlet") {
+      grpRows = inPath.filter(isProfit).map((x) => ({ key: x.o.c, name: x.o.nm, sub: `${x.o.c}, ${x.o.dim.zn}`, x, pl: x.pl, s: x.o.s || 0, age: x.age }));
+    } else {
+      const g = new Map();
+      inPath.forEach((x) => { const k = x.o.dim[at]; if (!g.has(k)) g.set(k, []); g.get(k).push(x); });
+      grpRows = [...g.entries()].map(([k, xs]) => { const p = xs.filter(isProfit); return { key: k, name: k, sub: (() => { const t = `${int(xs.length)} outlet${xs.length === 1 ? "" : "s"}`; return at === "zn" ? D.zsub(k, t) : t; })(), n: xs.length, p: p.length, share: p.length / xs.length, profit: sum(p, "pl"), net: sum(xs, "pl"), s: xs.reduce((t, x) => t + (x.o.s || 0), 0) }; });
+    }
+    const nameLbl = LVL_ONE[at];
+    const grp = mountTable("profit-grp", {
+      title: V.zn || V.dis ? `Profit-making outlets of ${V.zn || V.dis}` : V.rl ? `Profit by zonal under ${V.rl}` : V.div ? `Profit by district in ${V.div}` : { rl: "Profit by regional leader", zn: "Profit by zonal", div: "Profit by division", dis: "Profit by district", outlet: "Profit-making outlets" }[at], file: D.file(`profit_${S.pm}`), pageSize: 25,
+      banner: D.crumbs, tools: D.tools,
+      desc: (n) => (at === "outlet" ? `${int(n)} profit-making outlet${n === 1 ? "" : "s"}, P&L ${basisLbl}, biggest profit first. Click an outlet for its cost breakdown.` : `${int(n)} ${LVL_MANY[at].toLowerCase()}, P&L ${basisLbl}. Click ${at === "rl" ? "a leader to see their zonals" : at === "div" ? "a division to see its districts" : "a row to list its outlets"}. The profit-making list below follows your selection.`),
+      rows: grpRows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: at === "outlet" ? "pl" : "profit", defaultDir: "desc",
+      rowAttr: (x) => (at === "outlet" ? `data-pnl="${esc(x.key)}" tabindex="0"` : D.pick(x)),
+      cols: at === "outlet"
+        ? [{ k: "name", label: nameLbl, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+          { k: "age", label: "Age", num: 1, fmt: (x) => ageTxt(x.age), csv: (x) => x.age ?? "" },
+          { k: "s", label: "Sales", num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s) },
+          { k: "pl", label: "P/L", num: 1, fmt: (x) => `<strong class="up">${bdt(x.pl)}</strong>`, csv: (x) => (isNum(x.pl) ? Math.round(x.pl) : "") },
+          { k: "nm", label: "Net margin", num: 1, val: (x) => ratio(x.pl, x.s), fmt: (x) => pct(ratio(x.pl, x.s), 1), csv: (x) => pcsv(ratio(x.pl, x.s)) },
+          { k: "status", label: "Status", val: (x) => profitSt(x.x), fmt: (x) => chip(PROFIT_STATUS[profitSt(x.x)]), csv: (x) => PROFIT_STATUS[profitSt(x.x)].label }]
+        : [{ k: "name", label: nameLbl, fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+          { k: "p", label: "Profit-making", num: 1, fmt: (x) => int(x.p) }, { k: "share", label: "Share", num: 1, fmt: (x) => pct(x.share), csv: (x) => pcsv(x.share) },
+          { k: "profit", label: "Total profit", num: 1, fmt: (x) => `<span class="up">${bdt(x.profit)}</span>`, csv: (x) => Math.round(x.profit) },
+          { k: "net", label: "Net outlet P/L", num: 1, fmt: (x) => `<span class="${x.net < 0 ? "down" : "up"}">${bdt(x.net)}</span>`, csv: (x) => Math.round(x.net) },
+          { k: "s", label: "Sales", num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s) }],
+    });
+
+    // outlet list
+    let rows = profits.map((x) => ({ key: x.o.c, name: x.o.nm, sub: `${x.o.c}, ${x.o.dim.rl}, ${x.o.dim.zn}`, ...x, s: x.o.s, nmg: ratio(x.pl, x.o.s) }));
+    if (S.prstat !== "all" && !ytd) rows = rows.filter((x) => x.pst === S.prstat);
+    rows = rows.filter((x) => D.inPath(x.o));
+    const where = [V.rl, V.zn].filter(Boolean).join(" › ");
+    const list = mountTable("profit", {
+      title: `Profit-making outlets, ${periodName}`, file: `profit_making_outlets_${S.pm}${where ? "_" + where.toLowerCase().replace(/[^a-z0-9]+/g, "_") : ""}`,
+      banner: where ? `<div class="drill-banner">Showing the profit-making outlets of <strong>${esc(where)}</strong> within the sidebar filters. <button type="button" data-dst="pv" data-dtab="profit-grp" data-dgo="top">Show all outlets</button></div>` : "",
+      desc: (n) => `${int(n)} outlet${n === 1 ? "" : "s"}. Net margin is P/L on sales; "Cushion" is how far sales could fall before the outlet stops covering its costs at its current margin. Click a row for the cost breakdown.`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "pl", defaultDir: "desc", rowAttr: (x) => `data-pnl="${esc(x.key)}" tabindex="0"`,
+      tools: ytd ? "" : seg("prstat", [["all", "All"], ["back", "Back to profit"], ["grow", "Growing"], ["shrink", "Shrinking"]], "Profit status"),
+      cols: [nameCol("outlet"),
+        { k: "age", label: "Age", num: 1, fmt: (x) => ageTxt(x.age), csv: (x) => x.age ?? "" },
+        { k: "s", label: "Sales", num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s || 0) },
+        { k: "gpp", label: "GP margin", num: 1, fmt: (x) => pct(x.gpp), csv: (x) => pcsv(x.gpp) },
+        { k: "oxp", label: "Opex to sales", num: 1, fmt: (x) => pct(x.oxp), csv: (x) => pcsv(x.oxp) },
+        { k: "pl", label: "P/L", num: 1, fmt: (x) => `<strong class="up">${bdt(x.pl)}</strong>`, csv: (x) => Math.round(x.pl) },
+        { k: "nmg", label: "Net margin", num: 1, fmt: (x) => pct(x.nmg, 1), csv: (x) => pcsv(x.nmg) },
+        ...(ytd ? [{ k: "months", label: "Months", num: 1, val: (x) => x.o.months, fmt: (x) => int(x.o.months), csv: (x) => x.o.months }] : [
+          { k: "pl0", label: "P/L last month", num: 1, fmt: (x) => `<span class="${x.pl0 < 0 ? "down" : "up"}">${bdt(x.pl0)}</span>`, csv: (x) => (isNum(x.pl0) ? Math.round(x.pl0) : "") },
+          { k: "pst", label: "Status", val: (x) => x.pst, fmt: (x) => chip(PROFIT_STATUS[x.pst]), csv: (x) => PROFIT_STATUS[x.pst].label }]),
+        { k: "need", label: "Cushion", num: 1, val: (x) => (isNum(x.need) ? -x.need : null), fmt: (x) => (isNum(x.need) ? `${pct(-x.need, 1)}<span class="cell-secondary">break-even ${bdt(x.be)}</span>` : "—"), csv: (x) => (isNum(x.need) ? pcsv(-x.need) : "") }],
+    });
+
+    const est = profits.filter((x) => x.age != null && x.age >= 12), back = profits.filter((x) => x.pst === "back").length, lost = all.filter((x) => x.loss && isNum(x.pl0) && x.pl0 >= 0).length;
+    const click = (html, kind, title) => html.replace('<div class="kpi"', `<div class="kpi kpi-click" data-pstat="${kind}" tabindex="0" role="button" title="${esc(title)}"`);
+    return `<div class="panel-tools">${monthSel}${basisSeg}${ageSeg}</div>
+      <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      ${kpi({ hero: true, label: `Profit-making outlets, ${periodName}`, value: int(profits.length), sub: `${chip({ cls: "good", label: pct(profits.length / (all.length || 1)) + " of outlets" })}<span>of ${int(all.length)} trading outlets, ${basisLbl}</span>`, foot: `<span>Total profit ${bdt(totP)}</span><span>Net outlet P/L ${bdt(net)}</span><span>${int(closedL.length)} closed outlets excluded</span>`, accent: "var(--good)" })}
+      ${kpi({ label: "Total profit", value: `<span class="up">${bdt(totP)}</span>`, sub: "Sum of profit-making outlets", foot: `<span>Average ${bdt(profits.length ? totP / profits.length : null)} per outlet</span><span>Net margin ${pct(ratio(totP, salesP), 1)}</span>`, accent: "var(--good)" })}
+      ${click(kpi({ label: "Established outlets in profit", value: `<span class="up">${int(est.length)}</span>`, sub: "Open a year or more", foot: `<span>Profit ${bdt(sum(est, "pl"))}</span><span>${totP ? pct(sum(est, "pl") / totP, 0) : "—"} of total profit</span>`, accent: "var(--good)" }), "established", "List profitable outlets open a year or more")}
+      ${ytd ? "" : click(kpi({ label: "Back to profit", value: `<span class="up">${int(back)}</span>`, sub: "Loss-making last month", foot: `<span><button type="button" class="age-drill-link" data-pstat="grow" title="Outlets whose profit grew">Growing ${int(profits.filter((x) => x.pst === "grow").length)}</button>, <button type="button" class="age-drill-link" data-pstat="shrink" title="Outlets whose profit shrank">shrinking ${int(profits.filter((x) => x.pst === "shrink").length)}</button></span>`, accent: "var(--good)" }), "back", "List the outlets back in profit")}
+      ${ytd ? "" : click(kpi({ label: "Profit lost", value: `<span class="down">${int(lost)}</span>`, sub: "Profitable last month", foot: "<span>Loss-making this month</span>", accent: "var(--bad)" }), "lost", "List the outlets that turned loss-making")}
+      </div>
+      <p class="muted" style="margin:0">${int(est.length)} of the ${int(profits.length)} profit-making outlets have been open a year or more.</p>
+      <div class="lr-row">${grp}<div class="lr-stack">${agePanel}${formatPanel}</div></div>${list}`;
   }
   const peerCache = {};
   function peerMedians(fmt) {
@@ -6183,6 +6338,9 @@
       columns: { type: "array", items: { type: "string" }, description: "Columns to return besides Outlet code, Outlet, Regional leader, Zonal (exact names from the list)" },
       where: { type: "array", items: { type: "object", properties: { column: { type: "string" }, op: { type: "string", enum: ["<", "<=", ">", ">=", "=", "!=", "contains"] }, value: {} }, required: ["column", "op", "value"] }, description: "Percent columns are fractions: 80% = 0.8" },
       sort_by: { type: "string" }, order: { type: "string", enum: ["asc", "desc"] }, limit: { type: "integer", description: "Rows to show (default 15, max 100); the Excel download has every matching row" } } } },
+    { name: "pnl_outlets", description: "Outlet P&L for any month in the P&L file (or the year to date): loss-making, profit-making or all trading outlets, listed one per outlet (with P/L, net margin, status and, for losses, the primary reason) or totalled by leader, zonal or for the company. Use it for every profit or loss question, including earlier months; the outlet table's Net P/L is the latest month only.", parameters: { type: "object", properties: {
+      month: { type: "string", description: "YYYY-MM, 'latest' (default) or 'ytd'" }, status: { type: "string", enum: ["loss", "profit", "all"] }, by: { type: "string", enum: ["outlet", "leader", "zonal", "total"] },
+      leader: { type: "string" }, zonal: { type: "string" }, basis: { type: "string", enum: ["before", "after"], description: "Before (default) or after financing cost" }, limit: { type: "integer" } } } },
     { name: "category_performance", description: "Sales by category (Division · Cat 01) this period vs last year from the item performance data (Store level report), for National or one leader; consumables and home delivery left out.", parameters: { type: "object", properties: { leader: { type: "string" }, order: { type: "string", enum: ["worst", "best"], description: "worst = biggest decline first" }, limit: { type: "integer" } } } },
     { name: "availability_breakdown", description: "Availability (% of outlet-SKU pairs available at the dashboard's days of cover) for Core, KVI, Promo or all three, grouped by leader, zonal, outlet, category (CAT3) or product division; optionally only groups below a level.", parameters: { type: "object", properties: { type: { type: "string", enum: ["core", "kvi", "promo", "all"] }, by: { type: "string", enum: ["leader", "zonal", "outlet", "category", "division"] }, leader: { type: "string" }, below: { type: "number", description: "Only groups below this availability, as a fraction (0.8 = 80%)" }, order: { type: "string", enum: ["asc", "desc"] }, limit: { type: "integer" } }, required: ["type", "by"] } },
     { name: "stock_gap", description: "Inventory counting gap (shortage positive) and gap % on the sales of the outlets counted, from the stock gap workbook, by leader, zonal, outlet, category or month.", parameters: { type: "object", properties: { by: { type: "string", enum: ["leader", "zonal", "outlet", "category", "month"] }, leader: { type: "string" }, period: { type: "string", description: "YYYY-MM, YYYY or 'latest' (default latest month)" }, limit: { type: "integer" } }, required: ["by"] } },
@@ -6193,7 +6351,7 @@
     data_overview() {
       const d = S.data, about = monthlyOutletReport(false).about.filter((r) => !/^(Generated|Outlets)$/.test(r[0]));
       return aiTable("Data periods", [{ h: "Source", f: "t" }, { h: "Covers", f: "t" }], [...about,
-        ["Stock gap", S.sg ? `${fmonth(S.sg.months[0])} – ${fmonth(S.sg.months[S.sg.months.length - 1])}` : "—"], ["KPI performance", d.kpi?.months?.length ? fmonth(d.kpi.months[d.kpi.months.length - 1]) : "—"]]);
+        ["Stock gap", S.sg ? `${fmonth(S.sg.months[0])} – ${fmonth(S.sg.months[S.sg.months.length - 1])}` : "—"], ["KPI performance", d.kpi?.months?.length ? fmonth(d.kpi.months[d.kpi.months.length - 1]) : "—"], ["Outlet P&L months", d.pnl?.months?.length ? d.pnl.months.map(fmonth).join(", ") + " (and year to date)" : "—"]]);
     },
     leader_overview({ leader } = {}) {
       const rl = leader ? aiLeader(leader) : null;
@@ -6238,6 +6396,32 @@
       const keep = [0, 1, 2, 4, ...columns.map(ix).filter((i) => i > 4)], uniq = [...new Set(keep)];
       const f = (c) => (c.f === "t" ? "t" : /target|achieved|sales|value|p\/l|cost|above/i.test(c.h) && c.f === "n" ? "bdt" : c.f);
       return aiTable(`Outlets${rl ? ` of ${rl}` : ""}${zn ? ` · ${zn}` : ""}`, uniq.map((i) => ({ h: H[i], f: f(rep.cols[i]) })), rows.map((r) => uniq.map((i) => r[i])), { shown: Math.min(100, Math.max(1, limit)) });
+    },
+    pnl_outlets({ month = "latest", status = "loss", by = "outlet", leader, zonal, basis = "before", limit = 15 } = {}) {
+      const P = S.data.pnl; if (!P?.months?.length) return { error: "No outlet P&L file is loaded." };
+      const m = !month || month === "latest" ? P.months[P.months.length - 1] : month === "ytd" ? "ytd" : P.months.includes(month) ? month : null;
+      if (!m) return { error: `No P&L for ${month}. Months in the P&L file: ${P.months.map(fmonth).join(", ")}, or ytd.` };
+      const rl = leader ? aiLeader(leader) : null, zn = zonal ? aiZonal(zonal) : null;
+      if (leader && !rl) return { error: `No regional leader matches "${leader}".` };
+      if (zonal && !zn) return { error: `No zonal matches "${zonal}".` };
+      const keep = [S.pm, S.pbasis];
+      S.pm = m; S.pbasis = basis === "after" ? "after" : "before";
+      try {
+        const all = pnlList().filter((o) => (!rl || o.dim.rl === rl) && (!zn || o.dim.zn === zn)).map((o) => ({ o, ...pnlCalc(o) })).filter((x) => !x.closed);
+        const pick = status === "profit" ? all.filter(isProfit) : status === "loss" ? all.filter((x) => x.loss) : all;
+        const per = `${m === "ytd" ? "year to date" : fmonth(m)}, ${S.pbasis} financing cost`, who = [rl, zn].filter(Boolean).join(" · ");
+        const what = status === "profit" ? "Profit-making outlets" : status === "loss" ? "Loss-making outlets" : "Trading outlets";
+        if (by === "outlet") {
+          const rows = [...pick].sort((a, b) => (status === "loss" ? a.pl - b.pl : b.pl - a.pl));
+          return aiTable(`${what}${who ? ` of ${who}` : ""}, ${per}`, [{ h: "Outlet code", f: "t" }, { h: "Outlet", f: "t" }, { h: "Regional leader", f: "t" }, { h: "Zonal", f: "t" }, { h: "Sales", f: "bdt" }, { h: "P/L", f: "bdt" }, { h: "Net margin", f: "p1" }, ...(m === "ytd" ? [] : [{ h: "P/L last month", f: "bdt" }]), { h: "Status", f: "t" }, { h: "Primary reason of loss", f: "t" }],
+            rows.map((x) => [x.o.c, x.o.nm, x.o.dim.rl, x.o.dim.zn, x.o.s, x.pl, ratio(x.pl, x.o.s), ...(m === "ytd" ? [] : [x.pl0]), x.loss ? LOSS_STATUS[x.st]?.label || "Loss-making" : PROFIT_STATUS[profitSt(x)].label, x.loss ? lossReason(x.o).reason : ""]), { shown: Math.min(100, limit) });
+        }
+        const key = (x) => (by === "zonal" ? x.o.dim.zn : by === "leader" ? x.o.dim.rl : "Total"), g = new Map();
+        all.forEach((x) => { const k = key(x), r = g.get(k) || { k, rl: x.o.dim.rl, n: 0, l: 0, p: 0, loss: 0, profit: 0, net: 0, s: 0 }; r.n++; r.net += x.pl || 0; r.s += x.o.s || 0; if (x.loss) { r.l++; r.loss += x.pl; } else if (isProfit(x)) { r.p++; r.profit += x.pl; } g.set(k, r); });
+        const rows = [...g.values()].sort((a, b) => (status === "profit" ? b.profit - a.profit : status === "loss" ? a.loss - b.loss : b.net - a.net));
+        return aiTable(`Outlet P&L by ${by === "total" ? "company" : by}${who ? ` (${who})` : ""}, ${per}`, [{ h: by === "zonal" ? "Zonal" : by === "leader" ? "Regional leader" : "Scope", f: "t" }, ...(by === "zonal" ? [{ h: "Regional leader", f: "t" }] : []), { h: "Trading outlets", f: "n" }, { h: "Loss-making", f: "n" }, { h: "Profit-making", f: "n" }, { h: "Total loss", f: "bdt" }, { h: "Total profit", f: "bdt" }, { h: "Net outlet P/L", f: "bdt" }, { h: "Sales", f: "bdt" }],
+          rows.map((r) => [r.k, ...(by === "zonal" ? [r.rl] : []), r.n, r.l, r.p, r.loss, r.profit, r.net, r.s]), { shown: Math.min(100, limit) });
+      } finally { [S.pm, S.pbasis] = keep; }
     },
     category_performance({ leader, order = "worst", limit = 10 } = {}) {
       const d = S.sku; if (!d) return { error: "Item performance data is not loaded." };
@@ -6316,6 +6500,7 @@ Rules:
 - Be brief: one or two sentences with the key figure first, then at most a short bullet list. Mention the period the figure covers.
 - Money is in taka (৳) with Lac/Cr as the tools give it. Percent columns are already formatted.
 - The full table of each lookup is shown to the user with an Excel download, so do not repeat long lists; name the top few only.
+- Outlet P&L (profit or loss) has these months: ${S.data.pnl?.months?.map(fmonth).join(", ") || "none"}; use pnl_outlets with the month for any of them.
 Regional leaders: ${aiLeaders().join(", ")}.`;
   }
   const aiToolSpec = () => AI_TOOLS.map((t) => ({ type: "function", function: { ...t, description: t.description.replace("COLS_PLACEHOLDER", monthlyOutletReport(false).cols.map((c) => c.h).join("; ")) } }));
@@ -6379,6 +6564,8 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     ["Loss-making", "Loss-making outlets with their main reason", 1],
     ["Loss-making", "How many loss-making outlets are older than 6 months?"],
     ["Loss-making", "Which regional leader has the highest share of loss-making outlets?"],
+    ["Loss-making", "Profit-making outlets by regional leader in Aug 2026"],
+    ["Loss-making", "Top 10 most profitable outlets last month"],
     ["Consumable & wastage", "Top 10 outlets with the highest wastage % on sales"],
     ["Consumable & wastage", "Is consumable % on sales within target for each regional leader?"],
     ["Availability", "Top 10 outlets with the lowest Core availability", 1],
@@ -6467,7 +6654,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     $("#filters").hidden = !FILTER_PAGES.has(S.page);
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
-    const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
+    const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
       rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
@@ -6498,7 +6685,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     try { localStorage.setItem("opsdash-theme", t); } catch (e) {}
     if (NET_PAGES.has(S.page)) render(); // charts resolve colour tokens when drawn
   });
-  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
+  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });

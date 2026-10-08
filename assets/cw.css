@@ -215,6 +215,7 @@ tr.k-sel td{background:color-mix(in srgb,var(--info) 12%,var(--surface))!importa
 .lr-bar{display:grid;grid-template-columns:minmax(40px,1fr) 38px;gap:8px;align-items:center}
 .lr-bar i{display:block;height:8px;border-radius:999px;background:var(--bad);min-width:2px}
 .lr-bar span{font-size:11.5px;color:var(--ink-2);text-align:right;font-variant-numeric:tabular-nums}
+.pr-bar i{background:var(--good)}
 tr.lr-top td{background:var(--bad-soft)}
 .kpi-click{cursor:pointer;transition:border-color .15s}
 .kpi-click:hover,.kpi-click:focus-visible{border-color:var(--info)}
@@ -232,9 +233,9 @@ tr.lr-top td{background:var(--bad-soft)}
 /* Loss by regional leader (half width) beside age + primary reason */
 .lr-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch}
 .lr-stack{display:flex;flex-direction:column;gap:16px;min-width:0}
-.lr-row>#t-loss-grp{contain:size;display:flex;flex-direction:column;min-width:0}
-.lr-row>#t-loss-grp>.table-wrap{flex:1 1 0;min-height:0;max-height:none;overflow:auto}
-@media (max-width:1000px){.lr-row{grid-template-columns:1fr}.lr-row>#t-loss-grp{contain:none}.lr-row>#t-loss-grp>.table-wrap{flex:none;max-height:560px}}
+.lr-row>#t-loss-grp,.lr-row>#t-profit-grp{contain:size;display:flex;flex-direction:column;min-width:0}
+.lr-row>#t-loss-grp>.table-wrap,.lr-row>#t-profit-grp>.table-wrap{flex:1 1 0;min-height:0;max-height:none;overflow:auto}
+@media (max-width:1000px){.lr-row{grid-template-columns:1fr}.lr-row>#t-loss-grp,.lr-row>#t-profit-grp{contain:none}.lr-row>#t-loss-grp>.table-wrap,.lr-row>#t-profit-grp>.table-wrap{flex:none;max-height:560px}}
 
 /* Audit fixes */
 /* KPI toolbar stays put on phones so it does not cover a quarter of the screen */
@@ -243,9 +244,9 @@ tr.lr-top td{background:var(--bad-soft)}
 :root:not([data-theme="light"]) .kc-g{background:color-mix(in srgb,var(--good) 28%,var(--surface));color:#8fe3c8}
 :root:not([data-theme="light"]) .kc-r{color:#ff9b73}
 /* Loss by regional leader at half width: compact so every column fits */
-.lr-row>#t-loss-grp table{font-size:12px}
-.lr-row>#t-loss-grp th,.lr-row>#t-loss-grp td{padding-left:7px;padding-right:7px}
-.lr-row>#t-loss-grp .cell-secondary{font-size:11px}
+.lr-row>#t-loss-grp table,.lr-row>#t-profit-grp table{font-size:12px}
+.lr-row>#t-loss-grp th,.lr-row>#t-profit-grp th,.lr-row>#t-loss-grp td,.lr-row>#t-profit-grp td{padding-left:7px;padding-right:7px}
+.lr-row>#t-loss-grp .cell-secondary,.lr-row>#t-profit-grp .cell-secondary{font-size:11px}
 /* Tables scrolled into view stop below the sticky header, so their title stays visible */
 section[id^="t-"]{scroll-margin-top:calc(var(--k-top,57px) + 12px)}
 /* Availability: stale-file warning sits beside the Scope title */
