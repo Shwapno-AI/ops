@@ -733,6 +733,7 @@
     $$("[data-pnl]", root).forEach((tr) => { tr.onclick = () => openPnl(tr.dataset.pnl); tr.onkeydown = (e) => { if (e.key === "Enter") openPnl(tr.dataset.pnl); }; });
     $$("[data-khead]", root).forEach((tr) => { tr.onclick = (e) => { e.stopPropagation(); openHead(tr.dataset.khead); }; tr.onkeydown = (e) => { if (e.key === "Enter") { e.stopPropagation(); openHead(tr.dataset.khead); } }; });
     $$("[data-kmetric]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openKpiMetric(n.dataset.kmetric); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(e); }; });
+    $$("[data-kcat]", root).forEach((n) => { const go = () => openKpiCat(n.dataset.kcat); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-kband]", root).forEach((n) => { const go = () => openKpiBand(Number(n.dataset.kband)); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-kdrill]", root).forEach((n) => { const go = () => { S.kl = "zonal"; S.krho = n.dataset.kdrill; S.kfocus = ".k-mat"; changed(); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-kclear]", root).forEach((n) => (n.onclick = () => { S.krho = null; S.kfocus = n.closest(".k-mat") ? ".k-mat" : null; changed(); }));
@@ -1095,9 +1096,9 @@
     return `<section class="panel k-sc"><div class="panel-head"><div><h2>${esc(V.refName)} scorecard</h2><p>${r?.avg ? `Average of ${int(V.heads.length)} ${lvl}. ` : ""}Category points against weight, and ${lvl} in each score band.</p></div></div>
       <div class="panel-body">
         <div class="k-sc-top"><div class="k-sc-val ${r ? KTXT[kBand(r.score)] : ""}">${r ? (r.score * 100).toFixed(1) : "—"}<small>/ 100</small></div>
-          <div class="k-sc-meta"><span>${esc(V.P.label)} · ${r ? r.metrics.length : 0} KPIs</span><span>${lost.toFixed(1)} points lost</span></div></div>
-        <div class="k-cats">${cats.map((c) => { const x = r?.cats[c], v = x ? x.pts / x.w : null; return `<div class="k-cat"><span>${esc(catShort(c))}</span><div class="k-track"><i class="${isNum(v) ? KBAND_CLS[kBand(v)] : ""}" style="width:${isNum(v) ? v * 100 : 0}%"></i></div><b>${x ? `${x.pts.toFixed(1)} of ${int(x.w)}` : "—"}</b></div>`; }).join("")}</div>
-        <div class="av-stack">${bands.map((v, i) => (v ? `<i class="${KBAND_CLS[i]}" style="flex-grow:${v}" title="${KBANDS[i]}: ${v}"></i>` : "")).join("")}</div>
+          <div class="k-sc-meta"><span>${esc(V.P.label)} · ${r ? r.metrics.length : 0} KPIs</span>${lost > 0.05 ? `<button type="button" class="k-lostlink" data-set="kv" data-val="lost" title="Open the Points lost view">${lost.toFixed(1)} points lost ›</button>` : `<span>${lost.toFixed(1)} points lost</span>`}</div></div>
+        <div class="k-cats">${cats.map((c) => { const x = r?.cats[c], v = x ? x.pts / x.w : null; return `<div class="k-cat" data-kcat="${esc(c)}" tabindex="0" role="button" title="${esc(catShort(c))}: KPIs and how each ${lvl.replace(/s$/, "")} scores"><span>${esc(catShort(c))}</span><div class="k-track"><i class="${isNum(v) ? KBAND_CLS[kBand(v)] : ""}" style="width:${isNum(v) ? v * 100 : 0}%"></i></div><b>${x ? `${x.pts.toFixed(1)} of ${int(x.w)}` : "—"}</b></div>`; }).join("")}</div>
+        <div class="av-stack">${bands.map((v, i) => (v ? `<i class="${KBAND_CLS[i]}" style="flex-grow:${v}" data-kband="${i}" role="button" tabindex="-1" title="${lvl} scoring ${KBANDS[i]}: ${v}"></i>` : "")).join("")}</div>
         <ul class="k-bands">${KBANDS_S.map((t, i) => `<li${bands[i] ? ` data-kband="${i}" tabindex="0" role="button" title="${lvl} scoring ${KBANDS[i]}"` : ' class="zero"'}><i class="${KBAND_CLS[i]}"></i><span>${t}</span><b>${int(bands[i])}</b></li>`).join("")}</ul>
       </div></section>`;
   }
@@ -1210,12 +1211,33 @@
     wireDyn($("#drawerBody"));
     showDrawer();
   }
+  // One category: its KPIs for the scorecard's head, then every head's points in the category.
+  function openKpiCat(cat) {
+    const V = kpiView(), r = V.ref, ms = (r?.metrics || []).filter((m) => m.cat === cat).sort((a, b) => (b.w - b.pts) - (a.w - a.pts)), x = r?.cats[cat];
+    const heads = V.heads.filter((h) => h.cats[cat]).map((h) => ({ h, c: h.cats[cat] })).sort((a, b) => b.c.pts / b.c.w - a.c.pts / a.c.w || a.h.rank - b.h.rank);
+    const one = S.kl === "zonal" ? "Zonal" : "RHO";
+    S.lastFocus = document.activeElement;
+    $("#drawerTitle").textContent = `${catShort(cat)}, ${V.P.label}`;
+    $("#drawerBody").innerHTML = `<div class="stat-grid three"><div class="stat"><small>${esc(V.refName)}${r?.avg ? " (average)" : ""}</small><strong>${x ? `${x.pts.toFixed(1)} of ${int(x.w)}` : "—"}</strong><div style="font-size:12px">${x ? `${pct(x.pts / x.w, 1)} of the category's points` : ""}</div></div>
+        <div class="stat"><small>Points lost</small><strong class="${x && x.w - x.pts > 0.05 ? "down" : ""}">${x ? (x.w - x.pts).toFixed(1) : "—"}</strong><div style="font-size:12px">${int(ms.length)} KPIs in the category</div></div>
+        <div class="stat"><small>${one}s at full points</small><strong>${heads.filter((g) => g.c.pts >= g.c.w - 0.005).length} of ${heads.length}</strong></div></div>
+      <h3 style="font-size:14px;margin:4px 0 0">KPIs, biggest points loss first</h3>
+      <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>KPI</th><th class="num">Target</th><th class="num">Actual</th><th class="num">Achievement</th><th class="num">Points</th><th class="num">Lost</th></tr></thead><tbody>
+      ${ms.map((m) => `<tr data-kmetric="${esc(m.metric)}" tabindex="0" class="k-click" title="Every ${one} on this KPI"><td>${esc(m.metric)}</td><td class="num">${r?.avg ? "—" : kfmt(m.metric, m.t)}</td><td class="num">${r?.avg ? "—" : kfmt(m.metric, m.a)}</td><td class="num ${kCell(m.ach)}">${pct(m.ach, 1)}</td><td class="num">${m.pts.toFixed(2)} / ${int(m.w)}</td><td class="num ${m.w - m.pts > 0.005 ? "down" : ""}">${(m.w - m.pts).toFixed(2)}</td></tr>`).join("") || '<tr><td colspan="6" class="empty">No KPIs.</td></tr>'}</tbody></table></div>
+      <h3 style="font-size:14px;margin:4px 0 0">${one}s on ${esc(catShort(cat))}, best first</h3>
+      <div class="table-wrap" style="max-height:420px"><table class="compact"><thead><tr><th>#</th><th>${one}</th><th class="num">Points</th><th class="num">Share of points</th><th class="num">Overall rank</th></tr></thead><tbody>
+      ${heads.map((g, i) => `<tr data-khead="${esc(g.h.head)}" tabindex="0" class="k-click"><td>${i + 1}</td><td>${esc(g.h.head)}</td><td class="num">${g.c.pts.toFixed(1)} / ${int(g.c.w)}</td><td class="num ${kCell(g.c.pts / g.c.w)}">${pct(g.c.pts / g.c.w, 1)}</td><td class="num">${g.h.rank}</td></tr>`).join("")}</tbody></table></div>
+      <p class="muted" style="margin:0;font-size:12px">Click a KPI for every ${one.toLowerCase()} on it, or a ${one.toLowerCase()} for their full scorecard.</p>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
   function openKpiBand(band) {
     const V = kpiView(), list = V.heads.filter((h) => kBand(h.score) === band);
     S.lastFocus = document.activeElement;
     $("#drawerTitle").textContent = `Scores ${KBANDS[band]}, ${V.P.label}`;
-    $("#drawerBody").innerHTML = `<div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Rank</th><th>Head</th><th class="num">Score</th></tr></thead><tbody>
-      ${list.map((h) => `<tr data-khead="${esc(h.head)}" tabindex="0" class="k-click"><td>${h.rank}</td><td>${esc(h.head)}</td><td class="num"><strong>${pct(h.score, 1)}</strong></td></tr>`).join("")}</tbody></table></div>`;
+    const cats = [...new Set(V.metrics.map((m) => m.cat))];
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${int(list.length)} ${S.kl === "zonal" ? "zonals" : "RHOs"} scoring ${KBANDS[band]}. Category points against weight; click a row for the full scorecard.</p><div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Rank</th><th>Head</th><th class="num">Score</th>${cats.map((c) => `<th class="num">${esc(catShort(c))}</th>`).join("")}<th class="num">Points lost</th></tr></thead><tbody>
+      ${list.map((h) => `<tr data-khead="${esc(h.head)}" tabindex="0" class="k-click"><td>${h.rank}</td><td>${esc(h.head)}</td><td class="num"><strong>${pct(h.score, 1)}</strong></td>${cats.map((c) => { const x = h.cats[c]; return `<td class="num ${x ? kCell(x.pts / x.w) : ""}">${x ? `${x.pts.toFixed(1)} / ${int(x.w)}` : "—"}</td>`; }).join("")}<td class="num down">${(h.w - h.pts).toFixed(1)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">None.</td></tr>'}</tbody></table></div>`;
     wireDyn($("#drawerBody"));
     showDrawer();
   }
@@ -5314,8 +5336,10 @@
       ${kpi({ label: "Weakest category", value: weak >= 0 ? `<span style="font-size:20px">${esc(d.cats[weak])}</span>` : "—", sub: weak >= 0 ? `${saPct(cats[weak])} of its points` : "", foot: weak >= 0 && isNum(pcats[weak]) ? `<span>${fmonth(pm)}: ${saPct(pcats[weak])}</span>` : "<span></span>", accent: "var(--bad)" })}
       ${gradeCard}
     </div>`;
-    const catPanel = `<section class="panel"><div class="panel-head"><div><h2>Score by category, ${fmonth(m)}</h2><p>Share of each category's points${pm ? `; the mark shows ${fmonth(pm)}` : ""}. Click a category for its questions.</p></div></div>
-      <div class="panel-body sa-cats">${d.cats.map((c, ci) => `<button type="button" class="sa-cat" data-sacat="${ci}"><span class="sa-cat-name">${esc(c)}<small>${int(d.catMax[ci])} points</small></span><span class="sa-bar"><i class="sa-${saGrade(cats[ci]).k}" style="width:${Math.round((cats[ci] || 0) * 100)}%"></i>${isNum(pcats[ci]) ? `<b style="left:${Math.round(pcats[ci] * 100)}%" title="${fmonth(pm)}: ${saPct(pcats[ci])}"></b>` : ""}</span><span class="sa-cat-v">${saPct(cats[ci])}</span><span class="sa-cat-d">${pm ? delta(isNum(cats[ci]) && isNum(pcats[ci]) ? cats[ci] - pcats[ci] : null, "pp") : ""}</span></button>`).join("")}</div></section>`;
+    // lowest score first; categories with no score go last
+    const catOrder = d.cats.map((_, ci) => ci).sort((a, b) => (isNum(cats[a]) ? cats[a] : 9) - (isNum(cats[b]) ? cats[b] : 9));
+    const catPanel = `<section class="panel"><div class="panel-head"><div><h2>Score by category, ${fmonth(m)}</h2><p>Share of each category's points, lowest first${pm ? `; the mark shows ${fmonth(pm)}` : ""}. Click a category for its questions.</p></div></div>
+      <div class="panel-body sa-cats">${catOrder.map((ci) => [d.cats[ci], ci]).map(([c, ci]) => `<button type="button" class="sa-cat" data-sacat="${ci}"><span class="sa-cat-name">${esc(c)}<small>${int(d.catMax[ci])} points</small></span><span class="sa-bar"><i class="sa-${saGrade(cats[ci]).k}" style="width:${Math.round((cats[ci] || 0) * 100)}%"></i>${isNum(pcats[ci]) ? `<b style="left:${Math.round(pcats[ci] * 100)}%" title="${fmonth(pm)}: ${saPct(pcats[ci])}"></b>` : ""}</span><span class="sa-cat-v">${saPct(cats[ci])}</span><span class="sa-cat-d">${pm ? delta(isNum(cats[ci]) && isNum(pcats[ci]) ? cats[ci] - pcats[ci] : null, "pp") : ""}</span></button>`).join("")}</div></section>`;
     const trend = `<section class="panel"><div class="panel-head"><div><h2>Store score by month</h2><p>Average of the outlets' latest audits each month, for the outlets in view.</p></div></div><div class="panel-body"><div class="chart" id="saTrend"></div></div></section>`;
     AFTER.push(saTrendChart);
     const D = leaderDrill("sad", "sa-league", rows, "click an outlet for its audits"), at = D.at;
