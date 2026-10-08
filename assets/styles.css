@@ -196,10 +196,14 @@ table.compact th:first-child{position:sticky}
 .sg-crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 
-/* Ask AI */
+/* Shwapno Intelligence (SI), the Ask AI chat */
 :root{--ai-green:#bdf2cf;--ai-green-2:#a3eabb;--ai-ink:#0a4a2a;--ai-deep:#13804b;--ai-tint:rgba(77,214,138,.12)}
 .btn.ai-top{background:var(--ai-green);color:var(--ai-ink);border-color:var(--ai-green-2);font-weight:650;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 0 rgba(10,74,42,.12)}
-.btn.ai-top span{font-size:14px;line-height:1}
+.btn.ai-top>span:first-child{font-size:14px;line-height:1}
+.ai-si{opacity:.75}
+.btn.ai-top .ai-short{display:none}
+.ai-title em{font-style:normal;font-weight:600;color:var(--ai-deep)}
+@media (max-width:900px){.btn.ai-top .ai-long{display:none}.btn.ai-top .ai-short{display:inline}}
 .btn.ai-top:hover{background:var(--ai-green-2)}
 .btn.ai-top[aria-pressed="true"]{background:var(--ai-deep);color:#fff;border-color:var(--ai-deep)}
 .ai-panel{position:fixed;top:0;right:0;bottom:0;z-index:60;width:min(560px,100vw);display:flex;flex-direction:column;background:var(--canvas);border-left:1px solid var(--line);box-shadow:var(--shadow-lg);animation:aiIn .22s ease-out}

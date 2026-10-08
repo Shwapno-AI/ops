@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ask AI relay: forwards the dashboard's chat requests to Azure OpenAI or Qwen, holding the keys.
+"""Shwapno Intelligence (SI) relay, the dashboard's Ask AI chat: forwards the dashboard's chat requests to Azure OpenAI or Qwen, holding the keys.
 
 The browser runs the conversation and every data lookup itself (with the dashboard's own data and rules),
 so this service only adds the provider's address and key and passes the chat request through. Keys come
@@ -128,9 +128,9 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.URLError as e:
             self.reply(502, {"error": f"Could not reach the AI service ({e.reason})."})
         except Exception as e:  # noqa: BLE001
-            self.reply(500, {"error": f"Ask AI failed ({type(e).__name__})."})
+            self.reply(500, {"error": f"Shwapno Intelligence failed ({type(e).__name__})."})
 
 
 if __name__ == "__main__":
-    print(f"Ask AI relay on 127.0.0.1:{PORT}; providers: {', '.join(p['label'] for p in providers()) or 'none configured'}", flush=True)
+    print(f"Shwapno Intelligence relay on 127.0.0.1:{PORT}; providers: {', '.join(p['label'] for p in providers()) or 'none configured'}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

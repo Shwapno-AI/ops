@@ -6326,7 +6326,7 @@
   }
   const closeRail = () => { $("#rail").classList.remove("open"); if ($("#drawer").hidden) $("#scrim").hidden = true; };
 
-  // ------------------------------------------------------------------ Ask AI
+  // ------------------------------------------------------------------ Shwapno Intelligence (SI), the Ask AI chat
   // A chat panel on every page. The AI (Azure OpenAI or Qwen, through the server relay at /api/ai, which holds the
   // keys) never computes figures itself: it calls the lookups below, which run here in the browser on the same data
   // and with the same rules as the dashboard pages, and then writes the answer from what they return.
@@ -6517,7 +6517,7 @@
   }
   function aiSystem() {
     const r = S.data.tilldate;
-    return `You are the Ask AI assistant of Shwapno's Operations Dashboard (a retail chain in Bangladesh). Today's sales data runs to ${r ? fdate(r.date) : "unknown"}.
+    return `You are Shwapno Intelligence (SI), the assistant of Shwapno's Operations Dashboard (a retail chain in Bangladesh). Today's sales data runs to ${r ? fdate(r.date) : "unknown"}.
 Rules:
 - Get every figure from the tools; never invent or estimate numbers. If a tool returns an error, fix the call (e.g. use a listed leader name) or say what is missing.
 - Answer in the user's language: English, Bangla (বাংলা) or Banglish, matching how they asked.
@@ -6621,7 +6621,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   ];
   function aiRender() {
     let host = $("#aiPanel");
-    if (!host) { host = document.createElement("aside"); host.id = "aiPanel"; host.className = "ai-panel"; host.setAttribute("role", "dialog"); host.setAttribute("aria-label", "Ask AI"); document.body.append(host); }
+    if (!host) { host = document.createElement("aside"); host.id = "aiPanel"; host.className = "ai-panel"; host.setAttribute("role", "dialog"); host.setAttribute("aria-label", "Ask SI, Shwapno Intelligence"); document.body.append(host); }
     const fab = $("#aiFab");
     if (fab && !fab.onclick) fab.onclick = () => { AI.open = !AI.open; aiRender(); if (AI.open) aiProviders(); };
     fab?.setAttribute("aria-pressed", String(AI.open));
@@ -6640,8 +6640,8 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
         <div class="ai-topics" role="group" aria-label="Filter questions">${["Popular", "All", ...Object.keys(AI_TOPIC_ICON)].map((t) => `<button type="button" data-aitopic="${esc(t)}" aria-pressed="${(AI.topic || "Popular") === t}">${esc(t)}</button>`).join("")}</div>
         <h4>Try asking${AI.topic && AI.topic !== "Popular" && AI.topic !== "All" ? ` · ${esc(AI.topic)}` : ""}</h4><div class="ai-sugs">${AI_SUGGEST.filter(([t, , pop]) => ((AI.topic || "Popular") === "Popular" ? pop : AI.topic === "All" || t === AI.topic)).map(([tag, q]) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}"><i aria-hidden="true">${AI_TOPIC_ICON[tag]}</i><span><small>${esc(tag)}</small>${esc(q)}</span></button>`).join("")}</div></div>`;
     const off = AI.providers === null ? '<div class="ai-wait"><span class="ai-dots"><i></i><i></i><i></i></span> Connecting…</div>'
-      : `<div class="ai-row">${avatar}<div class="ai-msg ai-err">${esc(AI.err || "Ask AI isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div></div>`;
-    host.innerHTML = `<header class="ai-head">${avatar}<div class="ai-title"><b>Ask AI</b><span>Operations dashboard assistant · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div>
+      : `<div class="ai-row">${avatar}<div class="ai-msg ai-err">${esc(AI.err || "Shwapno Intelligence isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div></div>`;
+    host.innerHTML = `<header class="ai-head">${avatar}<div class="ai-title"><b>Ask <em>SI</em></b><span>Shwapno Intelligence · operations dashboard assistant · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div>
         <div class="ai-tools"><button type="button" class="ai-ib" id="aiReset" title="New conversation" aria-label="New conversation">⟲</button><button type="button" class="ai-ib" id="aiClose" title="Close" aria-label="Close">✕</button></div>
         ${provs.length ? `<label class="ai-prov"><span>Model</span><select id="aiProv" aria-label="AI model">${provs.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></label>` : ""}</header>
       <div class="ai-body" id="aiBody">${provs.length ? body : off}${AI.busy ? `<div class="ai-row">${avatar}<div class="ai-msg ai-bot ai-typing"><span class="ai-dots"><i></i><i></i><i></i></span> Looking it up…</div></div>` : ""}</div>
@@ -6666,7 +6666,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     if (AI.providers !== null) return;
     fetch("api/ai/providers", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((p) => { AI.providers = Array.isArray(p) ? p : []; })
-      .catch(() => { AI.providers = []; AI.err = "Ask AI isn't reachable here (the relay runs on the server; set AZURE_OPENAI_* or QWEN_* in Coolify)."; })
+      .catch(() => { AI.providers = []; AI.err = "Shwapno Intelligence isn't reachable here (the relay runs on the server; set AZURE_OPENAI_* or QWEN_* in Coolify)."; })
       .finally(aiRender);
   }
   // local preview only: let the lookups be tried without an AI behind them
