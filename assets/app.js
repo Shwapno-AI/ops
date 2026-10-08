@@ -97,15 +97,8 @@
 
   // ------------------------------------------------------------------ data
   function prep(d) {
-    const M = {};
-    (d.master?.outlets || []).forEach((o) => (M[o.c] = o));
-    ["tilldate", "monthend"].forEach((k) => {
-      if (!d[k]) return;
-      d[k].outlets.forEach((o) => {
-        mkDim(o, M[o.c], MISS); // not in the outlet master: new or closed, one group
-        o.nm = o.m?.n || String(o.name || o.c).replace(new RegExp("^" + o.c + "\\s*-\\s*"), "");
-      });
-    });
+    const M = masterMap(d);
+    ["tilldate", "monthend"].forEach((k) => prepRep(d[k], M));
     Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], MISS); o.nm = o.n || o.m?.n || o.c; }));
     prepKpi(d.kpi);
   }
@@ -122,6 +115,28 @@
       (K[lvl] || []).forEach((rec) => { const s = KSPEC[ix(rec.metric)]; if (s) { rec.cat = s[1]; rec.dir = s[2]; } });
       K[lvl]?.sort((a, b) => ix(a.metric) - ix(b.metric));
     });
+  }
+  function masterMap(d) {
+    const M = {};
+    (d.master?.outlets || []).forEach((o) => (M[o.c] = o));
+    return M;
+  }
+  function prepRep(r, M) {
+    if (!r) return;
+    r.outlets.forEach((o) => {
+      mkDim(o, M[o.c], MISS); // not in the outlet master: new or closed, one group
+      o.nm = o.m?.n || String(o.name || o.c).replace(new RegExp("^" + o.c + "\\s*-\\s*"), "");
+    });
+  }
+  // Sales month picker: earlier closed months live in data/sales/<yyyy-mm>.json and load when picked.
+  const mshort = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MON[m - 1]}'${String(y).slice(2)}`; };
+  function pickPeriod(k) {
+    if (!k.startsWith("m:") || S.data[k]) { S.period = k; changed(); return; }
+    const ym = k.slice(2);
+    $("#view").innerHTML = `<p class="empty">Loading ${esc(fmonth(ym))}…</p>`;
+    fetch(`data/sales/${ym}.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((r) => { prepRep(r, masterMap(S.data)); S.data[k] = r; S.period = k; changed(); })
+      .catch((e) => { $("#view").innerHTML = `<p class="empty">${esc(fmonth(ym))} could not be loaded (${esc(e.message)}). Try again after the next data refresh.</p>`; });
   }
   function mkDim(o, m, miss) {
     o.m = m;
@@ -398,9 +413,12 @@
     }
     $("#resetBtn").hidden = !FILTER_PAGES.has(S.page);
     if (d) {
-      const opts = [["tilldate", d.tilldate && `Till ${fdate(d.tilldate.date, true)}`], ["monthend", d.monthend && `Last month, ${fmonth(d.monthend.date)}`]].filter((o) => o[1]);
-      $("#periodSeg").innerHTML = opts.map(([k, t]) => `<button aria-pressed="${S.period === k}" data-period="${k}">${esc(t)}</button>`).join("");
-      $$("#periodSeg button").forEach((b) => b.addEventListener("click", () => { S.period = b.dataset.period; changed(); }));
+      // Oldest month first, the current month (till date) last: Jul'26 | Aug'26 | Sep'26 | Oct'26 till 5 Oct.
+      const opts = [...(d.history || []).map((h) => [`m:${h.ym}`, mshort(h.ym), `${fmonth(h.ym)}, full month`]),
+        ["monthend", d.monthend && mshort(d.monthend.date.slice(0, 7)), d.monthend && `${fmonth(d.monthend.date.slice(0, 7))}, full month`],
+        ["tilldate", d.tilldate && `${mshort(d.tilldate.date.slice(0, 7))} till ${fdate(d.tilldate.date, true)}`, "This month so far"]].filter((o) => o[1]);
+      $("#periodSeg").innerHTML = opts.map(([k, t, tip]) => `<button aria-pressed="${S.period === k}" data-period="${k}" title="${esc(tip)}">${esc(t)}</button>`).join("");
+      $$("#periodSeg button").forEach((b) => b.addEventListener("click", () => pickPeriod(b.dataset.period)));
       const when = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" }).replace("Sept", "Sep");
       const fresh = (upTo, t) => { $("#fresh").textContent = `${upTo ? upTo + " · " : ""}updated ${when(t)}`; $("#fresh").title = "When the data was last refreshed from Google Drive"; };
       const r0 = rep();

@@ -756,6 +756,15 @@ def build(root):
                 if miss:
                     issue("info", rep["file"], f"{name}: {len(miss)} outlets with sales are not in the outlet master (shown as 'New/Closed outlets (Not Distributed)'): {', '.join(miss[:12])}{'…' if len(miss) > 12 else ''}")
 
+    # Earlier closed months for the Sales month picker (Jul, Aug, ... before last month): the newest file
+    # for each month, up to 12 months, written one file per month to data/sales/<yyyy-mm>.json by main().
+    bym = {}
+    for b in closed:
+        k = b["date"].strftime("%Y-%m")
+        if k not in bym or b["file"] > bym[k]["file"]:
+            bym[k] = b
+    hist = [bym[k] for k in sorted(bym)[-12:] if not me or bym[k]["date"] != me["date"]]
+
     def rep_out(b):
         if not b:
             return None
@@ -768,6 +777,8 @@ def build(root):
         "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "tilldate": rep_out(till),
         "monthend": rep_out(me),
+        "history": [{"ym": b["date"].strftime("%Y-%m"), "date": b["date"].isoformat(), "file": b["file"]} for b in hist],
+        "_history_reports": {b["date"].strftime("%Y-%m"): rep_out(b) for b in hist},
         "master": {"file": master["file"], "outlets": master["outlets"]} if master else None,
         "pnl": pnl,
         "kpi": {"months": kpi_months, "files": [f["file"] for f in found["kpi"]], **kpi},
@@ -780,6 +791,28 @@ def build(root):
                    + [{"folder": m["folder"], "file": m["file"], "type": "Outlet master", "date": (m["latest_launch"] or dt.date.min).isoformat()} for m in found["master"]],
         "issues": ISSUES,
     }
+
+
+def write_history(reports):
+    """One file per earlier closed month in data/sales/, so the dashboard loads a month only when it is picked."""
+    folder = os.path.join(os.path.dirname(OUT), "sales")
+    os.makedirs(folder, exist_ok=True)
+    for ym, rep in reports.items():
+        path = os.path.join(folder, f"{ym}.json")
+        body = json.dumps(rep, ensure_ascii=False, separators=(",", ":"), default=str)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                if fh.read() == body:
+                    continue
+        except OSError:
+            pass
+        with open(path + ".tmp", "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.replace(path + ".tmp", path)
+        print(f"Wrote {path} ({len(body)/1024:.0f} KB)")
+    for f in glob.glob(os.path.join(folder, "*.json")):  # months that dropped out of the window
+        if os.path.basename(f)[:-5] not in reports:
+            os.remove(f)
 
 
 def main():
@@ -801,6 +834,7 @@ def main():
         print("Critical problem: data.json NOT updated (the dashboard keeps the last good data).")
         sys.exit(1)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    write_history(data.pop("_history_reports"))
     new = json.loads(json.dumps(data, default=str))
     try:
         with open(OUT, encoding="utf-8") as fh:

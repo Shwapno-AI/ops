@@ -184,6 +184,7 @@ dl.facts dt{color:var(--ink-2)}dl.facts dd{margin:0}
   .kpi .value{font-size:26px}.kpi.hero .value{font-size:34px}
   .grid-h{grid-template-columns:1fr}
   input.search{min-width:0;width:100%}
+  .panel-tools{max-width:100%;min-width:0}.seg{max-width:100%;overflow-x:auto}.seg button{white-space:nowrap}
   .fresh{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
