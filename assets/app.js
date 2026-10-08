@@ -409,17 +409,19 @@
     // Stores switch on every Sales page: all stores, same store, own or franchise outlets.
     $("#storeSeg").hidden = !SALES_PAGES.has(S.page);
     if (SALES_PAGES.has(S.page)) {
-      $("#storeSeg").innerHTML = SCOPES.map(([k, t]) => `<button aria-pressed="${S.scope === k}" data-store="${k}" title="${k === "same" ? `Outlets in the report's same-store list (${scopeCmp() === "m" ? "vs last month" : "vs last year"})` : ""}">${esc(t)}</button>`).join("");
-      $$("#storeSeg button").forEach((b) => b.addEventListener("click", () => { S.scope = b.dataset.store; changed(); }));
+      const sameTip = `Same store: outlets in the report's same-store list (${scopeCmp() === "m" ? "vs last month" : "vs last year"})`;
+      $("#storeSeg").innerHTML = `<span class="top-sel-k">Stores</span><select class="sel" aria-label="Stores" title="${S.scope === "same" ? esc(sameTip) : "Which outlets the Sales pages count"}">${SCOPES.map(([k, t]) => `<option value="${k}" ${S.scope === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+      $("#storeSeg select").onchange = (e) => { S.scope = e.target.value; changed(); };
     }
     $("#resetBtn").hidden = !FILTER_PAGES.has(S.page);
     if (d) {
-      // Oldest month first, the current month (till date) last: Jul'26 | Aug'26 | Sep'26 | Oct'26 till 5 Oct.
+      // A dropdown, newest first: Oct'26 till 5 Oct, Sep'26, Aug'26, Jul'26.
       const opts = [...(d.history || []).map((h) => [`m:${h.ym}`, mshort(h.ym), `${fmonth(h.ym)}, full month`]),
         ["monthend", d.monthend && mshort(d.monthend.date.slice(0, 7)), d.monthend && `${fmonth(d.monthend.date.slice(0, 7))}, full month`],
         ["tilldate", d.tilldate && `${mshort(d.tilldate.date.slice(0, 7))} till ${fdate(d.tilldate.date, true)}`, "This month so far"]].filter((o) => o[1]);
-      $("#periodSeg").innerHTML = opts.map(([k, t, tip]) => `<button aria-pressed="${S.period === k}" data-period="${k}" title="${esc(tip)}">${esc(t)}</button>`).join("");
-      $$("#periodSeg button").forEach((b) => b.addEventListener("click", () => pickPeriod(b.dataset.period)));
+      const cur = opts.find((o) => o[0] === S.period);
+      $("#periodSeg").innerHTML = `<span class="top-sel-k">Period</span><select class="sel" aria-label="Sales period" title="${esc(cur ? cur[2] : "")}">${[...opts].reverse().map(([k, t, tip]) => `<option value="${k}" ${S.period === k ? "selected" : ""}>${esc(t)}${k === "tilldate" ? "" : " · full month"}</option>`).join("")}</select>`;
+      $("#periodSeg select").onchange = (e) => pickPeriod(e.target.value);
       const when = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" }).replace("Sept", "Sep");
       const fresh = (upTo, t) => { $("#fresh").textContent = `${upTo ? upTo + " · " : ""}updated ${when(t)}`; $("#fresh").title = "When the data was last refreshed from Google Drive"; };
       const r0 = rep();

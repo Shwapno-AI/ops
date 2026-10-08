@@ -67,6 +67,11 @@ tr.dq-grp td{background:var(--surface-2);font-size:11.5px;font-weight:750;letter
 .title-block h1{font-size:21px;letter-spacing:-.01em}
 .scope{margin:2px 0 0;color:var(--ink-3);font-size:12px}
 .top-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.top-sel{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);overflow:hidden}
+.top-sel[hidden]{display:none}
+.top-sel-k{padding:0 4px 0 10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
+.top-sel select.sel{border:0;border-radius:0;font-weight:600;padding:6px 26px 6px 4px;cursor:pointer;background-color:transparent}
+.top-sel:focus-within{border-color:var(--info)}
 .fresh{font-size:11.5px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
 .menu-btn{display:none}
 .view{padding:20px 26px 26px;padding-bottom:calc(26px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:16px}
