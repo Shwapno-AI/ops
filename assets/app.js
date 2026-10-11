@@ -744,7 +744,7 @@
     $$("[data-kscroll]", root).forEach((b) => (b.onclick = () => { const box = b.closest(".panel")?.querySelector("[data-kcs]"), c = box?.firstElementChild; if (!c) return; const step = c.offsetHeight + 10; box.scrollTo({ top: (Math.round(box.scrollTop / step) + Number(b.dataset.kscroll)) * step, behavior: "smooth" }); }));
     $$("[data-kcs]", root).forEach((box) => {
       const lab = box.closest(".panel")?.querySelector("[data-kcn]");
-      const upd = () => { const c = box.firstElementChild; if (!c || !lab) return; const cols = getComputedStyle(box).gridTemplateColumns.split(" ").length, n = Number(box.dataset.kcs), a = Math.round(box.scrollTop / (c.offsetHeight + 10)) * cols + 1; lab.textContent = `${a}–${Math.min(a + cols * 2 - 1, n)} of ${n}`; };
+      const upd = () => { const c = box.firstElementChild; if (!c || !lab) return; const cols = getComputedStyle(box).gridTemplateColumns.split(" ").length, n = Number(box.dataset.kcs), step = c.offsetHeight + 10, rows = Math.max(1, Math.floor((box.clientHeight + 10) / step)), a = Math.round(box.scrollTop / step) * cols + 1; lab.textContent = `${a}–${Math.min(a + cols * rows - 1, n)} of ${n}`; };
       box.onscroll = upd; upd();
     });
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
@@ -1091,17 +1091,25 @@
     return d > 0 ? `<span class="up k-mv" title="Up ${d} from last month">▲${d}</span>` : d < 0 ? `<span class="down k-mv" title="Down ${-d} from last month">▼${-d}</span>` : `<span class="k-mv muted">–</span>`;
   };
   const kBackBtns = () => (S.kl === "zonal" ? `<button type="button" class="btn" data-kback>← Back to RHOs</button>${S.krho ? `<button type="button" class="btn" data-kclear>All zonals</button>` : ""}` : "");
+  // Scorecard: score ring and band on the left, category points on the right, heads by score band below.
   function kpiScorecard(V, lvl) {
     const r = V.ref, cats = [...new Set(V.metrics.map((m) => m.cat))], bands = [0, 0, 0, 0, 0];
     V.heads.forEach((h) => bands[kBand(h.score)]++);
-    const lost = r ? r.metrics.reduce((a, m) => a + m.w - m.pts, 0) : 0;
-    return `<section class="panel k-sc"><div class="panel-head"><div><h2>${esc(V.refName)} scorecard</h2><p>${r?.avg ? `Average of ${int(V.heads.length)} ${lvl}. ` : ""}Category points against weight, and ${lvl} in each score band.</p></div></div>
-      <div class="panel-body">
-        <div class="k-sc-top"><div class="k-sc-val ${r ? KTXT[kBand(r.score)] : ""}">${r ? (r.score * 100).toFixed(1) : "—"}<small>/ 100</small></div>
-          <div class="k-sc-meta"><span>${esc(V.P.label)} · ${r ? r.metrics.length : 0} KPIs</span>${lost > 0.05 ? `<button type="button" class="k-lostlink" data-set="kv" data-val="lost" title="Open the Points lost view">${lost.toFixed(1)} points lost ›</button>` : `<span>${lost.toFixed(1)} points lost</span>`}</div></div>
-        <div class="k-cats">${cats.map((c) => { const x = r?.cats[c], v = x ? x.pts / x.w : null; return `<div class="k-cat" data-kcat="${esc(c)}" tabindex="0" role="button" title="${esc(catShort(c))}: KPIs and how each ${lvl.replace(/s$/, "")} scores"><span>${esc(catShort(c))}</span><div class="k-track"><i class="${isNum(v) ? KBAND_CLS[kBand(v)] : ""}" style="width:${isNum(v) ? v * 100 : 0}%"></i></div><b>${x ? `${x.pts.toFixed(1)} of ${int(x.w)}` : "—"}</b></div>`; }).join("")}</div>
-        <div class="av-stack">${bands.map((v, i) => (v ? `<i class="${KBAND_CLS[i]}" style="flex-grow:${v}" data-kband="${i}" role="button" tabindex="-1" title="${lvl} scoring ${KBANDS[i]}: ${v}"></i>` : "")).join("")}</div>
-        <ul class="k-bands">${KBANDS_S.map((t, i) => `<li${bands[i] ? ` data-kband="${i}" tabindex="0" role="button" title="${lvl} scoring ${KBANDS[i]}"` : ' class="zero"'}><i class="${KBAND_CLS[i]}"></i><span>${t}</span><b>${int(bands[i])}</b></li>`).join("")}</ul>
+    const lost = r ? r.metrics.reduce((a, m) => a + m.w - m.pts, 0) : 0, b = r ? kBand(r.score) : null;
+    const C = 2 * Math.PI * 50, fill = r ? Math.max(0, Math.min(1, r.score)) * C : 0;
+    const ring = `<div class="k-ring"><svg viewBox="0 0 120 120" role="img" aria-label="Score ${r ? (r.score * 100).toFixed(1) : "—"} of 100"><circle cx="60" cy="60" r="50" class="k-ring-bg"/>${r ? `<circle cx="60" cy="60" r="50" class="k-ring-v kr${b + 1}" stroke-dasharray="${fill.toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 60 60)"/>` : ""}<text x="60" y="63" class="k-ring-n">${r ? (r.score * 100).toFixed(1) : "—"}</text><text x="60" y="81" class="k-ring-o">of 100</text></svg>
+        ${r ? `<span class="k-band-pill kp${b + 1}">${KBANDS_S[b]} band</span>` : ""}</div>`;
+    const catRows = cats.map((c) => {
+      const x = r?.cats[c], v = x ? x.pts / x.w : null;
+      return `<div class="k-cat2" data-kcat="${esc(c)}" tabindex="0" role="button" title="${esc(catShort(c))}: KPIs and how each ${lvl.replace(/s$/, "")} scores"><div class="k-cat2-h"><span>${esc(catShort(c))}</span><span>${x ? `<b>${x.pts.toFixed(1)}</b> <i>/ ${int(x.w)} · ${pct(v, 0)}</i>` : "—"}</span></div><div class="k-track"><i class="${isNum(v) ? KBAND_CLS[kBand(v)] : ""}" style="width:${isNum(v) ? v * 100 : 0}%"></i></div></div>`;
+    }).join("");
+    const strip = KBANDS_S.map((t, i) => (bands[i]
+      ? `<button type="button" class="k-bchip kp${i + 1}" data-kband="${i}" title="${lvl} scoring ${KBANDS[i]}"><b>${int(bands[i])}</b><span>${t}</span></button>`
+      : `<span class="k-bchip zero" title="No ${lvl} scoring ${KBANDS[i]}"><b>0</b><span>${t}</span></span>`)).join("");
+    return `<section class="panel k-sc"><div class="panel-head"><div><h2>${esc(V.refName)} scorecard</h2><p>${esc(V.P.label)} · ${r ? r.metrics.length : 0} KPIs${r?.avg ? ` · average of ${int(V.heads.length)} ${lvl}` : ""}</p></div>
+        <div class="panel-tools">${lost > 0.05 ? `<button type="button" class="k-lostlink" data-set="kv" data-val="lost" title="Open the Points lost view">${lost.toFixed(1)} points lost ›</button>` : `<span class="muted">${lost.toFixed(1)} points lost</span>`}</div></div>
+      <div class="panel-body"><div class="k-sc-main">${ring}<div class="k-cats2">${catRows}</div></div>
+        <div class="k-sc-bands"><div class="k-sc-bh"><span>${int(V.heads.length)} ${lvl} by score band</span><span>Click a band for the list</span></div><div class="k-bstrip">${strip}</div></div>
       </div></section>`;
   }
   // KPI cards, biggest points loss first, four visible at a time in a scroll box.
@@ -1121,7 +1129,7 @@
         <div class="k-track"><i class="${b == null ? "" : KBAND_CLS[b]}" style="width:${isNum(v) ? v * 100 : 0}%"></i></div>
         <div class="k-kc-f"><span>${hit} of ${got.length} hit target</span>${worst && worst.x.ach < 0.999 ? `<span>Low: ${esc(worst.h.head)} ${pct(worst.x.ach, 0)}</span>` : ""}</div></article>`;
     }).join("");
-    return `<section class="panel k-kcp"><div class="panel-head"><div><h2>KPI cards</h2><p>${esc(V.refName)} on each KPI, biggest points loss first. Click a card to rank every head on it.</p></div><div class="panel-tools"><span class="k-kcn" data-kcn>1–4 of ${list.length}</span><button type="button" class="btn k-arrow" data-kscroll="-1" aria-label="Previous KPIs">↑</button><button type="button" class="btn k-arrow" data-kscroll="1" aria-label="Next KPIs">↓</button></div></div>
+    return `<section class="panel k-kcp"><div class="panel-head"><div><h2>KPI cards</h2><p>${esc(V.P.label)} · ${esc(V.refName)}</p></div><div class="panel-tools"><span class="k-kcn" data-kcn>1–${Math.min(4, list.length)} of ${list.length}</span><button type="button" class="btn k-arrow" data-kscroll="-1" aria-label="Previous KPIs">↑</button><button type="button" class="btn k-arrow" data-kscroll="1" aria-label="Next KPIs">↓</button></div></div>
       <div class="panel-body"><div class="k-kcs" data-kcs="${list.length}">${cards}</div></div></section>`;
   }
   function kpiMatrix(V, lvl, prev) {
