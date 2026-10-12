@@ -289,3 +289,13 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .sg-bar-r{display:flex;align-items:center;gap:8px}
 .sg-bar-r select.sel{padding:5px 8px}
 .sg-bar .sg-crumbs button,.sg-bar .sg-crumbs strong{padding:4px 10px}
+/* SI voice: mic, language, read-aloud */
+.ai-mic,.ai-lang{flex:none;align-self:flex-end;height:36px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:50%;cursor:pointer;font-size:15px}
+.ai-mic{width:36px}.ai-lang{width:auto;border-radius:999px;padding:0 9px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.ai-mic.on{background:var(--bad);border-color:var(--bad);animation:aiPulse 1.2s infinite}
+@keyframes aiPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--bad) 45%,transparent)}50%{box-shadow:0 0 0 7px transparent}}
+.ai-mic:disabled{opacity:.4;cursor:default}
+.ai-ib.on{background:var(--ai-tint);border-color:var(--ai-green-2)}
+.ai-acts{display:inline-flex;gap:6px}
+.ai-copy.on{background:var(--ai-green);color:var(--ai-ink);border-color:var(--ai-green-2)}
+.ai-verr{margin:0;font-size:11.5px;color:var(--bad)}

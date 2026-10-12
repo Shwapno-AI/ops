@@ -6582,7 +6582,41 @@
   // A chat panel on every page. The AI (Azure OpenAI or Qwen, through the server relay at /api/ai, which holds the
   // keys) never computes figures itself: it calls the lookups below, which run here in the browser on the same data
   // and with the same rules as the dashboard pages, and then writes the answer from what they return.
-  const AI = { open: false, busy: false, providers: null, err: "", history: [], items: [], tables: [] };
+  const AI = { open: false, busy: false, providers: null, err: "", history: [], items: [], tables: [], voice: null, listening: false, playing: null };
+  // Voice: the 🎤 button uses the browser's speech recognition (Bangla or English); answers are read aloud by the
+  // server relay's Qwen omni model (POST api/ai/speak returns a WAV). The omni models cannot speak Bangla, so
+  // a Bangla answer is read in English; the text answer is unchanged.
+  const AI_SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let aiRec = null, aiAudio = null;
+  function aiListen() {
+    if (!AI_SR || AI.busy) return;
+    if (aiRec) { aiRec.stop(); return; }
+    const rec = new AI_SR();
+    rec.lang = aiLS.get("aiMicLang") || "bn-BD"; rec.interimResults = true; rec.maxAlternatives = 1;
+    let said = "";
+    rec.onresult = (e) => { said = [...e.results].map((r) => r[0].transcript).join(" "); const t = $("#aiText"); if (t) t.value = said; };
+    rec.onerror = (e) => { AI.err = e.error === "not-allowed" ? "Microphone access was blocked. Allow it for this site in the browser." : ""; };
+    rec.onend = () => { aiRec = null; AI.listening = false; aiRender(); if (said.trim()) { const t = $("#aiText"); if (t) t.value = ""; aiAsk(said.trim()); } else if (AI.err) { AI.items.push({ who: "err", text: AI.err }); AI.err = ""; aiRender(); } };
+    aiRec = rec; AI.listening = true; aiRender(); rec.start();
+  }
+  function aiStopAudio() { if (aiAudio) { aiAudio.pause(); aiAudio = null; } AI.playing = null; }
+  async function aiSpeak(idx) {
+    const it = AI.items[idx]; if (!it || it.who !== "ai") return;
+    if (AI.playing === idx) { aiStopAudio(); aiRender(); return; }
+    aiStopAudio(); AI.playing = idx; it.voiceErr = ""; aiRender();
+    try {
+      if (!it.audioUrl) {
+        const r = await fetch("api/ai/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: it.text }) });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        it.audioUrl = URL.createObjectURL(await r.blob());
+      }
+      if (AI.playing !== idx) return; // stopped while loading
+      aiAudio = new Audio(it.audioUrl);
+      aiAudio.onended = () => { if (AI.playing === idx) { AI.playing = null; aiAudio = null; aiRender(); } };
+      await aiAudio.play();
+    } catch (e) { it.voiceErr = e.message; if (AI.playing === idx) AI.playing = null; }
+    aiRender();
+  }
   const aiLS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
   // formats: t text, n whole number, n1 one decimal, p1/p2 percent, bdt taka
   const aiFmt = (v, f) => (v == null || v === "" || (typeof v === "number" && !isFinite(v)) ? "" : f === "bdt" ? bdt(v) : f === "p1" ? pct(v, 1) : f === "p2" ? pct(v, 2) : f === "n1" ? Number(v).toFixed(1) : f === "n" ? int(v) : String(v));
@@ -6816,6 +6850,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
       }
     } catch (e) { AI.items.push({ who: "err", text: e.message }); }
     AI.busy = false; aiRender();
+    if (AI.voice?.enabled && aiLS.get("aiSpeak") !== "0" && AI.items[AI.items.length - 1]?.who === "ai") aiSpeak(AI.items.length - 1);
   }
   // light markdown: **bold**, bullet lines, line breaks
   const aiMd = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split(/\n/).map((l) => (/^\s*[-•*]\s+/.test(l) ? `<li>${l.replace(/^\s*[-•*]\s+/, "")}</li>` : l ? `<p>${l}</p>` : "")).join("").replace(/(<li>.*?<\/li>)+/g, (x) => `<ul>${x}</ul>`);
@@ -6879,37 +6914,41 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     fab?.setAttribute("aria-pressed", String(AI.open));
     host.hidden = !AI.open;
     if (!AI.open) return;
-    const provs = AI.providers || [], pick = aiLS.get("aiProv"), ready = provs.length && !AI.busy;
+    const provs = AI.providers || [], pick = aiLS.get("aiProv") || "qwen", ready = provs.length && !AI.busy;
     AI.tables = [];
     const avatar = '<span class="ai-av" aria-hidden="true">✦</span>';
-    const body = AI.items.length ? AI.items.map((it) => {
+    const body = AI.items.length ? AI.items.map((it, ix) => {
       if (it.who === "user") return `<div class="ai-row ai-row-user"><div class="ai-msg ai-user">${esc(it.text)}</div></div>`;
       if (it.who === "err") return `<div class="ai-row">${avatar}<div class="ai-msg ai-err"><b>Couldn't answer.</b> ${esc(it.text)}</div></div>`;
       const cards = (it.used || []).map((u) => { const ti = AI.tables.push(u.out) - 1, t = u.out, show = t.rows.slice(0, 8); return `<div class="ai-card"><div class="ai-card-h"><div><b>${esc(t.title)}</b><small>${int(t.rows.length)} rows</small></div><button type="button" class="ai-xl" data-aixl="${ti}">⬇ Excel</button></div>
         <div class="ai-tw"><table><thead><tr>${t.cols.map((c) => `<th>${esc(c.h)}</th>`).join("")}</tr></thead><tbody>${show.map((r) => `<tr>${r.map((v, i) => `<td>${esc(aiCell(v, t.cols[i].f))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.rows.length > 8 ? `<p class="ai-more">Showing 8 of ${int(t.rows.length)} · the Excel has every row</p>` : ""}</div>`; }).join("");
-      return `<div class="ai-row">${avatar}<div class="ai-stack"><div class="ai-msg ai-bot">${aiMd(it.text)}</div>${cards}<div class="ai-meta"><span>${esc(it.provider || "")}${it.used?.length ? ` · Looked up: ${esc([...new Set(it.used.map((u) => u.name.replace(/_/g, " ")))].join(", "))}` : ""}</span><button type="button" class="ai-copy" data-aicopy="${esc(it.text)}">⧉ Copy</button></div></div></div>`;
+      return `<div class="ai-row">${avatar}<div class="ai-stack"><div class="ai-msg ai-bot">${aiMd(it.text)}</div>${cards}<div class="ai-meta"><span>${esc(it.provider || "")}${it.used?.length ? ` · Looked up: ${esc([...new Set(it.used.map((u) => u.name.replace(/_/g, " ")))].join(", "))}` : ""}</span><span class="ai-acts">${AI.voice?.enabled ? `<button type="button" class="ai-copy${AI.playing === ix ? " on" : ""}" data-aispeak="${ix}" title="${AI.playing === ix ? "Stop" : "Read this answer aloud (English)"}">${AI.playing === ix ? (it.audioUrl ? "■ Stop" : "… Voice") : "🔊 Listen"}</button>` : ""}<button type="button" class="ai-copy" data-aicopy="${esc(it.text)}">⧉ Copy</button></span></div>${it.voiceErr ? `<p class="ai-verr">Couldn't read it aloud: ${esc(it.voiceErr)}</p>` : ""}</div></div>`;
     }).join("") : `<div class="ai-hello"><div class="ai-hero">${avatar}<div><h3>Hi! What would you like to know?</h3><p>I answer from the same data you see on this dashboard, in English, বাংলা or Banglish.</p></div></div>
         <div class="ai-topics" role="group" aria-label="Filter questions">${["Popular", "All", ...Object.keys(AI_TOPIC_ICON)].map((t) => `<button type="button" data-aitopic="${esc(t)}" aria-pressed="${(AI.topic || "Popular") === t}">${esc(t)}</button>`).join("")}</div>
         <h4>Try asking${AI.topic && AI.topic !== "Popular" && AI.topic !== "All" ? ` · ${esc(AI.topic)}` : ""}</h4><div class="ai-sugs">${AI_SUGGEST.filter(([t, , pop]) => ((AI.topic || "Popular") === "Popular" ? pop : AI.topic === "All" || t === AI.topic)).map(([tag, q]) => `<button type="button" class="ai-sug" data-aiq="${esc(q)}"><i aria-hidden="true">${AI_TOPIC_ICON[tag]}</i><span><small>${esc(tag)}</small>${esc(q)}</span></button>`).join("")}</div></div>`;
     const off = AI.providers === null ? '<div class="ai-wait"><span class="ai-dots"><i></i><i></i><i></i></span> Connecting…</div>'
       : `<div class="ai-row">${avatar}<div class="ai-msg ai-err">${esc(AI.err || "Shwapno Intelligence isn't set up on the server yet. Add the AZURE_OPENAI_* or QWEN_* variables in Coolify.")}</div></div>`;
     host.innerHTML = `<header class="ai-head">${avatar}<div class="ai-title"><b>Ask <em>SI</em></b><span>Shwapno Intelligence · operations dashboard assistant · data of ${esc(S.data?.tilldate ? fdate(S.data.tilldate.date) : "—")}</span></div>
-        <div class="ai-tools"><button type="button" class="ai-ib" id="aiReset" title="New conversation" aria-label="New conversation">⟲</button><button type="button" class="ai-ib" id="aiClose" title="Close" aria-label="Close">✕</button></div>
+        <div class="ai-tools">${AI.voice?.enabled ? `<button type="button" class="ai-ib${aiLS.get("aiSpeak") !== "0" ? " on" : ""}" id="aiAuto" title="${aiLS.get("aiSpeak") !== "0" ? "Answers are read aloud (voice ${esc(AI.voice.voice)}). Click to turn off." : "Read answers aloud automatically"}" aria-label="Read answers aloud" aria-pressed="${aiLS.get("aiSpeak") !== "0"}">${aiLS.get("aiSpeak") !== "0" ? "🔊" : "🔈"}</button>` : ""}<button type="button" class="ai-ib" id="aiReset" title="New conversation" aria-label="New conversation">⟲</button><button type="button" class="ai-ib" id="aiClose" title="Close" aria-label="Close">✕</button></div>
         ${provs.length ? `<label class="ai-prov"><span>Model</span><select id="aiProv" aria-label="AI model">${provs.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></label>` : ""}</header>
       <div class="ai-body" id="aiBody">${provs.length ? body : off}${AI.busy ? `<div class="ai-row">${avatar}<div class="ai-msg ai-bot ai-typing"><span class="ai-dots"><i></i><i></i><i></i></span> Looking it up…</div></div>` : ""}</div>
-      <footer class="ai-foot"><div class="ai-input"><textarea id="aiText" rows="1" placeholder="Ask about sales, availability, outlets, categories…" ${ready ? "" : "disabled"}></textarea><button type="button" class="ai-send" id="aiSend" aria-label="Send" ${ready ? "" : "disabled"}>➤</button></div>
-        <p class="ai-note">Enter to send · Shift+Enter for a new line · Figures come from the dashboard; check key numbers before sharing.</p></footer>`;
+      <footer class="ai-foot"><div class="ai-input">${AI_SR ? `<button type="button" class="ai-mic${AI.listening ? " on" : ""}" id="aiMic" title="${AI.listening ? "Listening… click to stop" : "Ask by voice"}" aria-label="Ask by voice" ${ready || AI.listening ? "" : "disabled"}>🎤</button><button type="button" class="ai-lang" id="aiLang" title="Language you speak in">${(aiLS.get("aiMicLang") || "bn-BD") === "bn-BD" ? "বাং" : "EN"}</button>` : ""}<textarea id="aiText" rows="1" placeholder="${AI.listening ? "Listening… speak now" : "Ask about sales, availability, outlets, categories…"}" ${ready ? "" : "disabled"}></textarea><button type="button" class="ai-send" id="aiSend" aria-label="Send" ${ready ? "" : "disabled"}>➤</button></div>
+        <p class="ai-note">Enter to send · Shift+Enter for a new line${AI_SR ? " · 🎤 to ask by voice" : ""}${AI.voice?.enabled ? " · answers are read aloud in English" : ""} · Figures come from the dashboard; check key numbers before sharing.</p></footer>`;
     const send = () => { const t = $("#aiText"); const v = t.value; t.value = ""; aiAsk(v); };
     const ta = $("#aiText"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(140, ta.scrollHeight) + "px"; };
     $("#aiSend").onclick = send;
     ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
     ta.oninput = grow;
-    $("#aiClose").onclick = () => { AI.open = false; aiRender(); fab?.focus(); };
+    $("#aiClose").onclick = () => { aiStopAudio(); aiRec?.stop(); AI.open = false; aiRender(); fab?.focus(); };
     $("#aiReset").onclick = () => { AI.history = []; AI.items = []; aiRender(); };
     $("#aiProv") && ($("#aiProv").onchange = (e) => aiLS.set("aiProv", e.target.value));
     $$("[data-aiq]", host).forEach((b) => (b.onclick = () => aiAsk(b.dataset.aiq)));
     $$("[data-aitopic]", host).forEach((b) => (b.onclick = () => { AI.topic = b.dataset.aitopic; aiRender(); }));
     $$("[data-aixl]", host).forEach((b) => (b.onclick = () => aiDownload(+b.dataset.aixl)));
+    $$("[data-aispeak]", host).forEach((b) => (b.onclick = () => aiSpeak(+b.dataset.aispeak)));
+    $("#aiMic") && ($("#aiMic").onclick = aiListen);
+    $("#aiLang") && ($("#aiLang").onclick = () => { aiLS.set("aiMicLang", (aiLS.get("aiMicLang") || "bn-BD") === "bn-BD" ? "en-US" : "bn-BD"); aiRender(); });
+    $("#aiAuto") && ($("#aiAuto").onclick = () => { const on = aiLS.get("aiSpeak") !== "0"; aiLS.set("aiSpeak", on ? "0" : "1"); if (on) aiStopAudio(); aiRender(); });
     $$("[data-aicopy]", host).forEach((b) => (b.onclick = () => { navigator.clipboard?.writeText(b.dataset.aicopy); b.textContent = "✓ Copied"; }));
     const bodyEl = $("#aiBody"); bodyEl.scrollTop = AI.items.length || AI.busy ? bodyEl.scrollHeight : 0; // the start screen stays at its top
     if (!AI.busy) ta.focus();
@@ -6917,7 +6956,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   function aiProviders() {
     if (AI.providers !== null) return;
     fetch("api/ai/providers", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((p) => { AI.providers = Array.isArray(p) ? p : []; })
+      .then((p) => { AI.providers = Array.isArray(p) ? p : []; fetch("api/ai/voice", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((v) => { AI.voice = v; aiRender(); }).catch(() => null); })
       .catch(() => { AI.providers = []; AI.err = "Shwapno Intelligence isn't reachable here (the relay runs on the server; set AZURE_OPENAI_* or QWEN_* in Coolify)."; })
       .finally(aiRender);
   }
