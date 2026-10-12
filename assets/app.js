@@ -633,7 +633,51 @@
          kpi({ label: "Needed per day", value: bdt(a.needPerDay), sub: `For the remaining ${r.dim - r.day} days`, foot: `<span>Now ${bdt(a.perDay)}/day</span>`, accent: `var(--${a.needPerDay > a.perDay ? "bad" : "good"})` }),
          kpi({ label: "Gap to till-date target", value: bdt(a.a - a.t), foot: `<span>${int(a.tn)} outlets with a target</span>`, accent: `var(--${a.a >= a.t ? "good" : "bad"})` }),
          kpi({ label: "Outlets at 100% or more", value: int(list.filter((o) => o.t > 0 && o.a >= o.t).length), foot: `<span>of ${int(a.tn)} with a target</span>`, accent: "var(--good)" })];
-    return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">${heroAchievement(a, r)}${k.join("")}</div>${table}`;
+    return `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">${heroAchievement(a, r)}${k.join("")}</div>${table}${lowSalesPanel(r, list)}`;
+  }
+  // Outlets that sold under a threshold (৳10 Lac by default) in every earlier month the dashboard holds and
+  // are heading under it this month too (month-end projection at the current daily pace). Earlier months:
+  // the kept month-end reports (data/sales/<yyyy-mm>.json) and last month's. A month an outlet did not trade
+  // in, or opened part-way through, is shown as "—" and not counted; outlets with no such month (new) are left out.
+  const LOW_THR = [[500000, "৳5 Lac"], [1000000, "৳10 Lac"], [1500000, "৳15 Lac"], [2000000, "৳20 Lac"]];
+  function loadSalesHist() {
+    const d = S.data, todo = (d.history || []).filter((h) => !d[`m:${h.ym}`]);
+    if (!todo.length || S.shLoading) return;
+    S.shLoading = true;
+    Promise.all(todo.map((h) => fetch(`data/sales/${h.ym}.json`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).then((r) => { if (r) { prepRep(r, masterMap(d)); d[`m:${h.ym}`] = r; } }).catch(() => null)))
+      .finally(() => { S.shLoading = false; if (S.page === "achievement") render(); });
+  }
+  function lowSalesPanel(r, list) {
+    if (S.period !== "tilldate" || r.closed) return "";
+    const d = S.data;
+    loadSalesHist();
+    const earlier = [...(d.history || []).map((h) => [h.ym, d[`m:${h.ym}`]]), ...(d.monthend ? [[d.monthend.date.slice(0, 7), d.monthend]] : [])].filter(([, x]) => x);
+    const missing = (d.history || []).length + (d.monthend ? 1 : 0) - earlier.length;
+    const thr = S.lowThr || 1000000, thrName = LOW_THR.find((t) => t[0] === thr)?.[1] || bdt(thr);
+    const maps = earlier.map(([ym, x]) => [ym, new Map(x.outlets.filter((o) => (o.s || 0) >= 1).map((o) => [o.c, o.s]))]);
+    const rows = [];
+    for (const o of list) {
+      if (!((o.s || 0) >= 1)) continue;
+      // a month counts only if the outlet was open all of it (launched on or before the 1st; no launch date counts)
+      const ld = o.m?.ld, proj = (o.s / r.day) * r.dim, past = maps.map(([ym, m]) => (!ld || ld <= `${ym}-01` ? m.get(o.c) : undefined));
+      const traded = past.filter(isNum);
+      if (!traded.length || proj >= thr || traded.some((v) => v >= thr)) continue;
+      rows.push({ key: o.c, name: o.nm, sub: `${o.c}, ${o.dim.rl}, ${o.dim.zn}`, o, past, s: o.s, proj, avg: traded.reduce((t, v) => t + v, 0) / traded.length, n: traded.length });
+    }
+    const mName = (ym) => fmonth(ym).replace(/ 20(\d\d)$/, "'$1");
+    const cur = mName(r.date.slice(0, 7));
+    const tools = `<select class="sel" data-lowthr aria-label="Threshold">${LOW_THR.map(([v, t]) => `<option value="${v}" ${v === thr ? "selected" : ""}>Under ${esc(t)}</option>`).join("")}</select>`;
+    return mountTable("low", {
+      title: `Outlets under ${thrName} every month`, file: `outlets_under_${thr / 100000}_lac_every_month`,
+      desc: (n) => `${int(n)} outlets sold under ${thrName} in every full month they were open (${earlier.map(([ym]) => mName(ym)).join(", ")}) and are heading under it in ${cur} too: ${cur} projected at the current daily pace (${r.day} of ${r.dim} days). Lowest projection first.${missing > 0 || S.shLoading ? " Loading the earlier months…" : ""}`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "proj", defaultDir: "asc", tools, rowAttr: (x) => `data-outlet="${esc(x.key)}" tabindex="0"`,
+      wire: (el) => { const sel = $("[data-lowthr]", el); if (sel) sel.onchange = (e) => { S.lowThr = Number(e.target.value); S.tables.low.page = 1; render(); }; },
+      cols: [nameCol("outlet"),
+        ...earlier.map(([ym], i) => ({ k: `m${i}`, label: mName(ym), num: 1, val: (x) => x.past[i], fmt: (x) => (isNum(x.past[i]) ? bdt(x.past[i]) : '<span class="muted" title="Not trading that month">—</span>'), csv: (x) => (isNum(x.past[i]) ? Math.round(x.past[i]) : "") })),
+        { k: "avg", label: "Monthly average", num: 1, fmt: (x) => bdt(x.avg), csv: (x) => Math.round(x.avg) },
+        { k: "s", label: `${cur} till ${r.day}`, num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s) },
+        { k: "proj", label: `${cur} projected`, num: 1, fmt: (x) => `<strong class="down">${bdt(x.proj)}</strong>`, csv: (x) => Math.round(x.proj) }],
+    });
   }
 
   // Data quality sits behind a password. Only its SHA-256 hash is kept here; the page stays open until you go to
