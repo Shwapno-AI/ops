@@ -7,7 +7,7 @@
 
   // ------------------------------------------------------------------ config
   const NAV = [
-    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock Gap / Inventory Gap"]] },
+    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock / Inventory Gap"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"], ["dos", "Days of stock (DOS)"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"], ["sapk", "PAKHAQS survey"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
@@ -5469,7 +5469,7 @@
     const dir = (now, before) => (isNum(now) && isNum(before) ? sgDelta(now - before) + ` vs ${esc(per.prevLabel)}` : "");
     // one slim bar: where you are (click a crumb to go back up), what it means on hover, and the period
     const about = `Inventory counting gap: physical minus SAP stock, net of the initial adjustment; a shortage counts as a positive gap. Gap % is on the sales of the outlets counted. From ${d.source?.file || "the Stock Gap Dashboard workbook"}, ${fmonth(d.months[0])} to ${fmonth(d.months[d.months.length - 1])}.`;
-    return `<section class="panel sg-bar"><div class="sg-bar-l"><b>Stock Gap / Inventory Gap</b><span class="sg-info" tabindex="0" title="${esc(about)}" aria-label="${esc(about)}">ⓘ</span><span class="sg-sep">›</span><div class="sg-crumbs">${crumbs}</div></div><div class="sg-bar-r">${tools}</div></section>
+    return `<section class="panel sg-bar"><div class="sg-bar-l"><b>Stock / Inventory Gap</b><span class="sg-info" tabindex="0" title="${esc(about)}" aria-label="${esc(about)}">ⓘ</span><span class="sg-sep">›</span><div class="sg-crumbs">${crumbs}</div></div><div class="sg-bar-r">${tools}</div></section>
       <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
         ${kpi({ label: "Counting gap", value: bdt(g), sub: esc(per.label), foot: `<span>${pg != null ? `${esc(per.prevLabel)} ${bdt(pg)}` : ""}</span>`, accent: `var(--${g > 0 ? "bad" : "good"})` })}
         ${kpi({ label: "Gap % on sales", value: pct(p, 2), sub: dir(p, pp), foot: `<span>${pp != null ? `${esc(per.prevLabel)} ${pct(pp, 2)}` : ""}</span>`, accent: `var(--${isNum(p) && isNum(pp) && p > pp ? "bad" : "good"})` })}
