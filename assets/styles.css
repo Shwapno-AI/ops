@@ -333,3 +333,9 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ai-callt b{font-size:14px}
 .ai-callt span{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .ai-endcall{flex:none;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border:0;border-radius:999px;background:var(--bad);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+/* "Try asking" opens the topic tags */
+.ai-tryh{display:flex;align-items:center;gap:8px;width:100%;margin:18px 0 10px;padding:0;border:0;background:none;font:inherit;font-size:15px;font-weight:700;color:var(--ink);cursor:pointer;text-align:left}
+.ai-tryh .ai-tryc{color:var(--ai-deep);font-size:14px}
+.ai-tryh small{margin-left:auto;font-size:12px;font-weight:500;color:var(--ink-3)}
+.ai-tryh:hover small{color:var(--ai-deep);text-decoration:underline}
+.ai-tryh+.ai-topics{margin:0 0 12px}
