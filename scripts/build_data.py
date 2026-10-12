@@ -697,7 +697,9 @@ def build(root):
         # next to files this build uses, where it was most likely meant for these pages.
         used_here = any(f.get("folder") == folder for v in found.values() for f in v)
         for p in unknown:
-            if used_here:
+            if re.search(r"stock\s*gap|counting\s*gap|inventory\s*gap", os.path.basename(p), re.I):
+                print(f"skipped (stock gap workbook, read by scripts/stockgap/refresh.py): {os.path.basename(p)} ({folder})")
+            elif used_here:
                 issue("warn", os.path.basename(p), "Unrecognised file: no known sheet layout found. It was skipped.")
             else:
                 print(f"skipped (not a sales, KPI, P&L, DOS or outlet master layout): {os.path.basename(p)} ({folder})")

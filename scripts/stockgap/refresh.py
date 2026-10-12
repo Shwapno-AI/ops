@@ -125,7 +125,7 @@ def main():
         old = {}
     if local:
         p = Path(local)
-        items = [{"id": p.name, "name": p.name, "path": str(p), "modified": str(int(p.stat().st_mtime))}]
+        items = [{"id": p.name, "name": p.name, "local": str(p), "modified": str(int(p.stat().st_mtime))}]
     else:
         import fetch_drive_data as drive
         log(f"Listing Drive folder {FOLDER}…")
@@ -142,8 +142,9 @@ def main():
             if (old.get("source") or {}).get("key") == fkey and old.get("schema") == 1:
                 log(f"  keep  {item['name']} (unchanged)")
                 return 0
-            path = item.get("path") or str(Path(work) / "sg.xlsx")
-            if not item.get("path"):
+            # a Drive item's "path" is its place on Drive, not on disk: only --local files are read in place
+            path = item.get("local") or str(Path(work) / "sg.xlsx")
+            if not item.get("local"):
                 try:
                     Path(path).write_bytes(drive.fetch_bytes(item))
                 except Exception as err:  # noqa: BLE001
