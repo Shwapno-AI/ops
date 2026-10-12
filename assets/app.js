@@ -5226,8 +5226,9 @@
     });
     const who = pick ? (pick.lvl === "outlet" ? `${pick.key} ${pick.name || ""}` : pick.key) : "National";
     const dir = (now, before) => (isNum(now) && isNum(before) ? sgDelta(now - before) + ` vs ${esc(per.prevLabel)}` : "");
-    return `<section class="panel"><div class="panel-head"><div><h2>Stock gap · ${esc(who)}</h2><p>Inventory counting gap (physical minus SAP stock, net of the initial adjustment; a shortage counts as a positive gap) and the gap % on the sales of the outlets counted. From ${esc(d.source?.file || "the Stock Gap Dashboard workbook")}, ${esc(fmonth(d.months[0]))} to ${esc(fmonth(d.months[d.months.length - 1]))}.</p></div>
-        <div class="panel-tools">${tools}</div></div><div class="panel-body"><div class="sg-crumbs">${crumbs}</div></div></section>
+    // one slim bar: where you are (click a crumb to go back up), what it means on hover, and the period
+    const about = `Inventory counting gap: physical minus SAP stock, net of the initial adjustment; a shortage counts as a positive gap. Gap % is on the sales of the outlets counted. From ${d.source?.file || "the Stock Gap Dashboard workbook"}, ${fmonth(d.months[0])} to ${fmonth(d.months[d.months.length - 1])}.`;
+    return `<section class="panel sg-bar"><div class="sg-bar-l"><b>Stock gap</b><span class="sg-info" tabindex="0" title="${esc(about)}" aria-label="${esc(about)}">ⓘ</span><span class="sg-sep">›</span><div class="sg-crumbs">${crumbs}</div></div><div class="sg-bar-r">${tools}</div></section>
       <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
         ${kpi({ label: "Counting gap", value: bdt(g), sub: esc(per.label), foot: `<span>${pg != null ? `${esc(per.prevLabel)} ${bdt(pg)}` : ""}</span>`, accent: `var(--${g > 0 ? "bad" : "good"})` })}
         ${kpi({ label: "Gap % on sales", value: pct(p, 2), sub: dir(p, pp), foot: `<span>${pp != null ? `${esc(per.prevLabel)} ${pct(pp, 2)}` : ""}</span>`, accent: `var(--${isNum(p) && isNum(pp) && p > pp ? "bad" : "good"})` })}

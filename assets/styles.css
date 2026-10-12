@@ -279,3 +279,13 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ai-note{font-size:11px;color:var(--ink-3);margin:7px 2px 0;text-align:center}
 @media (max-width:600px){.ai-sugs{grid-template-columns:1fr}.ai-msg{max-width:100%}}
 @media print{.ai-top,.ai-panel{display:none!important}}
+
+/* Stock gap: one slim bar for scope and period */
+.panel.sg-bar{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;padding:8px 14px}
+.sg-bar-l{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.sg-bar-l>b{font-size:15px}
+.sg-info{color:var(--ink-3);cursor:help;font-size:13px}
+.sg-sep{color:var(--ink-3)}
+.sg-bar-r{display:flex;align-items:center;gap:8px}
+.sg-bar-r select.sel{padding:5px 8px}
+.sg-bar .sg-crumbs button,.sg-bar .sg-crumbs strong{padding:4px 10px}
