@@ -433,11 +433,14 @@ def parse_kpi(path, wb, heads):
         # Expansion counts outlets opened: a blank actual in a month with a target means none opened (0), so
         # the KPI still shows and scores. Only up to the latest month the file reports on any KPI.
         upto = max((mk for rec in rowsout for mk in rec["a"]), default=None)
+        # Quality Audit Score: a head with no audit result for a month gets 75% by default (business rule).
+        defaults = {r"expansion": 0.0, r"quality\s*audit": 0.75}
         for rec in rowsout:
-            if upto and re.search(r"expansion", rec["metric"], re.I):
+            dv = next((v for pat, v in defaults.items() if re.search(pat, rec["metric"], re.I)), None)
+            if upto and dv is not None:
                 for mk in rec["t"]:
                     if mk <= upto and mk not in rec["a"]:
-                        rec["a"][mk] = 0.0
+                        rec["a"][mk] = dv
         levels[lvl] = rowsout
     months = sorted({m for rows in levels.values() for rec in rows for m in rec["a"]})
     if not months:
