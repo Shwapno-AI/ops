@@ -9,7 +9,7 @@
   const NAV = [
     { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock Gap"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"], ["dos", "Days of stock (DOS)"]] },
-    { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
+    { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"], ["sapk", "PAKHAQS survey"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
@@ -18,7 +18,7 @@
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
-  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU")}` : t])));
+  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
   const SALES_PAGES = new Set(["overview", "achievement", "growth", "gp", "footfall", "ranking"]);
   const PERIOD_PAGES = new Set([...SALES_PAGES, "category"]);
   const NET_PAGES = new Set(["gm", "on"]);
@@ -29,7 +29,7 @@
   const SA_PAGES = new Set(["sao", "sav", "sas", "saq", "sac"]);
   // Every page whose data can be narrowed by outlet (or, for KPI performance, by leader) shows the sidebar filters.
   const PNL_PAGES = new Set(["loss", "profit", "dos"]); // pages built on the outlet P&L
-  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", "profit", "dos", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
+  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", "profit", "dos", "sapk", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
@@ -57,7 +57,7 @@
   const S = { data: null, page: "overview", period: "tilldate", filters: {}, openDim: null, tables: {}, level: "rl", bands: new Set(), lastFocus: null,
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", prstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
-    gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, dsv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
+    gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, dsv: { lvl: "rl", rl: null, zn: null }, pkv: { lvl: "rl", rl: null, zn: null }, pkm: null, cwh: { lvl: "rl", rl: null, zn: null },
     cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
@@ -163,7 +163,7 @@
   }
   const dimVal = (o, k) => (k !== "age" ? o.dim[k] : S.data?.master ? (o.dim.age ||= outletAgeBand(o.c)) : AGE_NA);
   const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)));
-  const baseList = () => (S.page === "performance" ? kpiPeople() : SA_PAGES.has(S.page) ? (S.sa ? saRows() : []) :NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : PNL_PAGES.has(S.page) ? pnlList() : rep()?.outlets || []);
+  const baseList = () => (S.page === "performance" ? kpiPeople() : S.page === "sapk" ? pkRows() : SA_PAGES.has(S.page) ? (S.sa ? saRows() : []) :NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : PNL_PAGES.has(S.page) ? pnlList() : rep()?.outlets || []);
   // Sales pages also follow the Stores switch (same store = the report's list vs last year, or vs last month
   // on pages compared with last month).
   const scopeCmp = () => (["growth", "footfall", "ranking"].includes(S.page) ? S.cmp : "y");
@@ -779,6 +779,10 @@
     $$("[data-lreason]", root).forEach((b) => (b.onclick = () => openLossReason(b.dataset.lreason, b.dataset.lrl)));
     $$("[data-lstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openLossStatus(n.dataset.lstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
     $$("[data-pstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openProfitStatus(n.dataset.pstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
+    $$("[data-pkband]", root).forEach((b) => (b.onclick = () => openPkBand(b.dataset.pkband)));
+    $$("[data-pkout]", root).forEach((n) => { const go = () => openPkOutlet(n.dataset.pkout); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    $$("[data-pkgo]", root).forEach((b) => (b.onclick = () => { S.pkm = b.dataset.pkgo; changed(); }));
+    $$("[data-pkm]", root).forEach((sel) => (sel.onchange = () => { S.pkm = sel.value; changed(); }));
     $$("[data-dosband]", root).forEach((n) => { const go = () => openDosBand(n.dataset.dosband); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-pformat]", root).forEach((b) => (b.onclick = () => openProfitFormat(b.dataset.pformat)));
     // Leader tables (leaderDrill): level switch, drill down a level, breadcrumb back.
@@ -1853,6 +1857,114 @@
         ${kpi({ label: "Highest DOS", value: top ? `<span class="dos-hi">${top.v.toFixed(0)}</span>` : "—", sub: top ? esc(`${top.o.c} ${top.o.nm}`) : "", foot: top ? `<span>${esc(top.o.dim.rl)} · ${esc(top.o.dim.zn)}</span>` : "<span></span>", accent: "var(--bad)" })}
       </div>
       ${grp}${trendPanel}`;
+  }
+  // ------------------------------------------------------------------ PAKHAQS customer survey (Store assessment)
+  // From data/pakhaqs.json (scripts/pakhaqs/refresh.py): one row per outlet x survey month with the seven
+  // PAKHAQS scores (1-5) and their average. Store health bands are the survey's own: below 3.5 very poor,
+  // 3.5 to below 4 poor, 4 to below 4.5 average, 4.5 to below 4.8 good, 4.8 to 5 very good.
+  const PK_BANDS = [["vg", "Very good", "4.8–5", 4.8, "good"], ["g", "Good", "4.5–4.8", 4.5, "info"], ["a", "Average", "4–4.5", 4, "warn"], ["p", "Poor", "3.5–4", 3.5, "bad"], ["vp", "Very poor", "below 3.5", -Infinity, "crit"]];
+  const pkBand = (v) => PK_BANDS.find((b) => v >= b[3] - 1e-9);
+  function loadPk() {
+    if (S.pk || S.pkLoading) return;
+    S.pkLoading = true; S.pkErr = null;
+    fetch("data/pakhaqs.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { S.pk = d; })
+      .catch((e) => { S.pkErr = e.message; })
+      .finally(() => { S.pkLoading = false; if (S.page === "sapk") render(); });
+  }
+  // outlet rows of one survey month, with leader and zonal from the outlet register
+  function pkRows(mi) {
+    const d = S.pk; if (!d) return [];
+    const M = masterMap(S.data), out = [];
+    if (mi == null) mi = d.months.indexOf(S.pkm);
+    for (let i = 0; i < d.r.o.length; i++) {
+      if (d.r.m[i] !== mi) continue;
+      const [c, n, type] = d.outlets[d.r.o[i]], o = { c, nm: M[c]?.n || n || c, type, n: d.r.n[i], s: d.r.s[i], a: d.r.a[i] };
+      mkDim(o, M[c], MISS); out.push(o);
+    }
+    return out;
+  }
+  const pkAvg = (xs, f) => { const v = xs.map(f).filter(isNum); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const pkFmt = (v) => (isNum(v) ? v.toFixed(2) : "—");
+  const pkDelta = (v) => (isNum(v) ? `<span class="${v > 0.004 ? "up" : v < -0.004 ? "down" : "muted"}">${v > 0.004 ? "▲ +" : v < -0.004 ? "▼ −" : ""}${Math.abs(v).toFixed(2)}</span>` : "");
+  function openPkOutlet(code) {
+    const d = S.pk, oi = d.outlets.findIndex((o) => o[0] === code); if (oi < 0) return;
+    const hist = []; for (let i = 0; i < d.r.o.length; i++) if (d.r.o[i] === oi) hist.push(i);
+    hist.sort((a, b) => d.r.m[b] - d.r.m[a]);
+    S.lastFocus = document.activeElement;
+    $("#drawerTitle").textContent = `${code} ${d.outlets[oi][1] || ""}`;
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">PAKHAQS score in every survey month, newest first (1–5 scale).</p>
+      <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Month</th><th class="num">Sample</th>${d.dims.map((x) => `<th class="num">${esc(x)}</th>`).join("")}<th class="num">Avg</th><th>Health</th></tr></thead><tbody>
+      ${hist.map((i) => { const b = pkBand(d.r.a[i]); return `<tr><td>${esc(fmonth(d.months[d.r.m[i]]))}<span class="cell-secondary">${esc(d.phases[d.months[d.r.m[i]]] || "")}</span></td><td class="num">${int(d.r.n[i])}</td>${d.r.s[i].map((v) => `<td class="num ${isNum(v) ? `pk-${pkBand(v)[0]}` : ""}">${pkFmt(v)}</td>`).join("")}<td class="num"><strong>${pkFmt(d.r.a[i])}</strong></td><td>${chip({ cls: b[4], label: b[1] })}</td></tr>`; }).join("")}</tbody></table></div>`;
+    showDrawer();
+  }
+  function openPkBand(k) {
+    const b = PK_BANDS.find((x) => x[0] === k), rows = inView().filter((o) => pkBand(o.a)[0] === k).sort((x, y) => x.a - y.a);
+    S.lastFocus = document.activeElement;
+    NCSV.pkband = () => [`pakhaqs_${b[1].toLowerCase().replace(/\s+/g, "_")}_${S.pkm}`, ["Outlet code", "Outlet", "Regional leader", "Zonal", "Sample", ...S.pk.dims, "Avg score"], rows.map((o) => [o.c, o.nm, o.dim.rl, o.dim.zn, o.n, ...o.s, o.a]), S.pkm];
+    $("#drawerTitle").textContent = `${b[1]} (${b[2]}), ${fmonth(S.pkm)}`;
+    $("#drawerBody").innerHTML = `<div class="lr-dtools"><span class="muted">${int(rows.length)} outlets, lowest score first. Click an outlet for its history.</span>${csvBtn("pkband")}</div>
+      <div class="table-wrap" style="max-height:600px"><table class="compact"><thead><tr><th>Outlet</th><th class="num">Avg score</th><th>Weakest</th></tr></thead><tbody>
+      ${rows.map((o) => { const w = o.s.reduce((bi, v, i) => (isNum(v) && (bi < 0 || v < o.s[bi]) ? i : bi), -1); return `<tr data-pkout="${esc(o.c)}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(o.nm)}</span><span class="cell-secondary">${esc(o.c)}, ${esc(o.dim.rl)}, ${esc(o.dim.zn)}</span></td><td class="num"><strong>${pkFmt(o.a)}</strong></td><td>${w >= 0 ? `${esc(S.pk.dims[w])} ${pkFmt(o.s[w])}` : "—"}</td></tr>`; }).join("") || '<tr><td colspan="3" class="empty">No outlets.</td></tr>'}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  function pageSAPK() {
+    loadPk();
+    const d = S.pk;
+    if (!d) return S.pkErr ? `<p class="empty">The PAKHAQS file could not be loaded (${esc(S.pkErr)}). Add the PAKHAQS survey workbook to the Store Assessment folder.</p>` : '<p class="empty">Loading the PAKHAQS survey…</p>';
+    if (!d.months.includes(S.pkm)) S.pkm = d.months[d.months.length - 1];
+    const mi = d.months.indexOf(S.pkm), pm = mi > 0 ? d.months[mi - 1] : null;
+    const rows = inView(), prevCodes = new Set(rows.map((o) => o.c)), prev = pm ? pkRows(mi - 1).filter((o) => matches(o)) : [];
+    const avg = pkAvg(rows, (o) => o.a), pavg = pkAvg(prev, (o) => o.a), dimAvg = d.dims.map((_, i) => pkAvg(rows, (o) => o.s[i])), dimPrev = d.dims.map((_, i) => pkAvg(prev, (o) => o.s[i]));
+    const bands = Object.fromEntries(PK_BANDS.map((b) => [b[0], rows.filter((o) => pkBand(o.a)[0] === b[0]).length]));
+    const weak = dimAvg.reduce((bi, v, i) => (isNum(v) && (bi < 0 || v < dimAvg[bi]) ? i : bi), -1);
+    const hb = isNum(avg) ? pkBand(avg) : null, sample = rows.reduce((t, o) => t + (o.n || 0), 0);
+    const monthSel = `<select class="sel" data-pkm aria-label="Survey month">${d.months.slice().reverse().map((m) => `<option value="${m}" ${m === S.pkm ? "selected" : ""}>${esc(fmonth(m))}${d.phases[m] ? ` · ${esc(d.phases[m])}` : ""}</option>`).join("")}</select>`;
+    const bandCard = `<div class="kpi kpi-grades" style="--accent:var(--series-2)"><div class="label">Store health</div><div class="pk-bands">${PK_BANDS.map((b) => `<button type="button" class="pk-band pk-${b[0]}" data-pkband="${b[0]}" title="${esc(b[1])}: score ${esc(b[2])}" ${bands[b[0]] ? "" : "disabled"}><strong>${int(bands[b[0]])}</strong><span>${esc(b[1])}</span></button>`).join("")}</div><div class="foot"><span>${int(rows.length)} outlets surveyed</span></div></div>`;
+    const cards = `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      ${kpi({ hero: true, label: `PAKHAQS score, ${fmonth(S.pkm)}`, value: `${pkFmt(avg)}<small style="font-size:15px;font-weight:600"> / 5</small>`, sub: `${hb ? chip({ cls: hb[4], label: hb[1] }) : ""} <span>${pm && isNum(pavg) ? `${pkDelta(avg - pavg)} vs ${esc(fmonth(pm))}` : ""}</span>`, foot: `<span>Average of ${int(rows.length)} outlets' scores</span>`, accent: `var(--${hb ? hb[4] : "line"})` })}
+      ${kpi({ label: "Customers surveyed", value: int(sample), sub: `${int(rows.length)} outlets · ${esc(d.phases[S.pkm] || "")}`, foot: `<span>${rows.length ? (sample / rows.length).toFixed(1) : "—"} per outlet</span>`, accent: "var(--series-1)" })}
+      ${kpi({ label: "Weakest area", value: weak >= 0 ? `<span style="font-size:20px">${esc(d.dims[weak])}</span>` : "—", sub: weak >= 0 ? `${pkFmt(dimAvg[weak])} of 5` : "", foot: weak >= 0 && isNum(dimPrev[weak]) ? `<span>${esc(fmonth(pm))}: ${pkFmt(dimPrev[weak])}</span>` : "<span></span>", accent: "var(--bad)" })}
+      ${bandCard}</div>`;
+    // the seven areas, lowest first
+    const order = d.dims.map((_, i) => i).sort((a, b) => (dimAvg[a] ?? 9) - (dimAvg[b] ?? 9));
+    const dimPanel = `<section class="panel"><div class="panel-head"><div><h2>Score by area, ${esc(fmonth(S.pkm))}</h2><p>Average of the outlets' scores on each PAKHAQS area (1–5), lowest first${pm ? `; change vs ${esc(fmonth(pm))}` : ""}.</p></div></div>
+      <div class="panel-body pk-dims">${order.map((i) => { const v = dimAvg[i], b = isNum(v) ? pkBand(v) : null; return `<div class="pk-dim"><span>${esc(d.dims[i])}</span><span class="k-track"><i class="pk-bg-${b ? b[0] : ""}" style="width:${isNum(v) ? (v / 5) * 100 : 0}%"></i></span><b>${pkFmt(v)}</b><em>${pm ? pkDelta(isNum(v) && isNum(dimPrev[i]) ? v - dimPrev[i] : null) : ""}</em></div>`; }).join("")}</div></section>`;
+    // monthly trend, the outlets in the sidebar filters (each month's own surveyed outlets)
+    const tr = d.months.map((m, i) => { const xs = pkRows(i).filter((o) => matches(o)); return { m, n: xs.length, a: pkAvg(xs, (o) => o.a) }; }).filter((t) => t.n);
+    const lo = Math.min(...tr.map((t) => t.a)), hi = Math.max(...tr.map((t) => t.a)), span = Math.max(0.2, hi - lo);
+    const trendPanel = `<section class="panel"><div class="panel-head"><div><h2>PAKHAQS score by month</h2><p>Average score of the outlets surveyed each month (the bar's colour is its store health band). Click a month to open it.</p></div></div>
+      <div class="panel-body"><div class="pk-trend">${tr.map((t) => { const b = pkBand(t.a); return `<button type="button" class="pk-tb${t.m === S.pkm ? " on" : ""}" data-pkgo="${t.m}" title="${esc(fmonth(t.m))}: ${pkFmt(t.a)} (${t.n} outlets)"><span class="pk-tv">${pkFmt(t.a)}</span><i class="pk-bg-${b[0]}" style="height:${20 + ((t.a - lo) / span) * 80}%"></i><span class="pk-tm">${esc(fmonth(t.m).replace(" 20", "'"))}</span></button>`; }).join("")}</div></div></section>`;
+    // leader > zonal > outlet
+    const D = leaderDrill("pkv", "pk-grp", rows, "click an outlet for its history"), at = D.at, V = D.V, inPath = rows.filter((o) => D.inPath(o));
+    let grpRows;
+    if (at === "outlet") grpRows = inPath.map((o) => ({ key: o.c, name: o.nm, sub: `${o.c}, ${o.type || ""}`, n: o.n, a: o.a, s: o.s }));
+    else {
+      const g = new Map();
+      inPath.forEach((o) => { const k = o.dim[at]; if (!g.has(k)) g.set(k, []); g.get(k).push(o); });
+      grpRows = [...g.entries()].map(([k, xs]) => ({ key: k, name: k, sub: (() => { const t = `${int(xs.length)} outlet${xs.length === 1 ? "" : "s"}`; return at === "zn" ? D.zsub(k, t) : t; })(), n: xs.length, a: pkAvg(xs, (o) => o.a), s: d.dims.map((_, i) => pkAvg(xs, (o) => o.s[i])), low: xs.filter((o) => o.a < 4).length }));
+    }
+    const grp = mountTable("pk-grp", {
+      title: V.zn || V.dis ? `PAKHAQS, ${V.zn || V.dis}'s outlets` : V.rl ? `PAKHAQS by zonal under ${V.rl}` : V.div ? `PAKHAQS by district in ${V.div}` : { rl: "PAKHAQS by regional leader", zn: "PAKHAQS by zonal", div: "PAKHAQS by division", dis: "PAKHAQS by district", outlet: "PAKHAQS by outlet" }[at], file: D.file(`pakhaqs_${S.pkm}`), pageSize: 25,
+      banner: D.crumbs, tools: D.tools,
+      desc: (n) => (at === "outlet" ? `${int(n)} outlets, lowest score first. Click an outlet for every month it was surveyed.` : `${int(n)} ${LVL_MANY[at].toLowerCase()}: average of their outlets' scores. Click a row to go down a level.`),
+      rows: grpRows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "a", defaultDir: "asc",
+      rowAttr: (x) => (at === "outlet" ? `data-pkout="${esc(x.key)}" tabindex="0"` : D.pick(x)),
+      cols: [{ k: "name", label: LVL_ONE[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "n", label: at === "outlet" ? "Sample" : "Outlets", num: 1, fmt: (x) => int(x.n) },
+        ...(at === "outlet" ? [] : [{ k: "low", label: "Below 4", num: 1, fmt: (x) => (x.low ? `<span class="down">${int(x.low)}</span>` : "0") }]),
+        ...d.dims.map((name, i) => ({ k: `d${i}`, label: name.split(" ")[0], csvLabel: name, num: 1, val: (x) => x.s[i], fmt: (x) => `<span class="${isNum(x.s[i]) ? `pk-${pkBand(x.s[i])[0]}` : ""}">${pkFmt(x.s[i])}</span>`, csv: (x) => (isNum(x.s[i]) ? Math.round(x.s[i] * 100) / 100 : "") })),
+        { k: "a", label: "Avg score", num: 1, fmt: (x) => `<strong class="${isNum(x.a) ? `pk-${pkBand(x.a)[0]}` : ""}">${pkFmt(x.a)}</strong>`, csv: (x) => (isNum(x.a) ? Math.round(x.a * 100) / 100 : "") }],
+    });
+    // customer feedback (the workbook's latest month)
+    const fb = d.feedback, maxF = Math.max(1, ...(fb?.rows || []).map((r) => r[3] || 0));
+    const fbPanel = fb?.rows?.length ? `<section class="panel"><div class="panel-head"><div><h2>What customers asked for</h2><p>${esc(fb.title || "Category-wise customer feedback")}${fb.lines?.length ? ` · ${esc(fb.lines.join(" · "))}` : ""}</p></div></div>
+      <div class="table-wrap" style="max-height:none"><table class="compact pk-fb"><thead><tr><th>#</th><th>Feedback category</th><th class="num">Mentions</th><th>Share of feedback</th><th>What customers said</th></tr></thead><tbody>
+      ${fb.rows.map((r) => `<tr><td>${int(r[0])}</td><td class="cell-primary">${esc(r[1])}</td><td class="num">${int(r[2])}</td><td><div class="lr-bar pr-bar"><i style="width:${((r[3] || 0) / maxF) * 100}%"></i><span>${pct(r[3], 1)}</span></div></td><td class="pk-fbt">${esc(r[4])}</td></tr>`).join("")}</tbody></table></div></section>` : "";
+    return `<div class="panel-tools">${monthSel}<span class="muted" style="font-size:12px">${esc(d.source?.file || "PAKHAQS survey workbook")} · ${esc(fmonth(d.months[0]))} to ${esc(fmonth(d.months[d.months.length - 1]))}</span></div>
+      ${cards}<div class="lr-row pk-row">${dimPanel}${trendPanel}</div>${grp}${fbPanel}`;
   }
   const peerCache = {};
   function peerMedians(fmt) {
@@ -6775,7 +6887,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, dos: pageDOS, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, sapk: pageSAPK, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
@@ -6805,7 +6917,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     try { localStorage.setItem("opsdash-theme", t); } catch (e) {}
     if (NET_PAGES.has(S.page)) render(); // charts resolve colour tokens when drawn
   });
-  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.dsv = { ...S.dsv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
+  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.dsv = { ...S.dsv, rl: null, zn: null }; S.pkv = { ...S.pkv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });

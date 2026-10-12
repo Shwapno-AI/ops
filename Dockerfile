@@ -20,7 +20,8 @@ ENV TZ=Asia/Dhaka \
     SKU_OUT=/usr/share/nginx/html/data/sku.json \
     SA_OUT=/usr/share/nginx/html/data/sa.json \
     CCV_OUT=/usr/share/nginx/html/data/ccv.json \
-    SG_OUT=/usr/share/nginx/html/data/stockgap.json
+    SG_OUT=/usr/share/nginx/html/data/stockgap.json \
+    PK_OUT=/usr/share/nginx/html/data/pakhaqs.json
 
 COPY index.html /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets

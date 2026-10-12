@@ -395,3 +395,21 @@ button.k-bchip{cursor:pointer}button.k-bchip:hover,button.k-bchip:focus-visible{
 /* Days of stock */
 .dos-lo{color:var(--good)}.dos-mid{color:var(--warn)}.dos-hi{color:var(--bad)}
 tr.dos-cur td{background:var(--surface-2);font-weight:600}
+/* PAKHAQS survey */
+.pk-vg{color:var(--good)}.pk-g{color:var(--info)}.pk-a{color:var(--warn)}.pk-p{color:var(--bad)}.pk-vp{color:var(--crit)}
+.pk-bg-vg{background:var(--good)}.pk-bg-g{background:var(--info)}.pk-bg-a{background:var(--warn)}.pk-bg-p{background:color-mix(in srgb,var(--bad) 60%,var(--surface))}.pk-bg-vp{background:var(--crit)}
+.pk-bands{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:4px}
+.pk-band{display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:6px;border:1px solid var(--line-soft);background:var(--surface);font:inherit;cursor:pointer}
+.pk-band strong{font-size:17px}.pk-band span{font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.pk-band:disabled{cursor:default;opacity:.55}.pk-band:not(:disabled):hover{border-color:var(--info)}
+.pk-band.pk-vg strong{color:var(--good)}.pk-band.pk-g strong{color:var(--info)}.pk-band.pk-a strong{color:var(--warn)}.pk-band.pk-p strong{color:var(--bad)}.pk-band.pk-vp strong{color:var(--crit)}
+.pk-dims{display:grid;gap:10px}
+.pk-dim{display:grid;grid-template-columns:130px minmax(0,1fr) 40px 56px;gap:10px;align-items:center;font-size:13px}
+.pk-dim b{text-align:right;font-variant-numeric:tabular-nums}.pk-dim em{font-style:normal;font-size:12px;text-align:right}
+.pk-trend{display:flex;align-items:flex-end;gap:4px;height:190px;overflow-x:auto;padding-bottom:2px}
+.pk-tb{flex:1 0 26px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;height:100%;border:0;background:none;font:inherit;cursor:pointer;padding:0;border-radius:6px}
+.pk-tb i{display:block;width:70%;border-radius:4px 4px 0 0;opacity:.75}
+.pk-tb.on i,.pk-tb:hover i{opacity:1}.pk-tb.on{background:var(--surface-2)}
+.pk-tv{font-size:10px;color:var(--ink-3);font-variant-numeric:tabular-nums}.pk-tm{font-size:10px;color:var(--ink-2);white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);height:44px}
+.pk-fbt{font-size:12px;color:var(--ink-2);min-width:280px;white-space:normal}
+@media (max-width:640px){.pk-dim{grid-template-columns:96px minmax(0,1fr) 36px 50px}}
