@@ -568,7 +568,7 @@ def parse_pnl(path, wb, heads):
             rec["ld"] = d.isoformat()
         out.append({k: (r(v, 0) if isinstance(v, float) and k not in ("bs",) else r(v, 2) if isinstance(v, float) else v) for k, v in rec.items() if v not in (None, "")})
     # Transposed detail sheet: line items down column A, one outlet per column
-    lines, detail = [], {}
+    lines, detail, stock = [], {}, {}
     for t2 in heads:
         top = [list(x) for x in wb[t2].iter_rows(max_row=12, max_col=1, values_only=True)]
         if not any(norm(x[0]) == "code" for x in top if x):
@@ -577,18 +577,33 @@ def parse_pnl(path, wb, heads):
         crow = next(j for j, x in enumerate(grid) if x and norm(x[0]) == "code")
         codes = [str(v).strip() if v else "" for v in grid[crow]]
         labels = [norm(x[0]) for x in grid]
-        try:
-            a, b = labels.index("gpoi"), labels.index("total outlet level opex")
-        except ValueError:
+        if "total outlet level opex" not in labels:
+            continue
+        b = labels.index("total outlet level opex")
+        # cost lines sit between the income lines and "Total Outlet Level Opex": after "GPOI" in older files,
+        # after "Spece Rent & Other Income" where GPOI moved to the bottom of the sheet
+        a = labels.index("gpoi") if "gpoi" in labels and labels.index("gpoi") < b else             max((j for j, l in enumerate(labels[:b]) if "other income" in l), default=None)
+        if a is None:
             continue
         keep = [j for j in range(a + 1, b) if grid[j][0]]
         lines = [str(grid[j][0]).strip() for j in keep]
+        # average stock and COGS per outlet, for days of stock (average stock / COGS x days in the month)
+        srow = next((j for j, l in enumerate(labels) if l == "average stock"), None)
+        crow2 = next((j for j, l in enumerate(labels) if l == "cogs"), None)
         for col, code in enumerate(codes):
             if col and CODE_RE.match(code) and code not in detail:
                 detail[code] = [r(num(grid[j][col]) if col < len(grid[j]) else None, 0) for j in keep]
+                cell = lambda j: num(grid[j][col]) if j is not None and col < len(grid[j]) else None
+                stock[code] = (cell(srow), cell(crow2))
         break
     if not detail:
         issue("warn", src, "P&L cost breakdown sheet not found; outlet cost details unavailable.")
+    for o in out:
+        st, cg = stock.get(o["c"], (None, None))
+        if st is not None:
+            o["st"] = r(st, 0)
+        if cg is not None:
+            o["cg"] = r(cg, 0)
     trading = [o for o in out if (o.get("s") or 0) >= 1]
     loss = sum(1 for o in trading if (o.get("p") or 0) < 0)
     issue("info", src, f"P&L {month}: {len(trading)} trading outlets ({len(out) - len(trading)} closed not counted), {loss} loss-making after financing cost.")

@@ -8,7 +8,7 @@
   // ------------------------------------------------------------------ config
   const NAV = [
     { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock Gap"]] },
-    { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"]] },
+    { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"], ["dos", "Days of stock (DOS)"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
@@ -28,8 +28,8 @@
   const IP_PAGES = new Set(["ipo", "ipt", "ipc", "ips"]);
   const SA_PAGES = new Set(["sao", "sav", "sas", "saq", "sac"]);
   // Every page whose data can be narrowed by outlet (or, for KPI performance, by leader) shows the sidebar filters.
-  const PNL_PAGES = new Set(["loss", "profit"]); // pages built on the outlet P&L
-  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", "profit", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
+  const PNL_PAGES = new Set(["loss", "profit", "dos"]); // pages built on the outlet P&L
+  const FILTER_PAGES = new Set([...SALES_PAGES, "performance", "loss", "profit", "dos", ...NET_PAGES, ...CW_PAGES, ...AV_PAGES, ...IP_PAGES, ...RC_PAGES, ...SA_PAGES]);
   const EMBEDS = {
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
@@ -57,7 +57,7 @@
   const S = { data: null, page: "overview", period: "tilldate", filters: {}, openDim: null, tables: {}, level: "rl", bands: new Set(), lastFocus: null,
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", prstat: "all", plevel: "rl", ageDrill: null,
     net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
-    gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
+    gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, dsv: { lvl: "rl", rl: null, zn: null }, cwh: { lvl: "rl", rl: null, zn: null },
     cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
@@ -102,6 +102,8 @@
     ["tilldate", "monthend"].forEach((k) => prepRep(d[k], M));
     Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], MISS); o.nm = o.n || o.m?.n || o.c; }));
     prepKpi(d.kpi);
+    const dp = dosFromPnl(d);
+    if (dp) d.dos = dp; // DOS from the outlet P&L (average stock / COGS x days); the compiled DOS file only as a fallback
   }
   // KPI performance: the category, direction and order each KPI is shown in, whatever the KPI file says.
   // A KPI not listed here keeps the file's category and sits after the listed ones.
@@ -777,6 +779,7 @@
     $$("[data-lreason]", root).forEach((b) => (b.onclick = () => openLossReason(b.dataset.lreason, b.dataset.lrl)));
     $$("[data-lstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openLossStatus(n.dataset.lstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
     $$("[data-pstat]", root).forEach((n) => { const go = (e) => { e.stopPropagation(); openProfitStatus(n.dataset.pstat); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter" && e.target === n) go(e); }; });
+    $$("[data-dosband]", root).forEach((n) => { const go = () => openDosBand(n.dataset.dosband); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-pformat]", root).forEach((b) => (b.onclick = () => openProfitFormat(b.dataset.pformat)));
     // Leader tables (leaderDrill): level switch, drill down a level, breadcrumb back.
     // Re-render in place; only bring the table back into view when its title has scrolled above the header.
@@ -1769,6 +1772,87 @@
       </div>
       <p class="muted" style="margin:0">${int(est.length)} of the ${int(profits.length)} profit-making outlets have been open a year or more.</p>
       <div class="lr-row">${grp}<div class="lr-stack">${agePanel}${formatPanel}</div></div>${list}`;
+  }
+  // ------------------------------------------------------------------ days of stock (DOS), from the outlet P&L
+  // DOS = average stock / COGS x days in the month, per outlet, from the Details PL sheet of each month's
+  // "Outlet wise profitability" file. Bands follow the old DOS workbook: up to 30 days, 31 to 45, above 45.
+  const DOS_BANDS = [["lo", "Up to 30 days", "good"], ["mid", "31–45 days", "warn"], ["hi", "Over 45 days", "bad"]];
+  const dosBand = (v) => (v <= 30 ? "lo" : v <= 45 ? "mid" : "hi");
+  const dosMonths = () => (S.data.pnl?.months || []).filter((m) => (S.data.pnl.summary[m] || []).some((o) => o.st > 0 && o.cg > 0));
+  const daysIn = (ym) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
+  // Outlets with under ৳1 lakh of sales in the month (opened late or closing) are left out: a few taka of COGS
+  // against a full stock gives DOS in the millions.
+  const DOS_MIN_SALES = 100000;
+  const dosOf = (o, ym) => (o.st > 0 && o.cg > 0 && (o.s || 0) >= DOS_MIN_SALES ? (o.st / o.cg) * daysIn(ym) : null);
+  // the latest P&L month with stock and COGS, shaped like the old DOS file so every DOS figure uses it
+  function dosFromPnl(d) {
+    const P = d.pnl, ms = (P?.months || []).filter((m) => (P.summary[m] || []).some((o) => o.st > 0 && o.cg > 0));
+    if (!ms.length) return null;
+    const m = ms[ms.length - 1];
+    return { month: m, file: "Outlet wise profitability (P&L)", src: "pnl", rows: (P.summary[m] || []).map((o) => [o.c, dosOf(o, m)]).filter((r) => isNum(r[1])) };
+  }
+  function openDosBand(band) {
+    const m = S.pm, rows = inView().map((o) => ({ o, v: dosOf(o, m) })).filter((x) => isNum(x.v) && (!band || dosBand(x.v) === band)).sort((a, b) => b.v - a.v);
+    const name = band ? DOS_BANDS.find((b) => b[0] === band)[1] : "All outlets";
+    S.lastFocus = document.activeElement;
+    NCSV.dosband = () => [`dos_${band || "all"}_${m}`, ["Outlet code", "Outlet", "Regional leader", "Zonal", "Average stock", "COGS", "Sales", "DOS (days)"], rows.map((x) => [x.o.c, x.o.nm, x.o.dim.rl, x.o.dim.zn, Math.round(x.o.st), Math.round(x.o.cg), Math.round(x.o.s || 0), Math.round(x.v * 10) / 10]), m];
+    $("#drawerTitle").textContent = `${name}, ${fmonth(m)}`;
+    $("#drawerBody").innerHTML = `<div class="lr-dtools"><span class="muted">${int(rows.length)} outlets, highest DOS first. Click an outlet for its P&L.</span>${csvBtn("dosband")}</div>
+      <div class="table-wrap" style="max-height:600px"><table class="compact"><thead><tr><th>Outlet</th><th class="num">Average stock</th><th class="num">COGS</th><th class="num">DOS</th></tr></thead><tbody>
+      ${rows.map((x) => `<tr data-pnl="${esc(x.o.c)}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(x.o.nm)}</span><span class="cell-secondary">${esc(x.o.c)}, ${esc(x.o.dim.rl)}, ${esc(x.o.dim.zn)}</span></td><td class="num">${bdt(x.o.st)}</td><td class="num">${bdt(x.o.cg)}</td><td class="num"><strong class="dos-${dosBand(x.v)}">${x.v.toFixed(1)}</strong></td></tr>`).join("") || '<tr><td colspan="4" class="empty">No outlets.</td></tr>'}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
+  }
+  function pageDOS() {
+    const P = S.data.pnl, ms = dosMonths();
+    if (!ms.length) return `<p class="empty">No outlet P&L with Average Stock and COGS is loaded yet. DOS comes from the Details PL sheet of the "Outlet wise profitability" files.</p>`;
+    if (!ms.includes(S.pm)) S.pm = ms[ms.length - 1];
+    const m = S.pm, days = daysIn(m);
+    const all = inView().map((o) => ({ o, v: dosOf(o, m) })).filter((x) => isNum(x.v));
+    const sum = (xs, f) => xs.reduce((t, x) => t + (f(x) || 0), 0);
+    const wavg = (xs) => { const c = sum(xs, (x) => x.o.cg); return c > 0 ? (sum(xs, (x) => x.o.st) / c) * days : null; };
+    const nat = wavg(all), cnt = Object.fromEntries(DOS_BANDS.map(([k]) => [k, all.filter((x) => dosBand(x.v) === k).length]));
+    const top = [...all].sort((a, b) => b.v - a.v)[0];
+    const monthSel = `<select class="sel" data-sel="pm" aria-label="Month">${ms.map((x) => `<option value="${x}" ${x === m ? "selected" : ""}>${fmonth(x)}</option>`).join("")}</select>`;
+    const bandKpi = ([k, label, tone]) => kpi({ label, value: `<span class="dos-${k}">${int(cnt[k])}</span>`, sub: `${pct(all.length ? cnt[k] / all.length : null, 0)} of ${int(all.length)} outlets`, foot: "<span>Click for the outlets</span>", accent: `var(--${tone})` })
+      .replace('<div class="kpi"', `<div class="kpi kpi-click" data-dosband="${k}" tabindex="0" role="button" title="List outlets: ${esc(label)}"`);
+
+    // month by month, for the outlets in view
+    const trend = ms.map((x) => { const xs = inView().map((o) => ({ o: P.summary[x].find((p) => p.c === o.c) })).filter((y) => y.o).map((y) => ({ o: y.o, v: dosOf(y.o, x) })).filter((y) => isNum(y.v)); const c = sum(xs, (y) => y.o.cg); return { m: x, n: xs.length, st: sum(xs, (y) => y.o.st), cg: c, v: c > 0 ? (sum(xs, (y) => y.o.st) / c) * daysIn(x) : null, b: Object.fromEntries(DOS_BANDS.map(([k]) => [k, xs.filter((y) => dosBand(y.v) === k).length])) }; });
+    const trendPanel = `<section class="panel"><div class="panel-head"><div><h2>DOS by month</h2><p>Stock-weighted DOS (total average stock ÷ total COGS × days) for the outlets in view.</p></div></div>
+      <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Month</th><th class="num">Outlets</th><th class="num">Average stock</th><th class="num">COGS</th><th class="num">DOS</th>${DOS_BANDS.map((b) => `<th class="num">${esc(b[1])}</th>`).join("")}</tr></thead><tbody>
+      ${trend.slice().reverse().map((t) => `<tr${t.m === m ? ' class="dos-cur"' : ""}><td class="cell-primary">${esc(fmonth(t.m))}</td><td class="num">${int(t.n)}</td><td class="num">${bdt(t.st)}</td><td class="num">${bdt(t.cg)}</td><td class="num"><strong class="${isNum(t.v) ? `dos-${dosBand(t.v)}` : ""}">${isNum(t.v) ? t.v.toFixed(1) : "—"}</strong></td>${DOS_BANDS.map(([k]) => `<td class="num">${int(t.b[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></section>`;
+
+    // by regional leader > zonal > outlet
+    const D = leaderDrill("dsv", "dos-grp", all.map((x) => x.o), "click an outlet for its P&L"), at = D.at, V = D.V;
+    const inPath = all.filter((x) => D.inPath(x.o));
+    let grpRows;
+    if (at === "outlet") grpRows = inPath.map((x) => ({ key: x.o.c, name: x.o.nm, sub: `${x.o.c}, ${x.o.dim.fmt}`, st: x.o.st, cg: x.o.cg, s: x.o.s || 0, v: x.v }));
+    else {
+      const g = new Map();
+      inPath.forEach((x) => { const k = x.o.dim[at]; if (!g.has(k)) g.set(k, []); g.get(k).push(x); });
+      grpRows = [...g.entries()].map(([k, xs]) => ({ key: k, name: k, sub: (() => { const t = `${int(xs.length)} outlet${xs.length === 1 ? "" : "s"}`; return at === "zn" ? D.zsub(k, t) : t; })(), n: xs.length, st: sum(xs, (x) => x.o.st), cg: sum(xs, (x) => x.o.cg), v: wavg(xs), hi: xs.filter((x) => x.v > 45).length, lo: xs.filter((x) => x.v <= 30).length }));
+    }
+    const grp = mountTable("dos-grp", {
+      title: V.zn || V.dis ? `DOS of ${V.zn || V.dis}'s outlets` : V.rl ? `DOS by zonal under ${V.rl}` : V.div ? `DOS by district in ${V.div}` : { rl: "DOS by regional leader", zn: "DOS by zonal", div: "DOS by division", dis: "DOS by district", outlet: "DOS by outlet" }[at], file: D.file(`dos_${m}`), pageSize: 25,
+      banner: D.crumbs, tools: D.tools,
+      desc: (n) => (at === "outlet" ? `${int(n)} outlets, highest DOS first. Click an outlet for its P&L.` : `${int(n)} ${LVL_MANY[at].toLowerCase()}. DOS is stock-weighted: their total average stock ÷ total COGS × ${days} days. Click a row to go down a level.`),
+      rows: grpRows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub}`, defaultSort: "v", defaultDir: "desc",
+      rowAttr: (x) => (at === "outlet" ? `data-pnl="${esc(x.key)}" tabindex="0"` : D.pick(x)),
+      cols: [{ k: "name", label: LVL_ONE[at], fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name },
+        { k: "st", label: "Average stock", num: 1, fmt: (x) => bdt(x.st), csv: (x) => Math.round(x.st) },
+        { k: "cg", label: "COGS", num: 1, fmt: (x) => bdt(x.cg), csv: (x) => Math.round(x.cg) },
+        ...(at === "outlet" ? [{ k: "s", label: "Sales", num: 1, fmt: (x) => bdt(x.s), csv: (x) => Math.round(x.s) }] : [{ k: "lo", label: "Up to 30", num: 1, fmt: (x) => int(x.lo) }, { k: "hi", label: "Over 45", num: 1, fmt: (x) => (x.hi ? `<span class="dos-hi">${int(x.hi)}</span>` : "0"), csv: (x) => x.hi }]),
+        { k: "v", label: "DOS (days)", num: 1, fmt: (x) => (isNum(x.v) ? `<strong class="dos-${dosBand(x.v)}">${x.v.toFixed(1)}</strong>` : "—"), csv: (x) => (isNum(x.v) ? Math.round(x.v * 10) / 10 : "") }],
+    });
+
+    return `<div class="panel-tools">${monthSel}<span class="muted" style="font-size:12px">DOS = average stock ÷ COGS × ${days} days, from the outlet P&L (Details PL sheet). Outlets with sales under ৳1 lakh in the month are left out${(() => { const n = inView().filter((o) => o.st > 0 && o.cg > 0 && (o.s || 0) >= 1 && o.s < DOS_MIN_SALES).length; return n ? ` (${int(n)} this month)` : ""; })()}.</span></div>
+      <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
+        ${kpi({ hero: true, label: `Days of stock, ${fmonth(m)}`, value: isNum(nat) ? `${nat.toFixed(1)}<small style="font-size:16px;font-weight:600"> days</small>` : "—", sub: `<span>Stock-weighted, ${int(all.length)} trading outlets</span>`, foot: `<span>Average stock ${bdt(sum(all, (x) => x.o.st))}</span><span>COGS ${bdt(sum(all, (x) => x.o.cg))}</span>`, accent: `var(--${isNum(nat) ? DOS_BANDS.find((b) => b[0] === dosBand(nat))[2] : "line"})` })}
+        ${DOS_BANDS.map(bandKpi).join("")}
+        ${kpi({ label: "Highest DOS", value: top ? `<span class="dos-hi">${top.v.toFixed(0)}</span>` : "—", sub: top ? esc(`${top.o.c} ${top.o.nm}`) : "", foot: top ? `<span>${esc(top.o.dim.rl)} · ${esc(top.o.dim.zn)}</span>` : "<span></span>", accent: "var(--bad)" })}
+      </div>
+      ${grp}${trendPanel}`;
   }
   const peerCache = {};
   function peerMedians(fmt) {
@@ -4951,7 +5035,8 @@
     const tops = cand.filter((r) => isNum(r.a?.[m])).sort((a, b) => b.a[m] - a.a[m]).slice(0, 3).map((r) => ({ name: r.head, v: r.a[m], t: r.t?.[m] }));
     return { m, v: me.a[m], t: me.t?.[m], tops };
   }
-  // Days of stock from the compiled DOS file. "Below 30 days" includes exactly 30, as the file's own "up to 30 days".
+  // Days of stock: from the outlet P&L (average stock / COGS x days), or the compiled DOS file when the P&L has no stock.
+  // "Below 30 days" includes exactly 30, as the DOS workbook's own "up to 30 days".
   function arDos(rl) {
     const d = S.data.dos; if (!d?.rows?.length) return null;
     const mo = arMasterMap(), rows = d.rows.map(([c, v]) => ({ ...(mo.get(c) || { c, nm: "", dim: { rl: MISS, zn: MISS } }), v })).filter(arIn(rl));
@@ -5821,7 +5906,7 @@
       ["Receiving", S.rcv ? per(S.rcv.range?.start, S.rcv.range?.end) : "—"],
       ["Visits", S.ccv?.visit ? per(S.ccv.visit.from, S.ccv.visit.to) : "—"],
       ["Credit card extra cost", S.ccv?.cc ? per(S.ccv.cc.from, S.ccv.cc.to) : "—"],
-      ["DOS", d.dos?.month ? `${fmonth(d.dos.month)} (${d.dos.file})` : "—"],
+      ["DOS", d.dos?.month ? `${fmonth(d.dos.month)}, ${d.dos.src === "pnl" ? "average stock ÷ COGS × days, from the outlet P&L" : d.dos.file}` : "—"],
       ["Zonal skill gap", km ? `KPI performance ${fmonth(km)}` : "—"],
     ];
     return { ym, cols, rows, about, book: withBook ? xlBook([{ name: "Outlet wise", cols, rows, freeze: 2 }, { name: "About", cols: [{ h: "Item", w: 26 }, { h: "Covers", w: 70 }], rows: about }]) : null };
@@ -5876,7 +5961,7 @@
         ["Visit schedule (plan)", F.cc, "By the 3rd, for the new month", "cur", S.ccv?.visit?.planned ? S.ccv.visit.from?.slice(0, 7) : null, 3],
         ["Month-end business performance report", "Month-end", "By the 5th, for last month", "prev", d.monthend?.date?.slice(0, 7), 5],
         ["Outlet wise profitability (P&L)", F.pf, "By the 10th, for last month", "prev", d.pnl?.months?.[d.pnl.months.length - 1], 10],
-        ["Compiled DOS", F.pf, "By the 10th, for last month", "prev", d.dos?.month, 10],
+        ["Days of stock (from the P&L)", F.pf, "With the P&L file, for last month", "prev", d.dos?.month, 10],
         ["KPI performance (RHO and zonal)", F.pf, "By the 25th, for last month", "prev", d.kpi?.months?.[d.kpi.months.length - 1], 25],
         ["Stock Gap Dashboard workbook (RawData)", F.pf, "By the 10th, for last month", "prev", S.sg?.months?.[S.sg.months.length - 1], 10],
       ]],
@@ -6689,7 +6774,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     $("#filters").hidden = !FILTER_PAGES.has(S.page);
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
-    const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
+    const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, dos: pageDOS, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
       rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
@@ -6720,7 +6805,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     try { localStorage.setItem("opsdash-theme", t); } catch (e) {}
     if (NET_PAGES.has(S.page)) render(); // charts resolve colour tokens when drawn
   });
-  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
+  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.dsv = { ...S.dsv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });

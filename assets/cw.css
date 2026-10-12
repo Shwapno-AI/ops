@@ -392,3 +392,6 @@ button.k-bchip{cursor:pointer}button.k-bchip:hover,button.k-bchip:focus-visible{
 .k-two>.k-kcp>.panel-body{display:flex;flex-direction:column;min-height:0}
 .k-two>.k-kcp .k-kcs{flex:1 1 0;height:auto;min-height:258px}
 @media (max-width:1000px){.k-two>.k-kcp .k-kcs{flex:none;height:258px}}
+/* Days of stock */
+.dos-lo{color:var(--good)}.dos-mid{color:var(--warn)}.dos-hi{color:var(--bad)}
+tr.dos-cur td{background:var(--surface-2);font-weight:600}
