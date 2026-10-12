@@ -39,7 +39,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("AI_PORT") or 8090)
-MAX_BODY = 600_000          # bytes accepted from the browser
+MAX_BODY = 6_000_000        # bytes accepted from the browser (screenshots ride along as images)
 TIMEOUT = 110               # seconds to wait for the provider
 
 

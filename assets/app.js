@@ -6582,24 +6582,41 @@
   // A chat panel on every page. The AI (Azure OpenAI or Qwen, through the server relay at /api/ai, which holds the
   // keys) never computes figures itself: it calls the lookups below, which run here in the browser on the same data
   // and with the same rules as the dashboard pages, and then writes the answer from what they return.
-  const AI = { open: false, busy: false, providers: null, err: "", history: [], items: [], tables: [], voice: null, listening: false, playing: null };
-  // Voice: the 🎤 button uses the browser's speech recognition (Bangla or English); answers are read aloud by the
-  // server relay's Qwen omni model (POST api/ai/speak returns a WAV). The omni models cannot speak Bangla, so
-  // a Bangla answer is read in English; the text answer is unchanged.
+  const AI = { open: false, busy: false, providers: null, err: "", history: [], items: [], tables: [], voice: null, listening: false, playing: null, call: null, attach: [] };
+  // Voice: the mic dictates into the box with the browser's speech recognition (Bangla or English); answers are
+  // read aloud by the server relay's Qwen omni model (POST api/ai/speak returns a WAV). The omni models cannot
+  // speak Bangla, so a Bangla answer is read in English; the text answer is unchanged. Conversation mode (the
+  // waveform button) loops: listen, answer from the dashboard's data, read it aloud, listen again.
   const AI_SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let aiRec = null, aiAudio = null;
-  function aiListen() {
-    if (!AI_SR || AI.busy) return;
-    if (aiRec) { aiRec.stop(); return; }
-    const rec = new AI_SR();
-    rec.lang = aiLS.get("aiMicLang") || "bn-BD"; rec.interimResults = true; rec.maxAlternatives = 1;
-    let said = "";
-    rec.onresult = (e) => { said = [...e.results].map((r) => r[0].transcript).join(" "); const t = $("#aiText"); if (t) t.value = said; };
-    rec.onerror = (e) => { AI.err = e.error === "not-allowed" ? "Microphone access was blocked. Allow it for this site in the browser." : ""; };
-    rec.onend = () => { aiRec = null; AI.listening = false; aiRender(); if (said.trim()) { const t = $("#aiText"); if (t) t.value = ""; aiAsk(said.trim()); } else if (AI.err) { AI.items.push({ who: "err", text: AI.err }); AI.err = ""; aiRender(); } };
-    aiRec = rec; AI.listening = true; aiRender(); rec.start();
+  const aiMicLang = () => aiLS.get("aiMicLang") || "bn-BD";
+  // one spoken question -> its text ("" when nothing was heard); live words go into the box or the call screen
+  function aiHear(onWords) {
+    return new Promise((resolve) => {
+      if (!AI_SR) return resolve({ text: "", error: "This browser has no speech recognition. Use Chrome or Edge." });
+      const rec = new AI_SR();
+      rec.lang = aiMicLang(); rec.interimResults = true; rec.maxAlternatives = 1;
+      let said = "", error = "";
+      rec.onresult = (e) => { said = [...e.results].map((r) => r[0].transcript).join(" "); onWords?.(said); };
+      rec.onerror = (e) => { error = e.error === "not-allowed" || e.error === "service-not-allowed" ? "Microphone access was blocked. Allow it for this site in the browser." : e.error === "no-speech" || e.error === "aborted" ? "" : `Speech recognition stopped (${e.error}).`; };
+      rec.onend = () => { aiRec = null; resolve({ text: said.trim(), error }); };
+      aiRec = rec;
+      try { rec.start(); } catch (e) { aiRec = null; resolve({ text: "", error: e.message }); }
+    });
   }
-  function aiStopAudio() { if (aiAudio) { aiAudio.pause(); aiAudio = null; } AI.playing = null; }
+  // dictation: the mic button fills the box; the person checks it and sends
+  async function aiListen() {
+    if (aiRec) { aiRec.stop(); return; }
+    if (AI.busy || AI.call) return;
+    AI.listening = true; aiRender();
+    const r = await aiHear((w) => { const t = $("#aiText"); if (t) { t.value = w; t.dispatchEvent(new Event("input")); } });
+    AI.listening = false; aiRender();
+    const t = $("#aiText");
+    if (r.text && t) { t.value = r.text; t.dispatchEvent(new Event("input")); t.focus(); }
+    if (r.error) { AI.items.push({ who: "err", text: r.error }); aiRender(); }
+  }
+  function aiStopAudio() { if (aiAudio) { aiAudio.onended = null; aiAudio.pause(); aiAudio = null; } AI.playing = null; }
+  // read answer idx aloud; resolves when it has finished (or failed, or was stopped)
   async function aiSpeak(idx) {
     const it = AI.items[idx]; if (!it || it.who !== "ai") return;
     if (AI.playing === idx) { aiStopAudio(); aiRender(); return; }
@@ -6612,11 +6629,67 @@
       }
       if (AI.playing !== idx) return; // stopped while loading
       aiAudio = new Audio(it.audioUrl);
-      aiAudio.onended = () => { if (AI.playing === idx) { AI.playing = null; aiAudio = null; aiRender(); } };
-      await aiAudio.play();
-    } catch (e) { it.voiceErr = e.message; if (AI.playing === idx) AI.playing = null; }
+      await new Promise((res) => { aiAudio.onended = res; aiAudio.onerror = res; aiAudio.play().catch((e) => { it.voiceErr = e.message; res(); }); });
+    } catch (e) { it.voiceErr = e.message; }
+    if (AI.playing === idx) { AI.playing = null; aiAudio = null; }
     aiRender();
   }
+  // conversation mode: hands-free turns until "stop" or End
+  const AI_STOP = /^\s*(stop|end( call)?|bye|thank you|thanks|বন্ধ|শেষ|থামো|ধন্যবাদ)\s*[.!।]?\s*$/i;
+  async function aiCallStart() {
+    if (AI.call || !AI_SR) return;
+    AI.call = { state: "listening", words: "", quiet: 0 }; aiRender();
+    while (AI.call) {
+      AI.call.state = "listening"; AI.call.words = ""; aiRender();
+      const r = await aiHear((w) => { if (AI.call) { AI.call.words = w; const el = $("#aiCallWords"); if (el) el.textContent = w; } });
+      if (!AI.call) break;
+      if (r.error) { AI.items.push({ who: "err", text: r.error }); break; }
+      if (!r.text) { if (++AI.call.quiet >= 3) { AI.items.push({ who: "err", text: "Conversation ended: nothing was heard three times in a row. Check the microphone, or press the waveform button to start again." }); break; } continue; } // three silent turns end the call
+      AI.call.quiet = 0;
+      if (AI_STOP.test(r.text)) break;
+      AI.call.state = "thinking"; AI.call.words = r.text; aiRender();
+      await aiAsk(r.text);
+      if (!AI.call) break;
+      const last = AI.items.length - 1;
+      if (AI.voice?.enabled && AI.items[last]?.who === "ai") { AI.call.state = "speaking"; aiRender(); await aiSpeak(last); }
+    }
+    aiCallEnd();
+  }
+  function aiCallEnd() { AI.call = null; aiRec?.abort?.(); aiRec = null; aiStopAudio(); aiRender(); }
+  // attachments: screenshots (shrunk to 1280 px JPEG) go to the model as images; text files (CSV, TXT, JSON, MD)
+  // as their first 30,000 characters. Other files are refused with a note.
+  const AI_TEXT_EXT = /\.(csv|txt|tsv|json|md|log)$/i;
+  function aiImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, 1280 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        resolve(c.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("not a readable image")); };
+      img.src = url;
+    });
+  }
+  async function aiAddFiles(files) {
+    for (const f of [...files].slice(0, 4)) {
+      if ((AI.attach || []).length >= 4) break;
+      try {
+        if (f.type.startsWith("image/")) (AI.attach ||= []).push({ kind: "image", name: f.name || "screenshot.png", url: await aiImage(f) });
+        else if (AI_TEXT_EXT.test(f.name) || f.type.startsWith("text/")) (AI.attach ||= []).push({ kind: "text", name: f.name, text: (await f.text()).slice(0, 30000) });
+        else AI.items.push({ who: "err", text: `${f.name}: only screenshots or images and text files (CSV, TXT, JSON) can be attached.` });
+      } catch (e) { AI.items.push({ who: "err", text: `${f.name}: ${e.message}` }); }
+    }
+    aiRender();
+  }
+  const AI_ICON = {
+    clip: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+    wave: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>',
+    send: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+    end: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  };
   const aiLS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
   // formats: t text, n whole number, n1 one decimal, p1/p2 percent, bdt taka
   const aiFmt = (v, f) => (v == null || v === "" || (typeof v === "number" && !isFinite(v)) ? "" : f === "bdt" ? bdt(v) : f === "p1" ? pct(v, 1) : f === "p2" ? pct(v, 2) : f === "n1" ? Number(v).toFixed(1) : f === "n" ? int(v) : String(v));
@@ -6816,17 +6889,24 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   const aiToolSpec = () => AI_TOOLS.map((t) => ({ type: "function", function: { ...t, description: t.description.replace("COLS_PLACEHOLDER", monthlyOutletReport(false).cols.map((c) => c.h).join("; ")) } }));
 
   async function aiAsk(text) {
-    if (AI.busy || !text.trim()) return;
-    const provider = $("#aiProv")?.value;
+    const files = AI.call ? [] : AI.attach || [];
+    if (AI.busy || (!text.trim() && !files.length)) return;
+    const provider = $("#aiProv")?.value || (AI.providers || [])[0]?.id;
     if (!provider) return;
-    AI.busy = true; AI.err = "";
-    AI.items.push({ who: "user", text }); aiRender();
+    if (!text.trim()) text = "What does this show? Explain it using the dashboard's data where it helps.";
+    AI.busy = true; AI.err = ""; AI.attach = [];
+    AI.items.push({ who: "user", text, files: files.map((f) => ({ kind: f.kind, name: f.name, url: f.kind === "image" ? f.url : null })) }); aiRender();
     await aiWaitData();
-    const msgs = [{ role: "system", content: aiSystem() }, ...AI.history, { role: "user", content: text }], used = [];
+    // this turn sends the screenshots as images and text files inline; the history keeps only their names
+    const note = files.length ? `\n\n[Attached: ${files.map((f) => f.name).join(", ")}]` : "";
+    const textPart = text + files.filter((f) => f.kind === "text").map((f) => `\n\n--- ${f.name} ---\n${f.text}`).join("");
+    const content = files.some((f) => f.kind === "image") ? [{ type: "text", text: textPart }, ...files.filter((f) => f.kind === "image").map((f) => ({ type: "image_url", image_url: { url: f.url } }))] : textPart;
+    const msgs = [{ role: "system", content: aiSystem() }, ...AI.history, { role: "user", content }], used = [];
     try {
       for (let round = 0; round < 6; round++) {
         const res = await fetch("api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, messages: msgs, tools: aiToolSpec() }) });
-        const j = await res.json().catch(() => ({ error: `The AI relay answered ${res.status}.` }));
+        const raw = await res.text();
+        let j; try { j = JSON.parse(raw); } catch { j = { error: `The AI relay answered ${res.status}${raw ? `: ${raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160)}` : "."}` }; }
         if (!res.ok || j.error) throw new Error(j.error || `The AI relay answered ${res.status}.`);
         const m = j.message || {};
         if (m.tool_calls?.length) {
@@ -6843,14 +6923,14 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
           continue;
         }
         const answer = m.content || "(no answer)";
-        AI.history.push({ role: "user", content: text }, { role: "assistant", content: answer });
+        AI.history.push({ role: "user", content: text + note }, { role: "assistant", content: answer });
         AI.history = AI.history.slice(-12);
         AI.items.push({ who: "ai", text: answer, used, provider: (AI.providers || []).find((p) => p.id === provider)?.label || provider });
         break;
       }
     } catch (e) { AI.items.push({ who: "err", text: e.message }); }
     AI.busy = false; aiRender();
-    if (AI.voice?.enabled && aiLS.get("aiSpeak") !== "0" && AI.items[AI.items.length - 1]?.who === "ai") aiSpeak(AI.items.length - 1);
+    if (!AI.call && AI.voice?.enabled && aiLS.get("aiSpeak") !== "0" && AI.items[AI.items.length - 1]?.who === "ai") aiSpeak(AI.items.length - 1);
   }
   // light markdown: **bold**, bullet lines, line breaks
   const aiMd = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split(/\n/).map((l) => (/^\s*[-•*]\s+/.test(l) ? `<li>${l.replace(/^\s*[-•*]\s+/, "")}</li>` : l ? `<p>${l}</p>` : "")).join("").replace(/(<li>.*?<\/li>)+/g, (x) => `<ul>${x}</ul>`);
@@ -6918,7 +6998,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     AI.tables = [];
     const avatar = '<span class="ai-av" aria-hidden="true">✦</span>';
     const body = AI.items.length ? AI.items.map((it, ix) => {
-      if (it.who === "user") return `<div class="ai-row ai-row-user"><div class="ai-msg ai-user">${esc(it.text)}</div></div>`;
+      if (it.who === "user") return `<div class="ai-row ai-row-user"><div class="ai-ustack">${(it.files || []).length ? `<div class="ai-files">${it.files.map((f) => (f.url ? `<img src="${f.url}" alt="${esc(f.name)}">` : `<span class="ai-chip">📄 ${esc(f.name)}</span>`)).join("")}</div>` : ""}<div class="ai-msg ai-user">${esc(it.text)}</div></div></div>`;
       if (it.who === "err") return `<div class="ai-row">${avatar}<div class="ai-msg ai-err"><b>Couldn't answer.</b> ${esc(it.text)}</div></div>`;
       const cards = (it.used || []).map((u) => { const ti = AI.tables.push(u.out) - 1, t = u.out, show = t.rows.slice(0, 8); return `<div class="ai-card"><div class="ai-card-h"><div><b>${esc(t.title)}</b><small>${int(t.rows.length)} rows</small></div><button type="button" class="ai-xl" data-aixl="${ti}">⬇ Excel</button></div>
         <div class="ai-tw"><table><thead><tr>${t.cols.map((c) => `<th>${esc(c.h)}</th>`).join("")}</tr></thead><tbody>${show.map((r) => `<tr>${r.map((v, i) => `<td>${esc(aiCell(v, t.cols[i].f))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.rows.length > 8 ? `<p class="ai-more">Showing 8 of ${int(t.rows.length)} · the Excel has every row</p>` : ""}</div>`; }).join("");
@@ -6932,14 +7012,35 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
         <div class="ai-tools">${AI.voice?.enabled ? `<button type="button" class="ai-ib${aiLS.get("aiSpeak") !== "0" ? " on" : ""}" id="aiAuto" title="${aiLS.get("aiSpeak") !== "0" ? "Answers are read aloud (voice ${esc(AI.voice.voice)}). Click to turn off." : "Read answers aloud automatically"}" aria-label="Read answers aloud" aria-pressed="${aiLS.get("aiSpeak") !== "0"}">${aiLS.get("aiSpeak") !== "0" ? "🔊" : "🔈"}</button>` : ""}<button type="button" class="ai-ib" id="aiReset" title="New conversation" aria-label="New conversation">⟲</button><button type="button" class="ai-ib" id="aiClose" title="Close" aria-label="Close">✕</button></div>
         ${provs.length ? `<label class="ai-prov"><span>Model</span><select id="aiProv" aria-label="AI model">${provs.map((p) => `<option value="${esc(p.id)}" ${p.id === pick ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></label>` : ""}</header>
       <div class="ai-body" id="aiBody">${provs.length ? body : off}${AI.busy ? `<div class="ai-row">${avatar}<div class="ai-msg ai-bot ai-typing"><span class="ai-dots"><i></i><i></i><i></i></span> Looking it up…</div></div>` : ""}</div>
-      <footer class="ai-foot"><div class="ai-input">${AI_SR ? `<button type="button" class="ai-mic${AI.listening ? " on" : ""}" id="aiMic" title="${AI.listening ? "Listening… click to stop" : "Ask by voice"}" aria-label="Ask by voice" ${ready || AI.listening ? "" : "disabled"}>🎤</button><button type="button" class="ai-lang" id="aiLang" title="Language you speak in">${(aiLS.get("aiMicLang") || "bn-BD") === "bn-BD" ? "বাং" : "EN"}</button>` : ""}<textarea id="aiText" rows="1" placeholder="${AI.listening ? "Listening… speak now" : "Ask about sales, availability, outlets, categories…"}" ${ready ? "" : "disabled"}></textarea><button type="button" class="ai-send" id="aiSend" aria-label="Send" ${ready ? "" : "disabled"}>➤</button></div>
-        <p class="ai-note">Enter to send · Shift+Enter for a new line${AI_SR ? " · 🎤 to ask by voice" : ""}${AI.voice?.enabled ? " · answers are read aloud in English" : ""} · Figures come from the dashboard; check key numbers before sharing.</p></footer>`;
-    const send = () => { const t = $("#aiText"); const v = t.value; t.value = ""; aiAsk(v); };
-    const ta = $("#aiText"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(140, ta.scrollHeight) + "px"; };
-    $("#aiSend").onclick = send;
-    ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
-    ta.oninput = grow;
-    $("#aiClose").onclick = () => { aiStopAudio(); aiRec?.stop(); AI.open = false; aiRender(); fab?.focus(); };
+      ${AI.call ? `<footer class="ai-foot ai-callbar"><div class="ai-orb ai-${AI.call.state}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="ai-callt"><b>${AI.call.state === "listening" ? "Listening…" : AI.call.state === "thinking" ? "Looking it up…" : "Speaking…"}</b><span id="aiCallWords">${esc(AI.call.words || (AI.call.state === "listening" ? `Ask in ${aiMicLang() === "bn-BD" ? "বাংলা" : "English"}. Say "stop" to end.` : ""))}</span></div>
+          <button type="button" class="ai-endcall" id="aiEnd" aria-label="End conversation">${AI_ICON.end}<span>End</span></button></footer>`
+      : `<footer class="ai-foot" id="aiFoot">${(AI.attach || []).length ? `<div class="ai-attach">${AI.attach.map((f, i) => `<span class="ai-chip">${f.kind === "image" ? `<img src="${f.url}" alt="">` : "📄"}${esc(f.name)}<button type="button" data-aidrop="${i}" aria-label="Remove ${esc(f.name)}">×</button></span>`).join("")}</div>` : ""}
+        <div class="ai-input2"><input type="file" id="aiFile" accept="image/*,.csv,.txt,.tsv,.json,.md" multiple hidden>
+          <button type="button" class="ai-cb" id="aiClip" title="Attach a screenshot or file" aria-label="Attach a screenshot or file" ${ready ? "" : "disabled"}>${AI_ICON.clip}</button>
+          ${AI_SR ? `<button type="button" class="ai-cb${AI.listening ? " on" : ""}" id="aiMic" title="${AI.listening ? "Listening… click to stop" : `Dictate (${aiMicLang() === "bn-BD" ? "বাংলা" : "English"})`}" aria-label="Dictate" ${ready || AI.listening ? "" : "disabled"}>${AI_ICON.mic}</button>` : ""}
+          <div class="ai-box"><textarea id="aiText" rows="1" placeholder="${AI.listening ? "Listening… speak now" : "Ask about availability, outlets, SKUs…"}" ${ready ? "" : "disabled"}></textarea></div>
+          <button type="button" class="ai-go" id="aiSend" ${ready ? "" : "disabled"}></button></div>
+        <p class="ai-note">Enter to send · Shift+Enter for a new line · paste or drop screenshots and files${AI_SR ? ` · voice in <button type="button" class="ai-langl" id="aiLang" title="Language you speak in">${aiMicLang() === "bn-BD" ? "বাংলা" : "English"}</button>` : ""}. Numbers come from the dashboard's data; the AI can still misread a question, so check key figures.</p></footer>`}`;
+    const ta = $("#aiText"), go = $("#aiSend");
+    const send = () => { const v = ta.value; ta.value = ""; aiAsk(v); };
+    // the round button sends when there is something to send, and starts a conversation when the box is empty
+    const mode = () => { if (!go) return; const has = ta.value.trim() || (AI.attach || []).length, talk = !has && AI_SR; go.innerHTML = talk ? AI_ICON.wave : AI_ICON.send; go.title = talk ? "Start a voice conversation" : "Send"; go.setAttribute("aria-label", go.title); go.classList.toggle("talk", !!talk); };
+    const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(140, ta.scrollHeight) + "px"; mode(); };
+    if (ta && go) {
+      go.onclick = () => (go.classList.contains("talk") ? aiCallStart() : send());
+      ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+      ta.oninput = grow; mode();
+      ta.onpaste = (e) => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); aiAddFiles(fs); } };
+    }
+    $("#aiClip") && ($("#aiClip").onclick = () => $("#aiFile").click());
+    $("#aiFile") && ($("#aiFile").onchange = (e) => aiAddFiles(e.target.files));
+    $$("[data-aidrop]", host).forEach((b) => (b.onclick = () => { AI.attach.splice(+b.dataset.aidrop, 1); aiRender(); }));
+    $("#aiEnd") && ($("#aiEnd").onclick = aiCallEnd);
+    host.ondragover = (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); host.classList.add("drop"); } };
+    host.ondragleave = (e) => { if (e.target === host) host.classList.remove("drop"); };
+    host.ondrop = (e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); host.classList.remove("drop"); aiAddFiles(e.dataTransfer.files); } };
+    $("#aiClose").onclick = () => { aiCallEnd(); AI.open = false; aiRender(); fab?.focus(); };
     $("#aiReset").onclick = () => { AI.history = []; AI.items = []; aiRender(); };
     $("#aiProv") && ($("#aiProv").onchange = (e) => aiLS.set("aiProv", e.target.value));
     $$("[data-aiq]", host).forEach((b) => (b.onclick = () => aiAsk(b.dataset.aiq)));
@@ -6951,7 +7052,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     $("#aiAuto") && ($("#aiAuto").onclick = () => { const on = aiLS.get("aiSpeak") !== "0"; aiLS.set("aiSpeak", on ? "0" : "1"); if (on) aiStopAudio(); aiRender(); });
     $$("[data-aicopy]", host).forEach((b) => (b.onclick = () => { navigator.clipboard?.writeText(b.dataset.aicopy); b.textContent = "✓ Copied"; }));
     const bodyEl = $("#aiBody"); bodyEl.scrollTop = AI.items.length || AI.busy ? bodyEl.scrollHeight : 0; // the start screen stays at its top
-    if (!AI.busy) ta.focus();
+    if (!AI.busy && ta) ta.focus();
   }
   function aiProviders() {
     if (AI.providers !== null) return;
@@ -6961,7 +7062,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
       .finally(aiRender);
   }
   // local preview only: let the lookups be tried without an AI behind them
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__aiRun = (name, args) => { const out = AI_RUN[name](args || {}); return out.error ? out : aiForModel(out); };
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__AI = AI, window.__aiAdd = (f) => aiAddFiles(f), window.__aiRun = (name, args) => { const out = AI_RUN[name](args || {}); return out.error ? out : aiForModel(out); };
 
   // ------------------------------------------------------------------ render
   function render() {
