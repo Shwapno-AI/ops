@@ -430,6 +430,14 @@ def parse_kpi(path, wb, heads):
                 if sc[1] is not None: rec["t"][sc[0]] = sc[1]
                 if sc[2] is not None: rec["a"][sc[0]] = sc[2]
             rowsout.append(rec)
+        # Expansion counts outlets opened: a blank actual in a month with a target means none opened (0), so
+        # the KPI still shows and scores. Only up to the latest month the file reports on any KPI.
+        upto = max((mk for rec in rowsout for mk in rec["a"]), default=None)
+        for rec in rowsout:
+            if upto and re.search(r"expansion", rec["metric"], re.I):
+                for mk in rec["t"]:
+                    if mk <= upto and mk not in rec["a"]:
+                        rec["a"][mk] = 0.0
         levels[lvl] = rowsout
     months = sorted({m for rows in levels.values() for rec in rows for m in rec["a"]})
     if not months:
@@ -445,7 +453,9 @@ def parse_kpi(path, wb, heads):
                     official[("rho", str(row[0]).strip())] = num(row[1])
                 if len(row) > 5 and row[4] and num(row[5]) is not None:
                     official[("zonal", str(row[4]).strip())] = num(row[5])
-    return {"file": src, "months": months, "levels": levels, "official": official}
+    # the month the scoring sheets show (SCORE!J1 in the "Dynamic" file); the SCORE sheet's figures are for it
+    score_month = next((v[0] for v in scoring.values() if v[0]), None)
+    return {"file": src, "months": months, "levels": levels, "official": official, "score_month": score_month}
 
 
 def achievement(t, a, direction):
@@ -501,13 +511,13 @@ def merge_kpi(files):
     for f in files:
         if not f["official"]:
             continue
-        mk = max(f["months"])
+        mk = f.get("score_month") if f.get("score_month") in f["months"] else max(f["months"])
         for lvl in ("rho", "zonal"):
             ours = month_scores(f["levels"].get(lvl, []), mk)
             bad = [h for (l, h), v in f["official"].items() if l == lvl and h in ours and abs(ours[h] - v) > 0.002]
             checked = sum(1 for (l, h) in f["official"] if l == lvl and h in ours)
             if bad:
-                issue("warn", f["file"], f"{lvl.upper()} score differs from the file's SCORE sheet for {len(bad)} of {checked} heads (e.g. {bad[0]}).")
+                issue("warn", f["file"], f"{lvl.upper()} score for {mk} differs from the file's SCORE sheet for {len(bad)} of {checked} heads (e.g. {bad[0]}).")
             elif checked:
                 issue("info", f["file"], f"{lvl.upper()} scores for {mk} match the file's SCORE sheet ({checked} heads checked).")
     return out, months
