@@ -21,6 +21,7 @@ Environment:
   QWEN_KEY or QWEN_API_KEY, QWEN_MODEL     its key and model
   QWEN_LABEL               name shown in the menu (default "Alibaba Qwen")
   QWEN_REASONING_EFFORT    optional; sent to the model as reasoning_effort (dropped if the model rejects it)
+  AI_DEFAULT_PROVIDER      id of the model selected by default (default qwen38, else qwen)
   QWEN37_*, QWEN38_* ...   more Qwen models, same five names with a number in the prefix (QWEN38_ENDPOINT,
                            QWEN38_API_KEY, QWEN38_MODEL, QWEN38_LABEL, QWEN38_REASONING_EFFORT); each one
                            is its own entry in the Model menu. QWEN_* (no number) is the default.
@@ -70,9 +71,10 @@ def qwen_groups():
 
 
 def providers():
-    """The configured providers for the dashboard's Model menu: the default Qwen first, other Qwen models, Azure last."""
+    """The configured providers for the dashboard's Model menu: the default first (Qwen 3.8 Omni Flash, id qwen38), other Qwen models, Azure last."""
     groups = qwen_groups()
-    out = [{"id": i, "label": groups[i]["label"]} for i in sorted(groups, key=lambda x: (x != "qwen", x))]
+    first = env("AI_DEFAULT_PROVIDER") or "qwen38"  # the default model: first in the menu (override with AI_DEFAULT_PROVIDER)
+    out = [{"id": i, "label": groups[i]["label"]} for i in sorted(groups, key=lambda x: (x != first, x != "qwen", x))]
     if env("AZURE_OPENAI_ENDPOINT") and env("AZURE_OPENAI_KEY") and env("AZURE_OPENAI_DEPLOYMENT"):
         out.append({"id": "azure", "label": env("AZURE_OPENAI_LABEL") or "Azure OpenAI"})
     return out

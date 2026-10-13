@@ -7079,7 +7079,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     fab?.setAttribute("aria-pressed", String(AI.open));
     host.hidden = !AI.open;
     if (!AI.open) return;
-    const provs = AI.providers || [], pick = aiLS.get("aiProv") || "qwen", ready = provs.length && !AI.busy;
+    const provs = AI.providers || [], saved = aiLS.get("aiProv"), pick = provs.some((x) => x.id === saved) ? saved : provs[0]?.id, ready = provs.length && !AI.busy;
     AI.tables = [];
     const avatar = '<span class="ai-av" aria-hidden="true">✦</span>';
     const body = AI.items.length ? AI.items.map((it, ix) => {
