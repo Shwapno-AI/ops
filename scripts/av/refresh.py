@@ -6,7 +6,10 @@ recognised by its STRUCTURE, never by its name or folder:
 
 * SKU lists — a workbook whose sheets carry Article Code + Name + CAT3 and a
   flag column CORE / PROMO / KVI / ECOM marked "Y".
-* DOS — Outlet Code + Article Code + Sales Qty + PER DAY (Sales Qty is 60 days).
+* DOS — Outlet Code + Article Code + Sales Qty (60 days), with or without PER DAY. The header may sit
+  under a few export lines (the OPS "Comparative ~ Last 60 Days" export puts it on row 11); a period
+  line such as "(60 Days)" there is read, and other lengths are scaled to 60 days. Without PER DAY the
+  sheet must be just those columns, so wider sales workbooks are not taken for it.
 * E-Commerce — Code + code + Monthly Average Sales (ECOM) + DOS 2 Days +
   Assortment for outlet.
 * Stock — ProductCode + ProductName followed by one column per outlet code
@@ -48,7 +51,14 @@ OUT = Path(os.environ.get("AV_OUT") or ROOT / "data" / "av.json")
 OUTLET_RE = re.compile(r"^[A-Z][0-9]{3,4}$")
 FLAGS = ("core", "promo", "kvi", "ecom")
 ZONE_HEADERS = {"code", "outlet name", "format", "division", "district", "pnp non pnp status", "status"}
-DOS_HEADERS = {"outlet code", "article code", "sales qty", "per day"}
+DOS_HEADERS = {"outlet code", "article code", "sales qty"}
+HEAD_ROWS = 15  # rows searched for a header (exports may put a few information lines above it)
+
+
+def is_dos_header(cells):
+    """Outlet Code + Article Code + Sales Qty, plus PER DAY or nothing much else (a narrow export)."""
+    s = {c for c in cells if c}
+    return DOS_HEADERS <= s and ("per day" in s or len(s) <= 4)
 ECOM_HEADERS = {"code", "monthly average sales (ecom)", "dos 2 days", "assortment for outlet"}
 MISS = "New/Closed outlets (Not Distributed)"
 
@@ -88,7 +98,7 @@ def num(v):
 
 
 # ------------------------------------------------------------------ recognition
-def workbook_heads(path, rows=6):
+def workbook_heads(path, rows=HEAD_ROWS):
     """{sheet name: [normalised header cells of the first rows]} without loading whole sheets."""
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
@@ -118,7 +128,7 @@ def classify(path):
             if {"article code", "name", "cat3"} <= s and s & set(FLAGS):
                 flag_sheets += 1
                 break
-            if DOS_HEADERS <= s:
+            if is_dos_header(r):
                 return "dos"
             if ECOM_HEADERS <= s:
                 return "ecom"
@@ -233,14 +243,29 @@ def read_stock(path, wanted):
 
 
 def read_dos(path, wanted):
-    """{outlet: {sku: 60-day sales qty}} for the wanted SKUs."""
+    """{outlet: {sku: 60-day sales qty}} for the wanted SKUs. The header is the first row within
+    HEAD_ROWS that has the DOS columns; a "(N Days)" line above it scales the quantities to 60 days."""
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
         for ws in wb.worksheets:
             it = ws.iter_rows(values_only=True)
-            h = [norm(c) for c in next(it, [])]
-            if not DOS_HEADERS <= set(h):
+            h, days = None, 60
+            for _ in range(HEAD_ROWS):
+                row = next(it, None)
+                if row is None:
+                    break
+                cells = [norm(c) for c in row]
+                if is_dos_header(cells):
+                    h = cells
+                    break
+                m = re.search(r"\((\d+)\s*days?\)", " ".join(str(c) for c in row if c), re.I)
+                if m and int(m.group(1)) > 0:
+                    days = int(m.group(1))
+            if not h:
                 continue
+            scale = 60 / days
+            if days != 60:
+                log(f"  DOS export covers {days} days; sales scaled to 60 days")
             io_, ia, iq = h.index("outlet code"), h.index("article code"), h.index("sales qty")
             out, rows = {}, 0
             for r in it:
@@ -249,7 +274,7 @@ def read_dos(path, wanted):
                     continue
                 rows += 1
                 d = out.setdefault(o, {})
-                d[a] = d.get(a, 0.0) + num(r[iq])
+                d[a] = d.get(a, 0.0) + num(r[iq]) * scale
             return out, rows
     finally:
         wb.close()
