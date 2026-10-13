@@ -18,8 +18,12 @@ Environment:
   AZURE_OPENAI_DEPLOYMENT  the model deployment name
   AZURE_OPENAI_LABEL       name shown in the menu (default "Azure OpenAI")
   QWEN_ENDPOINT            OpenAI-compatible base URL (ends with /compatible-mode/v1)
-  QWEN_KEY, QWEN_MODEL     its key and model
+  QWEN_KEY or QWEN_API_KEY, QWEN_MODEL     its key and model
   QWEN_LABEL               name shown in the menu (default "Alibaba Qwen")
+  QWEN_REASONING_EFFORT    optional; sent to the model as reasoning_effort (dropped if the model rejects it)
+  QWEN37_*, QWEN38_* ...   more Qwen models, same five names with a number in the prefix (QWEN38_ENDPOINT,
+                           QWEN38_API_KEY, QWEN38_MODEL, QWEN38_LABEL, QWEN38_REASONING_EFFORT); each one
+                           is its own entry in the Model menu. QWEN_* (no number) is the default.
   QWEN_VOICE_MODEL         model that reads answers aloud through Chat Completions with audio output
                            (default qwen3.5-omni-flash; a "-realtime" model cannot be used here, it takes
                            only live audio over a WebSocket)
@@ -41,17 +45,34 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("AI_PORT") or 8090)
 MAX_BODY = 6_000_000        # bytes accepted from the browser (screenshots ride along as images)
 TIMEOUT = 110               # seconds to wait for the provider
+# A provider error is answered with 424, not 502: Cloudflare (in front of the dashboard) replaces any 502 from
+# the origin with its own "Bad gateway" page, which hid the provider's actual message from the panel.
+PROVIDER_ERR = 424
 
 
 def env(k):
     return (os.environ.get(k) or "").strip()
 
 
+def qwen_groups():
+    """{id: settings} for every Qwen model set up: QWEN_* (id "qwen") and QWEN<n>_* (id "qwen<n>")."""
+    out = {}
+    for k in sorted(os.environ):
+        m = re.fullmatch(r"(QWEN(\d*))_ENDPOINT", k)
+        if not m:
+            continue
+        pre = m.group(1)
+        cfg = {"endpoint": env(pre + "_ENDPOINT").rstrip("/"), "key": env(pre + "_KEY") or env(pre + "_API_KEY"),
+               "model": env(pre + "_MODEL"), "label": env(pre + "_LABEL"), "effort": env(pre + "_REASONING_EFFORT")}
+        if cfg["endpoint"] and cfg["key"] and cfg["model"]:
+            out[pre.lower()] = {**cfg, "label": cfg["label"] or ("Alibaba Qwen" if pre == "QWEN" else "Qwen " + cfg["model"])}
+    return out
+
+
 def providers():
-    """The configured providers, Qwen first: it is the default in the dashboard's Model menu."""
-    out = []
-    if env("QWEN_ENDPOINT") and env("QWEN_KEY") and env("QWEN_MODEL"):
-        out.append({"id": "qwen", "label": env("QWEN_LABEL") or "Alibaba Qwen"})
+    """The configured providers for the dashboard's Model menu: the default Qwen first, other Qwen models, Azure last."""
+    groups = qwen_groups()
+    out = [{"id": i, "label": groups[i]["label"]} for i in sorted(groups, key=lambda x: (x != "qwen", x))]
     if env("AZURE_OPENAI_ENDPOINT") and env("AZURE_OPENAI_KEY") and env("AZURE_OPENAI_DEPLOYMENT"):
         out.append({"id": "azure", "label": env("AZURE_OPENAI_LABEL") or "Azure OpenAI"})
     return out
@@ -75,10 +96,11 @@ def azure_urls():
 
 
 def voice_cfg():
-    """Spoken answers need the Qwen endpoint and key; the model and voice have defaults."""
-    if not (env("QWEN_ENDPOINT") and env("QWEN_KEY")):
+    """Spoken answers use the default Qwen endpoint and key (QWEN_*); the model and voice have defaults."""
+    g = qwen_groups().get("qwen")
+    if not g:
         return None
-    return {"model": env("QWEN_VOICE_MODEL") or "qwen3.5-omni-flash", "voice": env("QWEN_VOICE") or "Tina"}
+    return {"model": env("QWEN_VOICE_MODEL") or "qwen3.5-omni-flash", "voice": env("QWEN_VOICE") or "Tina", "endpoint": g["endpoint"], "key": g["key"]}
 
 
 SPEAK_PROMPT = ("You are the voice of a retail operations dashboard. Read the user's text aloud in clear, natural English. "
@@ -98,8 +120,8 @@ def speak(text):
     cfg = voice_cfg()
     body = {"model": cfg["model"], "stream": True, "modalities": ["text", "audio"], "audio": {"voice": cfg["voice"], "format": "wav"},
             "messages": [{"role": "system", "content": SPEAK_PROMPT}, {"role": "user", "content": text}]}
-    req = urllib.request.Request(env("QWEN_ENDPOINT").rstrip("/") + "/chat/completions", data=json.dumps(body).encode(), method="POST",
-                                 headers={"Content-Type": "application/json", "Authorization": "Bearer " + env("QWEN_KEY")})
+    req = urllib.request.Request(cfg["endpoint"] + "/chat/completions", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Authorization": "Bearer " + cfg["key"]})
     parts, said = [], []
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         for raw in r:
@@ -135,9 +157,16 @@ def chat(provider, messages, tools):
                 if e.code not in (404, 400):  # a different route will not help
                     raise
         raise last
-    if provider == "qwen":
-        url = env("QWEN_ENDPOINT").rstrip("/") + "/chat/completions"
-        return post(url, {"Authorization": "Bearer " + env("QWEN_KEY")}, {**body, "model": env("QWEN_MODEL")})
+    g = qwen_groups().get(provider)
+    if g:
+        url, head, base = g["endpoint"] + "/chat/completions", {"Authorization": "Bearer " + g["key"]}, {**body, "model": g["model"]}
+        if g["effort"]:
+            try:
+                return post(url, head, {**base, "reasoning_effort": g["effort"]})
+            except urllib.error.HTTPError as e:
+                if e.code != 400:
+                    raise  # a 400 may be this model not accepting reasoning_effort: try once without it
+        return post(url, head, base)
     raise ValueError("unknown provider")
 
 
@@ -161,7 +190,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, providers())
         if self.path.split("?")[0] == "/api/ai/voice":
             cfg = voice_cfg()
-            return self.reply(200, {"enabled": bool(cfg), **(cfg or {})})
+            return self.reply(200, {"enabled": bool(cfg), **({"model": cfg["model"], "voice": cfg["voice"]} if cfg else {})})
         self.reply(404, {"error": "not found"})
 
     def do_POST(self):
@@ -186,9 +215,9 @@ class Handler(BaseHTTPRequestHandler):
                 detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
             except Exception:  # noqa: BLE001
                 pass
-            self.reply(502, {"error": f"The AI service answered {e.code}. {detail}".strip()})
+            self.reply(PROVIDER_ERR, {"error": f"The AI service answered {e.code}. {detail}".strip()})
         except urllib.error.URLError as e:
-            self.reply(502, {"error": f"Could not reach the AI service ({e.reason})."})
+            self.reply(PROVIDER_ERR, {"error": f"Could not reach the AI service ({e.reason})."})
         except Exception as e:  # noqa: BLE001
             self.reply(500, {"error": f"Shwapno Intelligence failed ({type(e).__name__})."})
 
@@ -218,9 +247,9 @@ def _speak_handler(self):
             detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
         except Exception:  # noqa: BLE001
             pass
-        self.reply(502, {"error": f"The voice service answered {e.code}. {detail}".strip()})
+        self.reply(PROVIDER_ERR, {"error": f"The voice service answered {e.code}. {detail}".strip()})
     except urllib.error.URLError as e:
-        self.reply(502, {"error": f"Could not reach the voice service ({e.reason})."})
+        self.reply(PROVIDER_ERR, {"error": f"Could not reach the voice service ({e.reason})."})
     except Exception as e:  # noqa: BLE001
         self.reply(500, {"error": f"Reading the answer aloud failed ({type(e).__name__}: {e})."})
 
