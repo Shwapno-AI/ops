@@ -5804,11 +5804,13 @@
     return `<h3 style="font-size:14px;margin:0">Since the previous audit</h3>
       <div class="sa-vs"><div><small>Previous · ${fdate(p.date)} ${esc(p.time)}</small><strong>${saHeat(p.p)}</strong><span>${esc(p.aud)} · ${int(p.total)} points</span></div><div class="sa-vs-arrow">${saDelta(f.d)}<small>${int(f.days)} days later</small></div><div><small>Latest · ${fdate(r.v.date)} ${esc(r.v.time)}</small><strong>${saHeat(r.p)}</strong><span>${esc(r.v.aud)} · ${int(r.v.total)} points</span></div></div>
       <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Category</th><th class="num">Previous</th><th class="num">Latest</th><th class="num">Change</th></tr></thead><tbody>
-      ${d.cats.map((c, ci) => `<tr><td>${esc(c)}</td><td class="num">${pts(ci, p)} / ${int(d.catMax[ci])} <small class="muted">${saPct(p.cats[ci])}</small></td><td class="num">${pts(ci, r.v)} / ${int(d.catMax[ci])} <small class="muted">${saPct(r.v.cats[ci])}</small></td><td class="num">${saDelta(f.cats[ci])}</td></tr>`).join("")}
-      <tr style="font-weight:650"><td>Total</td><td class="num">${int(p.total)} / ${int(p.possible)}</td><td class="num">${int(r.v.total)} / ${int(r.v.possible)}</td><td class="num">${saDelta(f.d)}</td></tr></tbody></table></div>
+      ${d.cats.map((c, ci) => { const n = ch.filter((y) => y.q[1] === ci).length; return `<tr class="sv-cat" data-svcat="${ci}" tabindex="0" role="button" title="${n ? `Show the ${n} question${n === 1 ? "" : "s"} that changed in ${esc(c)}` : `No question changed in ${esc(c)}`}"><td><span class="sv-name">${esc(c)}</span>${n ? ` <small class="sv-n">${n} changed</small>` : ""}</td><td class="num">${pts(ci, p)} / ${int(d.catMax[ci])} <small class="muted">${saPct(p.cats[ci])}</small></td><td class="num">${pts(ci, r.v)} / ${int(d.catMax[ci])} <small class="muted">${saPct(r.v.cats[ci])}</small></td><td class="num">${saDelta(f.cats[ci])}</td></tr>`; }).join("")}
+      <tr class="sv-cat sv-all on" data-svcat="all" tabindex="0" role="button" title="Show every question that changed" style="font-weight:650"><td>Total</td><td class="num">${int(p.total)} / ${int(p.possible)}</td><td class="num">${int(r.v.total)} / ${int(r.v.possible)}</td><td class="num">${saDelta(f.d)}</td></tr></tbody></table></div>
       <p class="muted" style="margin:0;font-size:12px">${int(f.dn)} questions went down, ${int(f.up)} went up, ${int(d.questions.length - f.dn - f.up)} stayed the same.</p>
-      <div class="table-wrap" style="max-height:340px"><table class="compact"><thead><tr><th>Question that changed</th><th class="num">Previous</th><th class="num">Latest</th><th class="num">Change</th></tr></thead><tbody>
-      ${ch.map((y) => `<tr><td><span class="cell-primary">${esc(y.q[2])}</span><span class="cell-secondary">${esc(d.cats[y.q[1]])}</span></td><td class="num">${y.a} / ${y.q[4]}</td><td class="num">${y.b} / ${y.q[4]}</td><td class="num">${saPts(y.x)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">Every question scored the same.</td></tr>'}</tbody></table></div>`;
+      <p class="sv-cap" data-svcap>Questions that changed · <b>all categories</b> (${int(ch.length)}). Click a category above to see only its questions.</p>
+      <div class="table-wrap" style="max-height:340px"><table class="compact" data-svq><thead><tr><th>Question that changed</th><th class="num">Previous</th><th class="num">Latest</th><th class="num">Change</th></tr></thead><tbody>
+      ${ch.map((y) => `<tr data-qcat="${y.q[1]}"><td><span class="cell-primary">${esc(y.q[2])}</span><span class="cell-secondary">${esc(d.cats[y.q[1]])}</span></td><td class="num">${y.a} / ${y.q[4]}</td><td class="num">${y.b} / ${y.q[4]}</td><td class="num">${saPts(y.x)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">Every question scored the same.</td></tr>'}
+      <tr class="sv-none" hidden><td colspan="4" class="empty">No question changed in this category.</td></tr></tbody></table></div>`;
   }
   // Drawer: outlets whose score on one question went down (or up) since their previous audit.
   function openSaVisitQ(i) {
@@ -7119,6 +7121,19 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   }).observe($("#view"));
   document.addEventListener("click", (e) => { if (S.openDim && !e.target.closest(".ms")) { S.openDim = null; renderFilters(); } }, true);
   window.addEventListener("hashchange", route);
+  // Outlet drawer, "Since the previous audit": a category row filters the question list under it (Total shows all).
+  const svPick = (row) => {
+    const box = row.closest("#drawerBody") || document, all = row.dataset.svcat === "all" || row.classList.contains("on");
+    const ci = all ? "all" : row.dataset.svcat;
+    $$("tr.sv-cat", box).forEach((x) => x.classList.toggle("on", x.dataset.svcat === ci));
+    let n = 0;
+    $$("[data-svq] tr[data-qcat]", box).forEach((x) => { const show = ci === "all" || x.dataset.qcat === ci; x.hidden = !show; if (show) n++; });
+    const none = $("[data-svq] tr.sv-none", box); if (none) none.hidden = n > 0 || ci === "all";
+    const cap = $("[data-svcap]", box), name = ci === "all" ? "all categories" : $(".sv-name", row)?.textContent || "";
+    if (cap) cap.innerHTML = `Questions that changed · <b>${esc(name)}</b> (${int(n)}). ${ci === "all" ? "Click a category above to see only its questions." : "Click it again, or Total, to see all."}`;
+  };
+  document.addEventListener("click", (e) => { const row = e.target.closest?.("tr.sv-cat"); if (row) svPick(row); });
+  document.addEventListener("keydown", (e) => { if (e.key !== "Enter") return; const row = e.target.closest?.("tr.sv-cat"); if (row) { e.preventDefault(); svPick(row); } });
 
   (window.__DATA__ ? Promise.resolve(window.__DATA__) : fetch("data/data.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }))
     .then((d) => {

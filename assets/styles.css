@@ -339,3 +339,11 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ai-tryh small{margin-left:auto;font-size:12px;font-weight:500;color:var(--ink-3)}
 .ai-tryh:hover small{color:var(--ai-deep);text-decoration:underline}
 .ai-tryh+.ai-topics{margin:0 0 12px}
+/* Store assessment outlet drawer: category rows filter the questions that changed */
+tr.sv-cat{cursor:pointer}
+tr.sv-cat:hover td{background:var(--surface-2)}
+tr.sv-cat:hover .sv-name{text-decoration:underline;text-underline-offset:2px}
+tr.sv-cat.on td{background:color-mix(in srgb,var(--info) 10%,var(--surface))}
+tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
+.sv-n{font-size:11px;color:var(--ink-3)}
+.sv-cap{margin:4px 0 0;font-size:12.5px;color:var(--ink-2)}
