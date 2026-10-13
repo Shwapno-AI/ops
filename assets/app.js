@@ -5838,6 +5838,88 @@
     wireDyn($("#drawerBody"));
     showDrawer();
   }
+  // ---- Outlet visit form (PDF): the operations team's one-page template, filled from the dashboard. Header,
+  // store audit weak points (latest audit vs the one before), lines for the visit's own weak points, the
+  // SL / Sales / Profit / Growth / GP % table with this outlet's figures and an ACTION PLAN block under each,
+  // and signatures. Rendered like the Priority Tasks PDF: html2canvas -> JPEG -> a one-page PDF.
+  function saFormHtml(code) {
+    const d = S.sa, m = saMonth(), r = d.byMonth.get(m)?.byCode.get(code) || [...saMonths()].reverse().map((x) => d.byMonth.get(x).byCode.get(code)).find(Boolean);
+    if (!r) return null;
+    const td = (S.data.tilldate?.outlets || []).find((o) => o.c === code), rp = S.data.tilldate;
+    const P = S.data.pnl, pm = P?.months?.[P.months.length - 1], pl = pm ? (P.summary[pm] || []).find((o) => o.c === code) : null;
+    const mo = (S.data.master?.outlets || []).find((o) => o.c === code) || {};
+    const e = esc, pc = (v, dd = 1) => (isNum(v) ? `${(v * 100).toFixed(dd)}%` : "—");
+    const sales = td?.s, ach = td?.t > 0 ? td.a / td.t : null, gr = td?.sy > 0 ? td.s / td.sy - 1 : null;
+    const gp = td?.s > 0 && isNum(td?.gv) ? td.gv / td.s : null, gpy = td?.sy > 0 && isNum(td?.gvy) ? td.gvy / td.sy : null, profit = pl ? pl.g : null;
+    const pv = r.pv, f = r.df, pts = (ci, v) => int((v.cats[ci] || 0) * d.catMax[ci]);
+    const tone = (x) => (x > 0.00005 ? "#0e6f59" : x < -0.00005 ? "#b64a1c" : "#62777f");
+    const arrow = (x) => (!isNum(x) ? "—" : `<span style="color:${tone(x)}">${x > 0.00005 ? "▲ +" : x < -0.00005 ? "▼ −" : ""}${Math.abs(x * 100).toFixed(2)} pp</span>`);
+    // questions that lost the most points in the latest audit
+    const lost = d.questions.map((q, i) => ({ q, s: r.v.q[i] })).filter((x) => isNum(x.s) && x.s < x.q[4]).sort((a, b) => (b.q[4] - b.s) - (a.q[4] - a.s)).slice(0, 8);
+    const th = "border:1px solid #1d2a2e;padding:6px 4px;font-weight:700;text-align:center;font-size:12px;line-height:1.3";
+    const tdb = "border:1px solid #1d2a2e";
+    const cell = (main, note, color) => `<td style="${tdb};text-align:center;padding:7px 4px"><div style="font-size:14px;font-weight:700;color:${color || "#1d2a2e"}">${main}</div><div style="font-size:10px;color:#6d888f;margin-top:2px">${note}</div></td>`;
+    const grade = r.grade?.label || "";
+    return `<div class="sa-form" style="width:794px;height:1123px;box-sizing:border-box;padding:40px 46px;background:#fff;color:#1d2a2e;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.45">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1c6b87;padding-bottom:10px">
+        <div><div style="font-size:10px;letter-spacing:.1em;color:#6d888f;text-transform:uppercase">Shwapno · Outlet visit form</div>
+          <div style="font-size:24px;font-weight:700;margin-top:2px">${e(code)} ${e(r.nm)}</div>
+          <div style="color:#47646d;font-size:13px">${e(r.dim.rl)} · Zonal ${e(r.dim.zn)}${mo.fmt ? ` · ${e(mo.fmt)}` : ""}${mo.own ? ` · ${e(mo.own)}` : ""}</div></div>
+        <div style="text-align:right;color:#47646d;font-size:12px"><div>Visit date: ______________</div>
+          <div style="margin-top:6px">Store score ${e(fmonth(r.v.m))}: <b style="color:#1d2a2e">${pc(r.p)}</b>${grade ? ` · ${e(grade)}` : ""}</div></div>
+      </div>
+      <div style="font-size:15px;font-weight:700;margin:16px 0 6px">Store audit weak points</div>
+      <div style="font-size:11.5px;color:#47646d;margin-bottom:6px">Latest audit ${fdate(r.v.date)} ${e(r.v.time)} by ${e(r.v.aud)} · ${int(r.v.total)} / ${int(r.v.possible)} points${pv ? ` · previous ${fdate(pv.date)} (${int(pv.total)} points) · change ${arrow(f.d)}` : " · first audit, nothing to compare"}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+        <tr style="background:#e7eef0"><th style="text-align:left;padding:5px 7px">Category</th>${pv ? '<th style="text-align:right;padding:5px 7px">Previous</th>' : ""}<th style="text-align:right;padding:5px 7px">Latest</th>${pv ? '<th style="text-align:right;padding:5px 7px">Change</th>' : ""}</tr>
+        ${d.cats.map((c, ci) => `<tr style="background:${ci % 2 ? "#f7fafb" : "#fff"}"><td style="padding:4px 7px">${e(c)}</td>${pv ? `<td style="text-align:right;padding:4px 7px">${pts(ci, pv)} / ${int(d.catMax[ci])}</td>` : ""}<td style="text-align:right;padding:4px 7px"><b>${pts(ci, r.v)} / ${int(d.catMax[ci])}</b> <span style="color:#6d888f">${pc(r.v.cats[ci])}</span></td>${pv ? `<td style="text-align:right;padding:4px 7px">${arrow(f.cats[ci])}</td>` : ""}</tr>`).join("")}
+      </table>
+      ${lost.length ? `<div style="font-size:12px;font-weight:600;margin:10px 0 4px">Questions that lost the most points</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 22px;font-size:11.5px">${lost.map((x) => `<div>• ${e(x.q[2])} <b>${x.s}/${x.q[4]}</b> <span style="color:#b64a1c">−${x.q[4] - x.s}</span> <span style="color:#6d888f">· ${e(d.cats[x.q[1]])}</span></div>`).join("")}</div>` : ""}
+      <div style="font-size:15px;font-weight:700;margin:18px 0 2px">Major weak points (on outlet visit) &amp; actions</div>
+      ${[1, 2, 3, 4].map(() => '<div style="border-bottom:1px solid #b9c9cd;height:28px;display:flex;align-items:flex-end;font-size:14px">•</div>').join("")}
+      <table style="width:100%;border-collapse:collapse;margin-top:22px;border:1px solid #1d2a2e">
+        <tr><th style="${th};width:36px">SL</th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
+        <tr style="background:#f3f7f8"><td style="${tdb};text-align:center;font-weight:700;font-size:14px">&gt;</td>
+          ${cell(isNum(sales) ? bdt(sales) : "—", rp ? `${e(fmonth(rp.date.slice(0, 7)))} till ${e(fdate(rp.date, true))}${isNum(ach) ? ` · ${pc(ach)} of target` : ""}` : "")}
+          ${cell(isNum(profit) ? bdt(profit) : "—", pm ? `P&amp;L ${e(fmonth(pm))}, before financing` : "No P&amp;L", isNum(profit) ? (profit < 0 ? "#b64a1c" : "#0e6f59") : "")}
+          ${cell(isNum(gr) ? `${gr > 0 ? "▲ +" : gr < 0 ? "▼ −" : ""}${Math.abs(gr * 100).toFixed(1)}%` : "—", "vs last year, same days", isNum(gr) ? (gr < 0 ? "#b64a1c" : "#0e6f59") : "")}
+          ${cell(pc(gp), isNum(gpy) ? `last year ${pc(gpy)}` : "")}</tr>
+        <tr><td rowspan="4" class="sa-rot" style="${tdb};width:36px;padding:0;position:relative"><div style="position:absolute;left:50%;top:50%;width:296px;height:18px;margin:-9px 0 0 -148px;transform:rotate(-90deg);text-align:center;font-weight:700;letter-spacing:.16em;font-size:12px;line-height:18px;white-space:nowrap">ACTION&nbsp;&nbsp;PLAN</div></td>
+          <td style="${tdb};height:74px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>
+        ${[1, 2, 3].map(() => `<tr><td style="${tdb};height:74px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>`).join("")}
+      </table>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:46px;font-size:11.5px;color:#47646d;text-align:center">
+        <div style="border-top:1px solid #6d888f;padding-top:4px">Outlet manager</div><div style="border-top:1px solid #6d888f;padding-top:4px">Zonal</div><div style="border-top:1px solid #6d888f;padding-top:4px">Regional leader</div></div>
+      <div style="margin-top:14px;font-size:9.5px;color:#9aaeb3;text-align:right">Operations Dashboard · printed ${e(fdate(new Date().toISOString().slice(0, 10)))}</div>
+    </div>`;
+  }
+  async function saFormPdf(code, btn) {
+    const html = saFormHtml(code);
+    if (!html) return;
+    const label = btn?.textContent;
+    if (btn) { btn.disabled = true; btn.textContent = "Building PDF…"; }
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;left:-10000px;top:0;z-index:-1";
+    host.innerHTML = html; document.body.append(host);
+    try {
+      await loadH2C();
+      const page = host.firstElementChild;
+      const c = await window.html2canvas(page, { scale: 2, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
+      const bin = atob(c.toDataURL("image/jpeg", 0.9).split(",")[1]), bytes = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+      const blob = arPdfBlob([{ bytes, w: c.width, h: c.height }]), url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = `visit-form_${code}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) {
+      console.error(err);
+      alert("Could not build the PDF form. Try again.");
+    } finally {
+      host.remove();
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
+  }
   // Drawer: one outlet's audits, month history, category and question breakdown, and the auditors' remarks.
   function openSaOutlet(code) {
     const d = S.sa, m = saMonth(), pm = saPrevMonth(m), r = S.sa.byMonth.get(m)?.byCode.get(code) || [...saMonths()].reverse().map((x) => S.sa.byMonth.get(x).byCode.get(code)).find(Boolean);
@@ -5854,7 +5936,7 @@
         <div class="stat"><small>Score, ${fmonth(r.v.m)}</small><strong>${saPct(r.p)}</strong><div style="font-size:12px">${chip(r.grade)} ${pr ? `${delta(isNum(r.p) && isNum(pr.p) ? r.p - pr.p : null, "pp")} vs ${fmonth(pm)}` : ""}</div></div>
         <div class="stat"><small>Latest audit</small><strong style="font-size:18px">${fdate(r.v.date)}</strong><div style="font-size:12px">${esc(r.v.aud)} · ${esc(r.v.time)}</div></div>
         <div class="stat"><small>Audits this month</small><strong>${int(r.n)}</strong><div style="font-size:12px">${int(r.v.total)} of ${int(r.v.possible)} points in the latest</div></div></div>
-      <div class="lr-dtools"><span class="muted">${esc(r.dim.rl)} · ${esc(r.dim.zn)}</span>${csvBtn("saout")}</div>
+      <div class="lr-dtools"><span class="muted">${esc(r.dim.rl)} · ${esc(r.dim.zn)}</span><span class="sa-dl"><button type="button" class="btn" data-safrm="${esc(code)}" title="One-page outlet visit form, filled from this outlet's audit and figures">⬇ PDF form</button>${csvBtn("saout")}</span></div>
       <h3 style="font-size:14px;margin:0">Score by month</h3>
       <div class="sa-hist">${hist.map((x) => `<div class="${x.m === r.v.m ? "on" : ""}"><small>${fmonth(x.m)}</small>${saHeat(x.r.p)}<span class="muted">${int(x.r.n)} audit${x.r.n === 1 ? "" : "s"}</span></div>`).join("")}</div>
       ${saSinceLast(r)}
@@ -7132,7 +7214,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     const cap = $("[data-svcap]", box), name = ci === "all" ? "all categories" : $(".sv-name", row)?.textContent || "";
     if (cap) cap.innerHTML = `Questions that changed · <b>${esc(name)}</b> (${int(n)}). ${ci === "all" ? "Click a category above to see only its questions." : "Click it again, or Total, to see all."}`;
   };
-  document.addEventListener("click", (e) => { const row = e.target.closest?.("tr.sv-cat"); if (row) svPick(row); });
+  document.addEventListener("click", (e) => { const row = e.target.closest?.("tr.sv-cat"); if (row) svPick(row); const fb = e.target.closest?.("[data-safrm]"); if (fb) saFormPdf(fb.dataset.safrm, fb); });
   document.addEventListener("keydown", (e) => { if (e.key !== "Enter") return; const row = e.target.closest?.("tr.sv-cat"); if (row) { e.preventDefault(); svPick(row); } });
 
   (window.__DATA__ ? Promise.resolve(window.__DATA__) : fetch("data/data.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }))
