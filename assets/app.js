@@ -5860,7 +5860,7 @@
     const tdb = "border:1px solid #1d2a2e";
     const cell = (main, note, color) => `<td style="${tdb};text-align:center;padding:7px 4px"><div style="font-size:14px;font-weight:700;color:${color || "#1d2a2e"}">${main}</div><div style="font-size:10px;color:#6d888f;margin-top:2px">${note}</div></td>`;
     const grade = r.grade?.label || "";
-    return `<div class="sa-form" style="width:794px;height:1123px;box-sizing:border-box;padding:40px 46px;background:#fff;color:#1d2a2e;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.45">
+    return `<div class="sa-form" style="width:794px;height:1123px;box-sizing:border-box;padding:32px 46px;background:#fff;color:#1d2a2e;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.45">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1c6b87;padding-bottom:10px">
         <div><div style="font-size:10px;letter-spacing:.1em;color:#6d888f;text-transform:uppercase">Shwapno · Outlet visit form</div>
           <div style="font-size:24px;font-weight:700;margin-top:2px">${e(code)} ${e(r.nm)}</div>
@@ -5869,15 +5869,16 @@
           <div style="margin-top:6px">Store score ${e(fmonth(r.v.m))}: <b style="color:#1d2a2e">${pc(r.p)}</b>${grade ? ` · ${e(grade)}` : ""}</div></div>
       </div>
       <div style="font-size:15px;font-weight:700;margin:16px 0 6px">Store audit weak points</div>
-      <div style="font-size:11.5px;color:#47646d;margin-bottom:6px">Latest audit ${fdate(r.v.date)} ${e(r.v.time)} by ${e(r.v.aud)} · ${int(r.v.total)} / ${int(r.v.possible)} points${pv ? ` · previous ${fdate(pv.date)} (${int(pv.total)} points) · change ${arrow(f.d)}` : " · first audit, nothing to compare"}</div>
+      <div style="font-size:11.5px;color:#47646d;margin-bottom:6px">Previous audit ${fdate(r.v.date)} ${e(r.v.time)} by ${e(r.v.aud)} · ${int(r.v.total)} / ${int(r.v.possible)} points (${pc(r.p)})</div>
       <table style="width:100%;border-collapse:collapse;font-size:11.5px">
-        <tr style="background:#e7eef0"><th style="text-align:left;padding:5px 7px">Category</th>${pv ? '<th style="text-align:right;padding:5px 7px">Previous</th>' : ""}<th style="text-align:right;padding:5px 7px">Latest</th>${pv ? '<th style="text-align:right;padding:5px 7px">Change</th>' : ""}</tr>
-        ${d.cats.map((c, ci) => `<tr style="background:${ci % 2 ? "#f7fafb" : "#fff"}"><td style="padding:4px 7px">${e(c)}</td>${pv ? `<td style="text-align:right;padding:4px 7px">${pts(ci, pv)} / ${int(d.catMax[ci])}</td>` : ""}<td style="text-align:right;padding:4px 7px"><b>${pts(ci, r.v)} / ${int(d.catMax[ci])}</b> <span style="color:#6d888f">${pc(r.v.cats[ci])}</span></td>${pv ? `<td style="text-align:right;padding:4px 7px">${arrow(f.cats[ci])}</td>` : ""}</tr>`).join("")}
+        <tr style="background:#e7eef0"><th style="text-align:left;padding:5px 7px">Category</th><th style="text-align:right;padding:5px 7px;width:150px">Previous</th><th style="text-align:right;padding:5px 7px;width:130px;border-left:2px solid #1c6b87">Latest <span style="font-weight:400;color:#6d888f">(this visit)</span></th></tr>
+        ${d.cats.map((c, ci) => `<tr style="background:${ci % 2 ? "#f7fafb" : "#fff"}"><td style="padding:4px 7px">${e(c)}</td><td style="text-align:right;padding:4px 7px"><b>${pts(ci, r.v)} / ${int(d.catMax[ci])}</b> <span style="color:#6d888f">${pc(r.v.cats[ci])}</span></td><td style="text-align:right;padding:5px 7px;border-left:2px solid #1c6b87;color:#6d888f"><span style="display:inline-block;width:46px;border-bottom:1px solid #8aa1a7;height:14px"></span> / ${int(d.catMax[ci])}</td></tr>`).join("")}
+        <tr style="background:#e7eef0;font-weight:700"><td style="padding:4px 7px">Total</td><td style="text-align:right;padding:4px 7px">${int(r.v.total)} / ${int(r.v.possible)} <span style="color:#6d888f;font-weight:400">${pc(r.p)}</span></td><td style="text-align:right;padding:5px 7px;border-left:2px solid #1c6b87;color:#6d888f"><span style="display:inline-block;width:46px;border-bottom:1px solid #8aa1a7;height:14px"></span> / ${int(r.v.possible)}</td></tr>
       </table>
       ${lost.length ? `<div style="font-size:12px;font-weight:600;margin:10px 0 4px">Questions that lost the most points</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 22px;font-size:11.5px">${lost.map((x) => `<div>• ${e(x.q[2])} <b>${x.s}/${x.q[4]}</b> <span style="color:#b64a1c">−${x.q[4] - x.s}</span> <span style="color:#6d888f">· ${e(d.cats[x.q[1]])}</span></div>`).join("")}</div>` : ""}
       <div style="font-size:15px;font-weight:700;margin:18px 0 2px">Major weak points (on outlet visit) &amp; actions</div>
-      ${[1, 2, 3, 4].map(() => '<div style="border-bottom:1px solid #b9c9cd;height:28px;display:flex;align-items:flex-end;font-size:14px">•</div>').join("")}
+      ${[1, 2, 3, 4, 5].map(() => '<div style="border-bottom:1px solid #b9c9cd;height:25px;display:flex;align-items:flex-end;font-size:14px">•</div>').join("")}
       <table style="width:100%;border-collapse:collapse;margin-top:22px;border:1px solid #1d2a2e">
         <tr><th style="${th};width:36px">SL</th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
         <tr style="background:#f3f7f8"><td style="${tdb};text-align:center;font-weight:700;font-size:14px">&gt;</td>
@@ -5885,11 +5886,11 @@
           ${cell(isNum(profit) ? bdt(profit) : "—", pm ? `P&amp;L ${e(fmonth(pm))}, before financing` : "No P&amp;L", isNum(profit) ? (profit < 0 ? "#b64a1c" : "#0e6f59") : "")}
           ${cell(isNum(gr) ? `${gr > 0 ? "▲ +" : gr < 0 ? "▼ −" : ""}${Math.abs(gr * 100).toFixed(1)}%` : "—", "vs last year, same days", isNum(gr) ? (gr < 0 ? "#b64a1c" : "#0e6f59") : "")}
           ${cell(pc(gp), isNum(gpy) ? `last year ${pc(gpy)}` : "")}</tr>
-        <tr><td rowspan="4" class="sa-rot" style="${tdb};width:36px;padding:0;position:relative"><div style="position:absolute;left:50%;top:50%;width:296px;height:18px;margin:-9px 0 0 -148px;transform:rotate(-90deg);text-align:center;font-weight:700;letter-spacing:.16em;font-size:12px;line-height:18px;white-space:nowrap">ACTION&nbsp;&nbsp;PLAN</div></td>
-          <td style="${tdb};height:74px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>
-        ${[1, 2, 3].map(() => `<tr><td style="${tdb};height:74px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>`).join("")}
+        <tr><td rowspan="4" class="sa-rot" style="${tdb};width:36px;padding:0;position:relative"><div style="position:absolute;left:50%;top:50%;width:192px;height:18px;margin:-9px 0 0 -96px;transform:rotate(-90deg);text-align:center;font-weight:700;letter-spacing:.16em;font-size:12px;line-height:18px;white-space:nowrap">ACTION&nbsp;&nbsp;PLAN</div></td>
+          <td style="${tdb};height:48px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>
+        ${[1, 2, 3].map(() => `<tr><td style="${tdb};height:48px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>`).join("")}
       </table>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:46px;font-size:11.5px;color:#47646d;text-align:center">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:34px;font-size:11.5px;color:#47646d;text-align:center">
         <div style="border-top:1px solid #6d888f;padding-top:4px">Outlet manager</div><div style="border-top:1px solid #6d888f;padding-top:4px">Zonal</div><div style="border-top:1px solid #6d888f;padding-top:4px">Regional leader</div></div>
       <div style="margin-top:14px;font-size:9.5px;color:#9aaeb3;text-align:right">Operations Dashboard · printed ${e(fdate(new Date().toISOString().slice(0, 10)))}</div>
     </div>`;
@@ -7146,7 +7147,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
       .finally(aiRender);
   }
   // local preview only: let the lookups be tried without an AI behind them
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__AI = AI, window.__aiAdd = (f) => aiAddFiles(f), window.__aiRun = (name, args) => { const out = AI_RUN[name](args || {}); return out.error ? out : aiForModel(out); };
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__AI = AI, window.__aiAdd = (f) => aiAddFiles(f), window.__saForm = (c) => saFormHtml(c), window.__aiRun = (name, args) => { const out = AI_RUN[name](args || {}); return out.error ? out : aiForModel(out); };
 
   // ------------------------------------------------------------------ render
   function render() {
