@@ -2,11 +2,11 @@
   "folderId": "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "folderUrl": "https://drive.google.com/drive/folders/1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "method": "public-link",
-  "syncedAt": "2026-10-11T12:51:23Z",
+  "syncedAt": "2026-10-13T08:45:27Z",
   "files": {
     "outletMaster": {
-      "driveName": "Performance final & Zone distribution file/Zone Distribution Oct 2026 w location type.xlsx",
-      "driveId": "1tepJqt-iYWbNUwC-0rNNxsXnq7n7RnQk",
+      "driveName": "ITEM - Availability/Zone Distribution Oct 2026 w location type.xlsx",
+      "driveId": "1MIQV0YkKPX7eQppeeUMKf7D8Iw9qjeLM",
       "driveModified": "Oct 7",
       "bytes": 187678,
       "sha256": "7466dcb6ff730060483167645d2a0ab26460f7074f0d5f9b2d8836c3cad4bb6d"
@@ -21,7 +21,7 @@
     "dayWiseSales": {
       "driveName": "Daily/Article W Sales.xlsx",
       "driveId": "1ufh8lGMTcCf03A2xXzJ5YihqBFOaS_Bp",
-      "driveModified": "10:54 pm",
+      "driveModified": "Oct 10",
       "bytes": 1421142,
       "sha256": "ea2bde111502de9c206ef947d3dac5a76ec17f18bd62e3f530bead77311a8574"
     },
