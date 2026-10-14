@@ -47,6 +47,8 @@ import fetch_drive_data as drive  # noqa: E402  (stdlib public-folder listing an
 from openpyxl import load_workbook  # noqa: E402
 
 FOLDER = (os.environ.get("AV_FOLDER_ID") or os.environ.get("DATA_FOLDER_ID") or "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l").strip()
+# The outlet master (Zone Distribution workbook) always comes from this folder, whatever else is in the data folder.
+ZONE_FOLDER = (os.environ.get("ZONE_FOLDER_ID") or "1r09IGv8Pk0J86li4hqLD8gskj5j3SBih").strip()
 OUT = Path(os.environ.get("AV_OUT") or ROOT / "data" / "av.json")
 OUTLET_RE = re.compile(r"^[A-Z][0-9]{3,4}$")
 FLAGS = ("core", "promo", "kvi", "ecom")
@@ -327,11 +329,16 @@ def main():
         log(f"Listing data folder {FOLDER}…")
         try:
             items = drive.walk(FOLDER)
+            # the outlet master comes only from its own folder; other Zone Distribution copies are ignored
+            zitems = [i for i in drive.walk(ZONE_FOLDER) if i["name"].lower().endswith((".xlsx", ".xlsm"))] if ZONE_FOLDER != FOLDER else []
         except RuntimeError as err:
             log(f"::error::{err}")
             return 1
+        items = [i for i in items if "zone" not in i["name"].lower()] + [dict(i, _zone=True) for i in zitems]
         for n, item in enumerate(items):
             name = item["name"].lower()
+            if item.get("_zone") is None and "zone distribution" in name and ZONE_FOLDER != FOLDER:
+                continue
             if not (name.endswith((".xlsx", ".xlsm", ".csv", ".txt")) or item["mimeType"] == drive.GSHEET_MIME):
                 continue
             dest = work / f"{n}{Path(name).suffix or '.xlsx'}"
@@ -341,6 +348,8 @@ def main():
                 log(f"::warning::{err}")
                 continue
             kind = classify(dest)
+            if item.get("_zone") and kind != "zones":
+                kind = None  # only the Zone Distribution workbook is taken from the outlet master folder
             if not kind:
                 dest.unlink()
                 continue
