@@ -5672,17 +5672,45 @@
     return `${kp}${t}`;
   }
 
+  // The page asks for a password first. The unlock lasts for the browser tab's session (sessionStorage), so moving
+  // between its tabs does not ask again; "Lock" asks again. Its data is not loaded until the page opens.
+  const EC_PASS = "9";
+  function ecUnlocked() {
+    try { return sessionStorage.getItem("opsdash-ecom") === "unlocked"; } catch (e) { return false; }
+  }
+  function ecSetLock(open) {
+    try { if (open) sessionStorage.setItem("opsdash-ecom", "unlocked"); else sessionStorage.removeItem("opsdash-ecom"); } catch (e) {}
+  }
+  function ecLockPanel() {
+    AFTER.push(() => {
+      const f = $("#ecLock");
+      if (!f) return;
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        const ok = $("#ecPass").value === EC_PASS;
+        S.ecomBad = !ok;
+        if (ok) ecSetLock(true);
+        render();
+      };
+      if (S.ecomBad) $("#ecPass").focus();
+    });
+    return `<section class="panel"><div class="panel-head"><div><h2>E-Commerce is locked</h2><p>Enter the password to open this page.</p></div></div>
+      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" inputmode="numeric" autocomplete="new-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? '<p class="ec-lock-err" role="alert">Wrong password.</p>' : ""}</form></section>`;
+  }
+
   function pageEcom() {
+    if (!ecUnlocked()) return ecLockPanel();
     if (!S.ecom) { loadEcom(); return `<p class="empty">${S.ecomErr ? `The E-commerce data could not be loaded (${esc(S.ecomErr)}).` : "Loading E-commerce data…"}</p>`; }
     const d = S.ecom, months = d.months;
     S.ecomTab = S.ecomTab || "over";
     const m = d.m[S.ecomM] ? S.ecomM : months[months.length - 1];
     const M = d.m[m], days = d.days[m] || 1;
     const monthSel = `<select class="sel" data-sel="ecomM" aria-label="Month">${months.slice().reverse().map((x) => `<option value="${x}" ${x === m ? "selected" : ""}>${esc(ecLabel(d, x))}</option>`).join("")}</select>`;
-    const bar = `<section class="panel sg-bar ec-bar"><div class="sg-bar-l"><b>E-Commerce</b><span class="muted">Sub-orders till ${esc(d.source.asOf)}</span></div><div class="sg-bar-r">${monthSel}</div></section>`;
+    const bar = `<section class="panel sg-bar ec-bar"><div class="sg-bar-l"><b>E-Commerce</b><span class="muted">Sub-orders till ${esc(d.source.asOf)}</span></div><div class="sg-bar-r">${monthSel}<button class="btn" type="button" data-ec-lock>Lock</button></div></section>`;
     const tabs = seg("ecomTab", EC_TABS, "E-Commerce view");
     const body = { over: () => ecOver(d, m, M, days), issues: () => ecIssues(d, m, M), slots: () => ecSlots(d, m), top: () => ecTop(d, m), cust: () => ecCust(d, m), comp: () => ecComp(d), open: () => ecOpen(d) }[S.ecomTab]();
     AFTER.push(() => {
+      $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { ecSetLock(false); S.ecom = null; S.ecomBad = false; render(); }));
       $$("[data-ecom-rho]").forEach((n) => { const go = () => { S.ecomRho = n.dataset.ecomRho; changed(); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
       $$("[data-ecom-zn]").forEach((n) => { const go = () => { S.ecomZn = n.dataset.ecomZn; changed(); }; n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     });

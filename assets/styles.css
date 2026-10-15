@@ -296,6 +296,11 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ec-chart text{font-size:11px;fill:currentColor}
 .ec-bar .sg-bar-r{flex-wrap:wrap;min-width:0}
 .ec-bar select.sel{max-width:100%}
+.ec-lock{display:grid;gap:8px;max-width:360px;padding:4px 16px 16px}
+.ec-lock label{font-weight:600}
+.ec-lock-row{display:flex;gap:8px}
+.ec-lock-row input{flex:1;min-width:0}
+.ec-lock-err{color:var(--bad);margin:0}
 /* SI voice: mic, language, read-aloud */
 .ai-mic,.ai-lang{flex:none;align-self:flex-end;height:36px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:50%;cursor:pointer;font-size:15px}
 .ai-mic{width:36px}.ai-lang{width:auto;border-radius:999px;padding:0 9px;font-size:12px;font-weight:600;color:var(--ink-2)}
