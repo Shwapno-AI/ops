@@ -85,10 +85,11 @@ def read_csv(body):
 
 def as_cc(rows):
     h = [key(x) for x in rows[0]] if rows else []
-    if not {"outlet code", "total"} <= set(h):
+    tkey = next((k for k in ("total", "total opportunity loss") if k in h), None)
+    if "outlet code" not in h or tkey is None:
         return None
-    ci, ti = h.index("outlet code"), h.index("total")
-    skip = {"outlet code", "outlet name", "regional head", "zonal", "total", "zone", "region"}
+    ci, ti = h.index("outlet code"), h.index(tkey)
+    skip = {"outlet code", "outlet name", "regional head", "zonal", "total", "total opportunity loss", "zone", "region"}
     prov = [i for i, k in enumerate(h) if k not in skip and i != ti]
     out = []
     for r in rows[1:]:
@@ -181,6 +182,26 @@ def main():
                         log(f"  attendance   {name}: {got['people']} people, {len(got['punches'])} outlets punched")
                         continue
                     log(f"  skip  {name} (columns not recognised)")
+                elif low.endswith((".xlsx", ".xlsm")) and re.search(r"opportunity|credit|card", low):
+                    # the credit card workbook: its first sheet with an outlet code and a total column is used
+                    from openpyxl import load_workbook
+                    path = Path(work) / "cc.xlsx"
+                    path.write_bytes(fetch(item))
+                    wb = load_workbook(path, read_only=True, data_only=True)
+                    got = None
+                    try:
+                        for ws in wb.worksheets:
+                            got = as_cc([list(r) for r in ws.iter_rows(values_only=True)])
+                            if got:
+                                log(f"  sheet {ws.title}")
+                                break
+                    finally:
+                        wb.close()
+                    if got:
+                        cc.append((period(name), meta, got))
+                        log(f"  credit card  {name}: {len(got['rows'])} outlets, providers {', '.join(got['providers'])}")
+                    else:
+                        log(f"  skip  {name} (no outlet and total columns)")
                 elif low.endswith((".xlsx", ".xlsm")) and re.search(r"visit|schedule", low):
                     path = Path(work) / "plan.xlsx"
                     path.write_bytes(fetch(item))
