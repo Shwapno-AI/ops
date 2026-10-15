@@ -6033,7 +6033,7 @@
         { k: "code", label: "Outlet code", hide: true }, { k: "zn", label: "Zonal", hide: true }, { k: "rl", label: "RHO", hide: true },
       ],
     });
-    return `${kpis}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details.", outBars)}</div>${table}`;
+    return `${kpis}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details. The list scrolls past ten.", `<div class="ec-scroll">${outBars}</div>`)}</div>${table}`;
   }
 
   // ---- drawers: one outlet, one complaint
