@@ -8,7 +8,7 @@
   // ------------------------------------------------------------------ config
   const NAV = [
     { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock / Inventory Gap"]] },
-    { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"], ["dos", "Days of stock (DOS)"]] },
+    { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"], ["dos", "Days of Stock (DOS)"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"], ["sapk", "PAKHAQS survey"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
