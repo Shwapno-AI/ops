@@ -6086,6 +6086,8 @@
     const mo = (S.data.master?.outlets || []).find((o) => o.c === code) || {};
     const e = esc, pc = (v, dd = 1) => (isNum(v) ? `${(v * 100).toFixed(dd)}%` : "—");
     const sales = td?.s, ach = td?.t > 0 ? td.a / td.t : null, gr = td?.sy > 0 ? td.s / td.sy - 1 : null;
+    // the latest day in the till-date file, from the outlet's day-wise sales and daily target
+    const nr = (S.net?.rows || []).find((x) => x.code === code), dayS = rp && nr?.dailySalesActuals?.[rp.date], dayT = rp && nr?.dailySalesTargets?.[rp.date], dayAch = isNum(dayS) && dayT > 0 ? dayS / dayT : null;
     const gp = td?.s > 0 && isNum(td?.gv) ? td.gv / td.s : null, gpy = td?.sy > 0 && isNum(td?.gvy) ? td.gvy / td.sy : null, profit = pl ? pl.g : null;
     const pv = r.pv, f = r.df, pts = (ci, v) => int((v.cats[ci] || 0) * d.catMax[ci]);
     const tone = (x) => (x > 0.00005 ? "#0e6f59" : x < -0.00005 ? "#b64a1c" : "#62777f");
@@ -6116,15 +6118,16 @@
       <div style="font-size:15px;font-weight:700;margin:18px 0 2px">Major weak points (Current Visit) &amp; actions</div>
       ${[1, 2, 3, 4, 5].map(() => '<div style="border-bottom:1px solid #b9c9cd;height:25px;display:flex;align-items:flex-end;font-size:14px">•</div>').join("")}
       <table style="width:100%;border-collapse:collapse;margin-top:22px;border:1px solid #1d2a2e">
-        <tr><th class="sa-cur" rowspan="2" style="width:40px;padding:0;background:#e7eef0;border:1px solid #1d2a2e;position:relative"><div style="position:absolute;left:50%;top:50%;width:160px;height:16px;margin:-8px 0 0 -80px;transform:rotate(-90deg);text-align:center;font-size:9.5px;font-weight:700;letter-spacing:.06em;line-height:16px;white-space:nowrap;color:#1c6b87">Current Situation</div></th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
+        <tr><th class="sa-cur" rowspan="2" style="width:40px;padding:0;background:#e7eef0;border:1px solid #1d2a2e;position:relative"><div style="position:absolute;left:50%;top:50%;width:160px;height:16px;margin:-8px 0 0 -80px;transform:rotate(-90deg);text-align:center;font-size:9.5px;font-weight:700;letter-spacing:.06em;line-height:16px;white-space:nowrap;color:#1c6b87">Current Situation</div></th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">SALES<br>(Daily Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
         <tr style="background:#f3f7f8">
           ${cell(isNum(sales) ? bdt(sales) : "—", rp ? `${e(fmonth(rp.date.slice(0, 7)))} till ${e(fdate(rp.date, true))}${isNum(ach) ? ` · ${pc(ach)} of target` : ""}` : "")}
+          ${cell(isNum(dayS) ? bdt(dayS) : "—", rp ? `${e(fdate(rp.date, true))}${isNum(dayAch) ? ` · ${pc(dayAch)} of target` : ""}` : "")}
           ${cell(isNum(profit) ? bdt(profit) : "—", pm ? `P&amp;L ${e(fmonth(pm))}, before financing` : "No P&amp;L", isNum(profit) ? (profit < 0 ? "#b64a1c" : "#0e6f59") : "")}
           ${cell(isNum(gr) ? `${gr > 0 ? "▲ +" : gr < 0 ? "▼ −" : ""}${Math.abs(gr * 100).toFixed(1)}%` : "—", "vs last year, same days", isNum(gr) ? (gr < 0 ? "#b64a1c" : "#0e6f59") : "")}
           ${cell(pc(gp), isNum(gpy) ? `last year ${pc(gpy)}` : "")}</tr>
         <tr><td rowspan="4" class="sa-rot" style="${tdb};width:36px;padding:0;position:relative"><div style="position:absolute;left:50%;top:50%;width:192px;height:18px;margin:-9px 0 0 -96px;transform:rotate(-90deg);text-align:center;font-weight:700;letter-spacing:.16em;font-size:12px;line-height:18px;white-space:nowrap">ACTION&nbsp;&nbsp;PLAN</div></td>
-          <td style="${tdb};height:48px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>
-        ${[1, 2, 3].map(() => `<tr><td style="${tdb};height:48px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>`).join("")}
+          <td style="${tdb};height:48px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>
+        ${[1, 2, 3].map(() => `<tr><td style="${tdb};height:48px"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td><td style="${tdb}"></td></tr>`).join("")}
       </table>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:34px;font-size:11.5px;color:#47646d;text-align:center">
         <div style="border-top:1px solid #6d888f;padding-top:4px">Outlet manager</div><div style="border-top:1px solid #6d888f;padding-top:4px">Zonal</div><div style="border-top:1px solid #6d888f;padding-top:4px">Regional leader</div></div>
@@ -6132,9 +6135,16 @@
     </div>`;
   }
   async function saFormPdf(code, btn) {
+    const label = btn?.textContent;
+    // the daily sales come from the network file, which loads on its own: wait for it (30 s at most) before the form is built
+    if (!S.net && !S.netErr) {
+      loadNet();
+      if (btn) btn.textContent = "Loading sales…";
+      await new Promise((res) => { const t0 = Date.now(), t = setInterval(() => { if (S.net || S.netErr || Date.now() - t0 > 30000) { clearInterval(t); res(); } }, 150); });
+      if (btn) btn.textContent = label;
+    }
     const html = saFormHtml(code);
     if (!html) return;
-    const label = btn?.textContent;
     if (btn) { btn.disabled = true; btn.textContent = "Building PDF…"; }
     const host = document.createElement("div");
     host.style.cssText = "position:fixed;left:-10000px;top:0;z-index:-1";
