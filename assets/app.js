@@ -5875,9 +5875,9 @@
         ${d.cats.map((c, ci) => `<tr style="background:${ci % 2 ? "#f7fafb" : "#fff"}"><td style="padding:4px 7px">${e(c)}</td><td style="text-align:right;padding:4px 7px"><b>${pts(ci, r.v)} / ${int(d.catMax[ci])}</b> <span style="color:#6d888f">${pc(r.v.cats[ci])}</span></td><td style="text-align:right;padding:5px 7px;border-left:2px solid #1c6b87;color:#6d888f"><span style="display:inline-block;width:46px;border-bottom:1px solid #8aa1a7;height:14px"></span> / ${int(d.catMax[ci])}</td></tr>`).join("")}
         <tr style="background:#e7eef0;font-weight:700"><td style="padding:4px 7px">Total</td><td style="text-align:right;padding:4px 7px">${int(r.v.total)} / ${int(r.v.possible)} <span style="color:#6d888f;font-weight:400">${pc(r.p)}</span></td><td style="text-align:right;padding:5px 7px;border-left:2px solid #1c6b87;color:#6d888f"><span style="display:inline-block;width:46px;border-bottom:1px solid #8aa1a7;height:14px"></span> / ${int(r.v.possible)}</td></tr>
       </table>
-      ${lost.length ? `<div style="font-size:12px;font-weight:600;margin:10px 0 4px">Questions that lost the most points</div>
+      ${lost.length ? `<div style="font-size:12px;font-weight:600;margin:10px 0 4px">Questions that lost the most points (Previous Visit)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 22px;font-size:11.5px">${lost.map((x) => `<div>• ${e(x.q[2])} <b>${x.s}/${x.q[4]}</b> <span style="color:#b64a1c">−${x.q[4] - x.s}</span> <span style="color:#6d888f">· ${e(d.cats[x.q[1]])}</span></div>`).join("")}</div>` : ""}
-      <div style="font-size:15px;font-weight:700;margin:18px 0 2px">Major weak points (on outlet visit) &amp; actions</div>
+      <div style="font-size:15px;font-weight:700;margin:18px 0 2px">Major weak points (Current Visit) &amp; actions</div>
       ${[1, 2, 3, 4, 5].map(() => '<div style="border-bottom:1px solid #b9c9cd;height:25px;display:flex;align-items:flex-end;font-size:14px">•</div>').join("")}
       <table style="width:100%;border-collapse:collapse;margin-top:22px;border:1px solid #1d2a2e">
         <tr><th style="${th};width:36px">SL</th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
