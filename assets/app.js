@@ -5484,7 +5484,7 @@
   // ------------------------------------------------------------------ E-Commerce (data/ecom.json)
   // Sub-orders from the monthly E-commerce exports (each in the month of its delivery slot), complaints and the
   // outlet master. Every fact in the file carries its outlet, so the month, RHO and zonal filters at the top
-  // narrow every chart on the page. Customer names, phone numbers and e-mails are not in the file.
+  // narrow every chart on the page. The customer ranking groups orders by name; contact details are omitted.
   // Chart colours are the page's own validated set (--ec-1 to --ec-4 in styles.css), not the status colours.
   const EC_TABS = [["over", "Overview"], ["outlets", "Outlets"], ["cancel", "Cancellations & edits"], ["slots", "Delivery & slots"], ["cust", "Customers"], ["comp", "Complaints"], ["open", "Open orders"]];
   const EC_WHY = { OrderedByMistake: "Ordered by mistake", DelayedDelivery: "Delayed delivery", AdminOthers: "Other (back office)", CustomerOthers: "Other (customer)", DeliveryTimeNotSuitable: "Delivery time did not suit", ProductUnavailable: "Product unavailable", AdminProductUnavailable: "Product unavailable (back office)", BillingPaymentIssue: "Billing or payment issue", OutOfServiceArea: "Outside service area", QualityIssue: "Quality issue", FoundCheaper: "Found cheaper elsewhere", CustomerUnreachable: "Customer unreachable", FraudulentOrder: "Fraudulent order", TechnicalSystemError: "Technical or system error", WeatherEmergencyDisruption: "Weather or emergency", "(not given)": "Reason not given" };
@@ -5513,7 +5513,7 @@
     S.ecomLoading = true; S.ecomErr = null;
     fetch("data/ecom.json", { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { if (d.schema !== 2) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
+      .then((d) => { if (![2, 3].includes(d.schema)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
       .catch((e) => { S.ecomErr = e.message; })
       .finally(() => { S.ecomLoading = false; if (S.page === "ecom") render(); });
   }
@@ -5925,6 +5925,49 @@
       ${ecPanel("Slot changes", "", `<p class="ec-note" style="margin:0">The exports keep only each order's final delivery slot, so a slot that was changed cannot be seen. The nearest signs are the cancellations above: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery. A slot-change export in the Drive folder would let this page show them.</p>`)}`;
   }
 
+  function ecCustomerRanks(d, on, mi) {
+    if (d.customers?.kind !== "name") return null;
+    const groups = new Map(), missing = new Set(), conflicts = new Set();
+    d.customers.r.forEach(([o, m, c, order, suborders, net]) => {
+      if (m !== mi || !on[o]) return;
+      const name = d.customers.list[c];
+      if (c < 0 || !name) { (c === -2 ? conflicts : missing).add(order); return; }
+      let row = groups.get(c);
+      if (!row) { row = { name, parents: new Set(), suborders: 0, net: 0 }; groups.set(c, row); }
+      row.parents.add(order); row.suborders += suborders; row.net += net;
+    });
+    const rows = [...groups.values()].map(({ parents, ...row }) => ({ ...row, orders: parents.size }))
+      .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name));
+    rows.forEach((row, i) => { row.rank = i && rows[i - 1].orders === row.orders ? rows[i - 1].rank : i + 1; });
+    return { rows, missing: missing.size, conflicts: conflicts.size };
+  }
+
+  function ecCustomerTable(C) {
+    const { d, mi, m, sc } = C, ranking = ecCustomerRanks(d, sc.on, mi);
+    if (!ranking) return ecPanel("Customers by orders", "", '<p class="ec-note">Customer names are not available in this snapshot. Refresh the E-Commerce data to populate the customer ranking.</p>');
+    const { rows, missing, conflicts } = ranking;
+    const orderCount = (n) => `${int(n)} ${n === 1 ? "order" : "orders"}`;
+    const coverage = [missing ? `${orderCount(missing)} without a customer name` : "", conflicts ? `${orderCount(conflicts)} with conflicting customer names` : ""].filter(Boolean);
+    const leaders = rows.length ? rows.filter((r) => r.orders === rows[0].orders) : [];
+    const lead = leaders.length === 1
+      ? `${leaders[0].name} leads with ${orderCount(leaders[0].orders)}.`
+      : leaders.length ? `${int(leaders.length)} customer names share the lead with ${orderCount(leaders[0].orders)} each.` : "";
+    return mountTable("ec-customers", {
+      title: "Customers by orders", file: `ecommerce_customers_${m}`, stamp: d.source.asOf.slice(0, 10),
+      desc: (n) => `${int(n)} customer ${n === 1 ? "name" : "names"}, ${sc.label}, ${ecMonthName(d, m)}. ${lead}`,
+      banner: `<p class="ec-banner">Orders are counted once, including cancelled orders. Net sales exclude cancelled sub-orders. Identical names are grouped together.${coverage.length ? ` ${esc(coverage.join(" and "))} ${missing + conflicts === 1 ? "is" : "are"} left out.` : ""}</p>`,
+      rows, key: (r) => r.name, searchText: (r) => r.name, defaultSort: "orders", defaultDir: "desc", pageSize: 25,
+      empty: "No customers with a recorded name for this selection.",
+      cols: [
+        { k: "rank", label: "Rank", num: true, firstDir: "asc", fmt: (r) => int(r.rank) },
+        { k: "name", label: "Customer name", firstDir: "asc", fmt: (r) => `<span class="cell-primary">${esc(r.name)}</span>` },
+        { k: "orders", label: "Orders placed", num: true, fmt: (r) => int(r.orders) },
+        { k: "suborders", label: "Sub-orders", num: true, fmt: (r) => int(r.suborders) },
+        { k: "net", label: "Net sales", num: true, fmt: (r) => bdt(r.net) },
+      ],
+    });
+  }
+
   function ecCustomers(C) {
     const { d, mi, m, sc, days } = C;
     const tot = d.months.map((_, i) => ecMonth(d, days, i));
@@ -5947,6 +5990,7 @@
         ${ecKpi("Cancelled by the customer", ecPct(ecDiv(C.cur.custc, C.cur.n)), "", `${int(C.cur.custc)} sub-orders`)}
         ${ecKpi("Changed the order", ecPct(ecDiv(C.cur.custed, C.cur.n)), "", `${int(C.cur.custed)} sub-orders`)}
       </div>
+      ${ecCustomerTable(C)}
       <div class="ec-row wide">
         ${ecPanel("How customers pay, by month", "Primary payment method of each sub-order.", `${ecLegend(EC_PAYNAME.map((n, k) => [n, EC_COL[k]]))}${payBars}`)}
         ${ecPanel("Customer actions by month", "Shares of all sub-orders.", acts)}

@@ -7,12 +7,13 @@ Sources, found in any sub-folder of the folder and recognised by their columns:
     delivery slot. When two files hold the same sub-order, the file of the later month wins.
   * The complaints workbook (an "Order Id" and a complaint category column).
 
-Regional leaders (RHO), zonals and outlet names come from the outlet master in data/data.json. Customer names,
-phone numbers and e-mail addresses are never written to the output, and phone numbers or e-mails inside the
-complaint text are masked. Product figures are only used for a month whose product lines add up to the
+Regional leaders (RHO), zonals and outlet names come from the outlet master in data/data.json. Customer names
+are included for the customer ranking; matching names can represent different people. Phone numbers and
+e-mail addresses inside customer names or complaint text are masked. Contact columns are never exported.
+Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
-Output data/ecom.json, schema 2. Every fact carries its outlet, so the page can narrow everything to a regional
+Output data/ecom.json, schema 3. Every fact carries its outlet, so the page can narrow everything to a regional
 leader, a zonal or one outlet. Amounts are whole taka; months are "YYYY-MM" and days "YYYY-MM-DD", both by
 delivery slot.
   months, mdays  the months and how many slot days each has
@@ -29,6 +30,10 @@ delivery slot.
   pays           {list: [method], r: [[outlet, month, method, n]]}
   dists          {list: [district], r: [[outlet, month, district, n, net]]}
   products       {month: [[product, lines, sub-orders, amount]]}, all outlets, top 100
+  customers      {kind: "name", list: [display name], r: [[outlet, month, customer, parent order,
+                 sub-orders, net amount]]}; customer -1 = missing name, -2 = conflicting names on the parent
+                 order. Count distinct parent orders after filtering; counts include cancelled orders,
+                 net amount excludes cancelled sub-orders. Names match by NFC, whitespace and casefold.
   open           [[order, sub-order, outlet, status, placed, slot date, slot, payment, amount, days open]]
   lists          {src, cat, sub, dbl}: dictionaries for the complaint rows
   complaints     [[month, src, order, outlet, cat, sub, dbl, details, feedback, order status, order amount,
@@ -48,6 +53,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -58,7 +64,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 2
+SCHEMA = 3
 MONTH_OF = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
 SLOT_RE = re.compile(r"(\d{1,2}):(\d{2}) ([AP]M) - (\d{1,2}):(\d{2}) ([AP]M)\s+(\d{1,2})/(\d{1,2})/(\d{4})")
 PHONE_RE = re.compile(r"(?:\+?88)?\s?0?1[3-9]\d(?:[-\s]?\d){7}|\b\d{7,}\b")
@@ -117,6 +123,16 @@ def pay(v):
 def clean_text(v, limit=400):
     s = EMAIL_RE.sub("[email]", PHONE_RE.sub("[number]", txt(v)))
     return s[:limit]
+
+
+def customer_name(v):
+    """A safe display name and its matching key; contact-only or generic values have no identity."""
+    name = txt(clean_text(unicodedata.normalize("NFC", txt(v))))
+    bare = txt(re.sub(r"\[(?:email|number)\]", " ", name, flags=re.I)).strip(" -–—_.,;:/\\()[]")
+    if bare.casefold() in {"", "unknown", "guest", "anonymous", "none", "null", "n/a", "na",
+                          "not recorded", "not given", "not available", "not applicable"}:
+        return "", ""
+    return name, unicodedata.normalize("NFC", name.casefold())
 
 
 def order_no(v):
@@ -190,7 +206,11 @@ def read_orders(ix, rows, stats):
                 "st": st, "pay": pay(cell(r, c("PaymentMethod"))), "tot": num(cell(r, c("SubOrderTotal"))),
                 "dl": when(cell(r, c("DeliveredOn"))), "why": txt(cell(r, c("CancellationReason"))),
                 "src": txt(cell(r, c("CancellationSource"))), "edited": False, "ered": set(),
+                "customers": {},
             }
+        name, name_key = customer_name(cell(r, c("CustomerName")))
+        if name_key:
+            rec["customers"].setdefault(name_key, name)
         if txt(cell(r, c("Edit Status"))) == "Edited":
             rec["edited"] = True
         er = txt(cell(r, c("Edit Reason"))) if c("Edit Reason") is not None else ""
@@ -320,6 +340,24 @@ def main():
     for rec in recs:
         by_order[rec["o"]].append(rec)
 
+    # Resolve identities after export/sub-order deduplication. A parent order can have several outlets,
+    # sub-orders or product lines, but must belong to only one normalized name. Missing siblings inherit
+    # that name; conflicting parents are retained as excluded coverage, never assigned to two customers.
+    customer_names, customer_ix, customer_of = [], {}, {}
+    for parent, parts in by_order.items():
+        names = {}
+        for rec in parts:
+            for key, name in rec["customers"].items():
+                names.setdefault(key, name)
+        if len(names) != 1:
+            customer_of[parent] = -2 if names else -1
+            continue
+        key, name = next(iter(names.items()))
+        if key not in customer_ix:
+            customer_ix[key] = len(customer_names)
+            customer_names.append(name)
+        customer_of[parent] = customer_ix[key]
+
     # outlets: master name, RHO and zonal; a code the master does not know keeps the export's name
     outlets, outlet_ix = [], {}
 
@@ -344,6 +382,7 @@ def main():
     why, edits, pays = Counter(), Counter(), Counter()
     slots = defaultdict(lambda: [0, 0, 0, 0])
     dists = defaultdict(lambda: [0, 0.0])
+    customers = defaultdict(lambda: [0, 0.0])
     for rec in recs:
         o, m = outlet(rec["code"], rec["name"]), month_ix[rec["m"]]
         f = daily[(o, day_ix[rec["day"]])]
@@ -378,6 +417,9 @@ def main():
         ds = dists[(o, m, dist_codes(rec["dist"] or "(not recorded)"))]
         ds[0] += 1
         ds[1] += 0 if cancelled else rec["tot"]
+        cu = customers[(o, m, customer_of[rec["o"]], rec["o"])]
+        cu[0] += 1
+        cu[1] += 0 if cancelled else rec["tot"]
 
     # complaints: order, outlet and month
     lists = {k: Codes() for k in ("src", "cat", "sub", "dbl")}
@@ -419,6 +461,8 @@ def main():
         "pays": {"list": pay_codes.list, "r": [[*k, v] for k, v in sorted(pays.items())]},
         "dists": {"list": dist_codes.list, "r": [[*k, v[0], round(v[1])] for k, v in sorted(dists.items())]},
         "products": products,
+        "customers": {"kind": "name", "list": customer_names,
+                      "r": [[*k, v[0], round(v[1])] for k, v in sorted(customers.items())]},
         "open": opened,
         "lists": {k: v.list for k, v in lists.items()},
         "complaints": complaint_rows,
