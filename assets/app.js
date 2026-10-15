@@ -6498,15 +6498,22 @@
     const g = skuGuard(); if (g) return g;
     const list = ipOutlets(), codes = new Set(list.map((o) => o.c)), dv = S.ipv.div;
     const gm = new Map();
-    S.sku.cube.forEach((r) => { if (!codes.has(r[0]) || (dv && r[1] !== dv)) return; const k = dv ? r[2] : r[1], a = gm.get(k) || { set: new Set(), t: [0, 0, 0, 0, 0, 0] }; a.set.add(r[0]); ipAdd(a.t, r.slice(3)); gm.set(k, a); });
-    const rows = [...gm].map(([k, a]) => ({ key: k, name: k, sub: `${int(a.set.size)} outlets`, n: a.set.size, ...ipRow(a.t) }));
+    if (!dv) S.sku.cube.forEach((r) => { if (!codes.has(r[0])) return; const k = r[1], a = gm.get(k) || { set: new Set(), t: [0, 0, 0, 0, 0, 0] }; a.set.add(r[0]); ipAdd(a.t, r.slice(3)); gm.set(k, a); });
+    else {
+      // inside a division: CAT 3 groups, summed from the SKU totals of the same scope as the SKU list
+      const side = [...S.filters.rl].filter((r) => S.sku.rls.includes(r)).sort();
+      const base = ipSkuRows(side.length ? (side.length === 1 ? side[0] : side) : (ipSame() ? "same" : "all"));
+      if (!base) return `${ipHead()}<section class="panel"><div class="panel-body"><p class="muted" style="margin:0">Loading the SKUs…</p></div></section>`;
+      base.forEach(({ i, t }) => { const s3 = S.sku.skus[i]; if (s3[2] !== dv) return; const k = s3[4] || "—", a = gm.get(k) || { set: new Set(), t: [0, 0, 0, 0, 0, 0] }; a.set.add(s3[0]); ipAdd(a.t, t); gm.set(k, a); });
+    }
+    const rows = [...gm].map(([k, a]) => ({ key: k, name: k, sub: `${int(a.set.size)} SKUs`, n: a.set.size, ...ipRow(a.t) }));
     const banner = dv ? `<div class="drill-banner"><button type="button" data-ipv="div" data-val="">All divisions</button> › <strong>${esc(dv)}</strong><span class="muted">· click a category for its SKUs</span></div>` : "";
     const table = mountTable("ip-cat", {
       title: dv ? `Categories in ${dv}` : "Divisions", file: dv ? `item_categories_${dv}` : "item_divisions", banner, tools: ipScopeSeg(),
-      desc: (n) => `${int(n)} ${dv ? "Cat 01 categories" : "product divisions"} for the ${int(list.length)} outlets in view. ${dv ? "Click a category for its SKUs." : "Click a division for its categories."}`,
+      desc: (n) => `${int(n)} ${dv ? "CAT 3 groups" : "product divisions"}${dv ? "" : ` for the ${int(list.length)} outlets in view`}. ${dv ? "Click a CAT 3 for its SKUs." : "Click a division for its CAT 3 groups."}`,
       rows, key: (x) => x.key, searchText: (x) => x.name, defaultSort: "diff", defaultDir: "asc", pageSize: 50,
-      rowAttr: (x) => (dv ? `data-ipc1="${esc(x.key)}" tabindex="0" role="button"` : `data-ipv="div" data-val="${esc(x.key)}" tabindex="0" role="button"`),
-      cols: ipCols({ k: "name", label: dv ? "Cat 01" : "Division", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, false),
+      rowAttr: (x) => (dv ? `data-ipc3="${esc(x.key)}" tabindex="0" role="button"` : `data-ipv="div" data-val="${esc(x.key)}" tabindex="0" role="button"`),
+      cols: ipCols({ k: "name", label: dv ? "CAT 3" : "Division", fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span>`, csv: (x) => x.name, val: (x) => x.name }, false),
     });
     return `${ipHead()}${ipCards(list)}${table}`;
   }
@@ -6603,9 +6610,9 @@
     draw();
     wireDyn(box);
   }
-  function openIpCategory(c1) {
-    const d = S.sku, sc = ipSame() ? "same" : "all";
-    const rows = ipSkuRows(sc).map(({ i, t }) => ({ s: d.skus[i], x: ipRow(t) })).filter((r) => r.s[3] === c1 && (!S.ipv.div || r.s[2] === S.ipv.div) && (r.x.ns || r.x.nl)).sort((a, b) => a.x.diff - b.x.diff);
+  function openIpCategory(c3) {
+    const d = S.sku, sc = ipSame() ? "same" : "all", c1 = c3;
+    const rows = ipSkuRows(sc).map(({ i, t }) => ({ s: d.skus[i], x: ipRow(t) })).filter((r) => (r.s[4] || "—") === c3 && (!S.ipv.div || r.s[2] === S.ipv.div) && (r.x.ns || r.x.nl)).sort((a, b) => a.x.diff - b.x.diff);
     S.lastFocus = document.activeElement; S.ageDrill = null;
     NCSV.ipcat = () => [`item_category_${c1}`, ["SKU code", "SKU", "Cat 03", "Sales", "Sales last year", "Change", "GP value"], rows.map((r) => [r.s[0], r.s[1], r.s[4], Math.round(r.x.ns), Math.round(r.x.nl), Math.round(r.x.diff), Math.round(r.x.gs)]), "latest"];
     $("#drawerTitle").textContent = `${c1}: SKUs`;
@@ -6620,7 +6627,7 @@
     $$("[data-ipsel]", root).forEach((s) => (s.onchange = () => { S.ipv[s.dataset.ipsel] = s.value; if (s.dataset.ipsel === "sdiv") S.ipv.sc1 = ""; changed(); }));
     $$("[data-ipout]", root).forEach((n) => { const go = () => openIpOutlet(n.dataset.ipout); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
     $$("[data-ipcard]", root).forEach((n) => { const go = () => openIpCard(n.dataset.ipcard); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
-    $$("[data-ipc1]", root).forEach((n) => { const go = () => openIpCategory(n.dataset.ipc1); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    $$("[data-ipc3]", root).forEach((n) => { const go = () => openIpCategory(n.dataset.ipc3); n.onclick = go; n.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
   }
 
   // ------------------------------------------------------------------ drawer
