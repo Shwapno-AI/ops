@@ -289,6 +289,13 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .sg-bar-r{display:flex;align-items:center;gap:8px}
 .sg-bar-r select.sel{padding:5px 8px}
 .sg-bar .sg-crumbs button,.sg-bar .sg-crumbs strong{padding:4px 10px}
+/* E-Commerce page: tabs, side-by-side tables and the monthly chart */
+.ec-tabs{margin:0 0 12px;overflow-x:auto}
+.ec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-bottom:12px;align-items:start}
+.ec-grid>.panel{margin:0}
+.ec-chart text{font-size:11px;fill:currentColor}
+.ec-bar .sg-bar-r{flex-wrap:wrap;min-width:0}
+.ec-bar select.sel{max-width:100%}
 /* SI voice: mic, language, read-aloud */
 .ai-mic,.ai-lang{flex:none;align-self:flex-end;height:36px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:50%;cursor:pointer;font-size:15px}
 .ai-mic{width:36px}.ai-lang{width:auto;border-radius:999px;padding:0 9px;font-size:12px;font-weight:600;color:var(--ink-2)}
