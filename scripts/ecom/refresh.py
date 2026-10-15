@@ -12,29 +12,34 @@ phone numbers and e-mail addresses are never written to the output, and phone nu
 complaint text are masked. Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
-Output data/ecom.json (schema 1). Amounts are whole taka. Months are "YYYY-MM" by delivery slot.
-  m          per month: n (sub-orders), orders, days, gmv (all), net (not cancelled), canc, custc (cancelled by
-             the customer), boc (cancelled by back office), deliv (delivered, not cancelled), late, late60,
-             lateMin, edited, cod, open (pending or processing)
-  reasons    per month: cancellation reason -> sub-orders
-  ered       per month: edit reason -> sub-orders
-  slots      per month: [slot label, start hour, sub-orders, cancelled, delivered, late]
-  zones      per month: zone -> sub-orders
-  districts  per month: [district, sub-orders, net sales] (largest first)
-  pays       per month: primary payment method -> sub-orders
-  outlets    [code, name, RHO, zonal, district, month, sub-orders, net, cancelled, delivered, late, complaints]
-  products   per month: [product, lines, sub-orders, amount] (only where the product lines reconcile)
-  open       [order, sub-order, code, name, status, created, slot date, slot, payment, total, age in days]
-  lists      dictionaries for the complaint rows: src, cat, sub, dbl, rl, zn
-  complaints [month, src, order, code, name, rl, zn, cat, sub, dbl, details, feedback, order status,
-             order total, slot date, matched to a sub-order (1/0)]
+Output data/ecom.json, schema 2. Every fact carries its outlet, so the page can narrow everything to a regional
+leader, a zonal or one outlet. Amounts are whole taka; months are "YYYY-MM" and days "YYYY-MM-DD", both by
+delivery slot.
+  months, mdays  the months and how many slot days each has
+  days           the slot dates
+  outlets        [[code, name, RHO, zonal], ...]; facts refer to outlets by their position here
+  daily          columns by outlet and slot date: o, d, n (sub-orders), net (not cancelled), canc, custc
+                 (cancelled by the customer), deliv (delivered, not cancelled), late (delivered after the slot
+                 ended), late60, lateMin (minutes late, summed), edited, custed (edits the customer asked
+                 for), open (pending or processing)
+  why            {list: [reason], r: [[outlet, month, reason, who (0 customer, 1 back office, 2 not given), n]]}
+  edits          {list: [reason], r: [[outlet, month, reason, sub-orders]]}
+  slots          {list: [[label, start hour]], r: [[outlet, month, slot, weekday (0 = Monday), n, cancelled,
+                 delivered, late]]}
+  pays           {list: [method], r: [[outlet, month, method, n]]}
+  dists          {list: [district], r: [[outlet, month, district, n, net]]}
+  products       {month: [[product, lines, sub-orders, amount]]}, all outlets, top 100
+  open           [[order, sub-order, outlet, status, placed, slot date, slot, payment, amount, days open]]
+  lists          {src, cat, sub, dbl}: dictionaries for the complaint rows
+  complaints     [[month, src, order, outlet, cat, sub, dbl, details, feedback, order status, order amount,
+                 slot date, matched to a sub-order (1/0)]]
 
 Environment:
   ECOM_FOLDER_ID  Drive folder to search (default: the E-commerce folder)
   ECOM_OUT        output file (default: data/ecom.json)
   DATA_OUT        the outlet master, data/data.json (default: data/data.json)
   DRIVE_CACHE     shared download cache (see scripts/network/fetch_drive_data.py)
-Usage: python scripts/ecom/refresh.py
+Usage: python scripts/ecom/refresh.py [--local FOLDER]   (--local reads the workbooks in FOLDER instead of Drive)
 """
 import contextlib
 import datetime as dt
@@ -53,12 +58,15 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 1
+SCHEMA = 2
 MONTH_OF = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
 SLOT_RE = re.compile(r"(\d{1,2}):(\d{2}) ([AP]M) - (\d{1,2}):(\d{2}) ([AP]M)\s+(\d{1,2})/(\d{1,2})/(\d{4})")
 PHONE_RE = re.compile(r"(?:\+?88)?\s?0?1[3-9]\d(?:[-\s]?\d){7}|\b\d{7,}\b")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 OPEN = ("Pending", "Processing")
+WHO = {"Customer": 0, "BackOffice": 1}
+CUSTOMER_EDIT = "Customer Requested Change"
+DAILY = ("n", "net", "canc", "custc", "deliv", "late", "late60", "lateMin", "edited", "custed", "open")
 
 
 def log(msg):
@@ -101,17 +109,12 @@ def slot(v):
     return label, hour(m[1], m[3]), hour(m[4], m[6]), dt.date(int(m[9]), int(m[7]), int(m[8]))
 
 
-def zone(v):
-    s = txt(v)
-    return "Red" if s in ("Red", "R") else (s or "Unassigned")
-
-
 def pay(v):
     s = txt(v).split(",")[0].replace("Payments.", "").strip()
-    return s or "(blank)"
+    return s or "(not recorded)"
 
 
-def clean_text(v, limit=240):
+def clean_text(v, limit=400):
     s = EMAIL_RE.sub("[email]", PHONE_RE.sub("[number]", txt(v)))
     return s[:limit]
 
@@ -123,6 +126,21 @@ def order_no(v):
 
 def iso(d):
     return d.isoformat() if d else ""
+
+
+class Codes:
+    """A dictionary of repeated strings: value -> position in .list."""
+    def __init__(self, values=()):
+        self.list, self.at = [], {}
+        for v in values:
+            self(v)
+
+    def __call__(self, value):
+        value = value or ""
+        if value not in self.at:
+            self.at[value] = len(self.list)
+            self.list.append(value)
+        return self.at[value]
 
 
 @contextlib.contextmanager
@@ -169,11 +187,9 @@ def read_orders(ix, rows, stats):
             rec = subs[key] = {
                 "o": o, "s": s, "m": f"{day:%Y-%m}", "day": day, "sh": sh, "end": end, "sl": label, "cr": cr,
                 "code": code, "name": txt(cell(r, c("Outlet Name"))), "dist": txt(cell(r, c("DeliveryDistrict"))),
-                "zone": zone(cell(r, c("Zone"))), "st": st, "ost": txt(cell(r, c("OrderStatus"))),
-                "pay": pay(cell(r, c("PaymentMethod"))), "pst": txt(cell(r, c("PaymentStatus"))),
-                "tot": num(cell(r, c("SubOrderTotal"))), "dl": when(cell(r, c("DeliveredOn"))),
-                "why": txt(cell(r, c("CancellationReason"))), "src": txt(cell(r, c("CancellationSource"))),
-                "edited": False, "ered": set(),
+                "st": st, "pay": pay(cell(r, c("PaymentMethod"))), "tot": num(cell(r, c("SubOrderTotal"))),
+                "dl": when(cell(r, c("DeliveredOn"))), "why": txt(cell(r, c("CancellationReason"))),
+                "src": txt(cell(r, c("CancellationSource"))), "edited": False, "ered": set(),
             }
         if txt(cell(r, c("Edit Status"))) == "Edited":
             rec["edited"] = True
@@ -224,11 +240,19 @@ def read_master():
     return {o["c"]: o for o in (data.get("master") or {}).get("outlets", []) if o.get("c")}
 
 
-def main():
+def list_items(local_dir):
+    """The workbooks to read: Drive items, or the files of a local folder (--local)."""
+    if local_dir:
+        files = sorted(p for p in Path(local_dir).iterdir() if p.suffix.lower() in (".xlsx", ".xlsm") and not p.name.startswith("~$"))
+        return [{"id": p.name, "name": p.name, "path": p.name, "local": str(p), "modified": str(int(p.stat().st_mtime))} for p in files], None
     import fetch_drive_data as drive
-
     log(f"Listing Drive folder {FOLDER}…")
-    items = [i for i in drive.walk(FOLDER) if drive.is_spreadsheet(i)]
+    return [i for i in drive.walk(FOLDER) if drive.is_spreadsheet(i)], drive
+
+
+def main():
+    local_dir = sys.argv[sys.argv.index("--local") + 1] if "--local" in sys.argv else None
+    items, drive = list_items(local_dir)
     if not items:
         log("No E-commerce workbooks in the Drive folder; ecom.json left as is.")
         return 0
@@ -237,7 +261,7 @@ def main():
     except (OSError, ValueError):
         old = {}
     fkey = "|".join(f"{i['id']}:{i.get('modified', '')}" for i in sorted(items, key=lambda i: i["id"]))
-    if (old.get("source") or {}).get("key") == fkey and old.get("schema") == SCHEMA:
+    if not local_dir and (old.get("source") or {}).get("key") == fkey and old.get("schema") == SCHEMA:
         log("E-commerce files unchanged; ecom.json kept.")
         return 0
 
@@ -247,12 +271,13 @@ def main():
     used = []
     with tempfile.TemporaryDirectory(prefix="ecom-") as work:
         for item in items:
-            local = Path(work) / "book.xlsx"
-            try:
-                local.write_bytes(drive.fetch_bytes(item))
-            except Exception as err:  # noqa: BLE001
-                log(f"::warning::{item['path']}: {err}")
-                continue
+            local = Path(item["local"]) if item.get("local") else Path(work) / "book.xlsx"
+            if not item.get("local"):
+                try:
+                    local.write_bytes(drive.fetch_bytes(item))
+                except Exception as err:  # noqa: BLE001
+                    log(f"::warning::{item['path']}: {err}")
+                    continue
             try:
                 with first_sheet(local) as ws:
                     rows = ws.iter_rows(values_only=True)
@@ -287,154 +312,124 @@ def main():
     recs = list(best.values())
     asof = max(rec["cr"] for rec in recs)
     months = sorted({rec["m"] for rec in recs})
+    month_ix = {m: i for i, m in enumerate(months)}
+    days = sorted({rec["day"] for rec in recs})
+    day_ix = {d: i for i, d in enumerate(days)}
     master = read_master()
     by_order = defaultdict(list)
     for rec in recs:
         by_order[rec["o"]].append(rec)
 
-    def name_of(code, fallback=""):
-        return (master.get(code) or {}).get("n") or fallback or code
+    # outlets: master name, RHO and zonal; a code the master does not know keeps the export's name
+    outlets, outlet_ix = [], {}
 
-    # per-month totals
-    M = {m: {"n": 0, "orders": set(), "days": set(), "gmv": 0.0, "net": 0.0, "canc": 0, "custc": 0, "boc": 0,
-             "deliv": 0, "late": 0, "late60": 0, "lateMin": 0.0, "edited": 0, "cod": 0, "open": 0} for m in months}
-    reasons, ered, zones, pays = ({m: Counter() for m in months} for _ in range(4))
-    slot_of, dist_of = ({m: {} for m in months} for _ in range(2))
-    outl = {}
+    def outlet(code, name=""):
+        code = code or "?"
+        if code not in outlet_ix:
+            mo = master.get(code) or {}
+            outlet_ix[code] = len(outlets)
+            outlets.append([code, mo.get("n") or name or code, mo.get("rl", ""), mo.get("zn", "")])
+        elif name and outlets[outlet_ix[code]][1] == code:
+            outlets[outlet_ix[code]][1] = name
+        return outlet_ix[code]
+
+    slot_start = {}
     for rec in recs:
-        m = M[rec["m"]]
-        m["n"] += 1
-        m["orders"].add(rec["o"])
-        m["days"].add(rec["day"])
-        m["gmv"] += rec["tot"]
+        slot_start.setdefault(rec["sl"], rec["sh"])
+    slot_list = sorted(slot_start, key=lambda s: (slot_start[s], s))
+    slot_ix = {s: i for i, s in enumerate(slot_list)}
+    why_codes, edit_codes, pay_codes, dist_codes = Codes(), Codes(), Codes(), Codes()
+
+    daily = defaultdict(lambda: [0] * len(DAILY))
+    why, edits, pays = Counter(), Counter(), Counter()
+    slots = defaultdict(lambda: [0, 0, 0, 0])
+    dists = defaultdict(lambda: [0, 0.0])
+    for rec in recs:
+        o, m = outlet(rec["code"], rec["name"]), month_ix[rec["m"]]
+        f = daily[(o, day_ix[rec["day"]])]
         cancelled = rec["st"] == "Cancelled"
+        delivered = bool(rec["dl"]) and not cancelled
+        late = delivered and rec["dl"] > rec["end"]
+        f[0] += 1
         if cancelled:
-            m["canc"] += 1
-            m["custc"] += rec["src"] == "Customer"
-            m["boc"] += rec["src"] == "BackOffice"
-            reasons[rec["m"]][rec["why"] or "(not given)"] += 1
+            f[2] += 1
+            f[3] += rec["src"] == "Customer"
+            why[(o, m, why_codes(rec["why"] or "(not given)"), WHO.get(rec["src"], 2))] += 1
         else:
-            m["net"] += rec["tot"]
-        if rec["edited"]:
-            m["edited"] += 1
+            f[1] += rec["tot"]
+        if delivered:
+            f[4] += 1
+        if late:
+            mins = (rec["dl"] - rec["end"]).total_seconds() / 60
+            f[5] += 1
+            f[6] += mins > 60
+            f[7] += mins
+        f[8] += rec["edited"]
+        f[9] += CUSTOMER_EDIT in rec["ered"]
+        f[10] += rec["st"] in OPEN
         for e in rec["ered"]:
-            ered[rec["m"]][e] += 1
-        if rec["pay"].startswith("CashOnDelivery"):
-            m["cod"] += 1
-        if rec["st"] in OPEN:
-            m["open"] += 1
-        late = False
-        if rec["dl"] and not cancelled:
-            m["deliv"] += 1
-            if rec["dl"] > rec["end"]:
-                late = True
-                mins = (rec["dl"] - rec["end"]).total_seconds() / 60
-                m["late"] += 1
-                m["late60"] += mins > 60
-                m["lateMin"] += mins
-        sl = slot_of[rec["m"]].setdefault(rec["sl"], [rec["sh"], 0, 0, 0, 0])
-        sl[1] += 1
-        sl[2] += cancelled
-        sl[3] += bool(rec["dl"] and not cancelled)
-        sl[4] += late
-        zones[rec["m"]][rec["zone"]] += 1
-        dn = rec["dist"] or "(blank)"
-        d = dist_of[rec["m"]].setdefault(dn, [0, 0.0])
-        d[0] += 1
-        d[1] += 0 if cancelled else rec["tot"]
-        pays[rec["m"]][rec["pay"]] += 1
-        ok = outl.setdefault((rec["code"], rec["m"]), [0, 0.0, 0, 0, 0, rec["name"], rec["dist"]])
-        ok[0] += 1
-        ok[1] += 0 if cancelled else rec["tot"]
-        ok[2] += cancelled
-        ok[3] += bool(rec["dl"] and not cancelled)
-        ok[4] += late
-        if rec["name"] and not ok[5]:
-            ok[5] = rec["name"]
+            edits[(o, m, edit_codes(e))] += 1
+        s = slots[(o, m, slot_ix[rec["sl"]], rec["day"].weekday())]
+        s[0] += 1
+        s[1] += cancelled
+        s[2] += delivered
+        s[3] += late
+        pays[(o, m, pay_codes(rec["pay"]))] += 1
+        ds = dists[(o, m, dist_codes(rec["dist"] or "(not recorded)"))]
+        ds[0] += 1
+        ds[1] += 0 if cancelled else rec["tot"]
 
     # complaints: order, outlet and month
-    lists = {k: [] for k in ("src", "cat", "sub", "dbl", "rl", "zn")}
-    where = {k: {} for k in lists}
-
-    def enc(kind, value):
-        value = value or ""
-        if value not in where[kind]:
-            where[kind][value] = len(lists[kind])
-            lists[kind].append(value)
-        return where[kind][value]
-
+    lists = {k: Codes() for k in ("src", "cat", "sub", "dbl")}
     year_of = lambda mon: asof.year - (1 if mon > asof.month else 0)  # noqa: E731
-    complaint_rows, comp_count = [], Counter()
-    matched = 0
+    complaint_rows, matched = [], 0
     for c in complaints:
-        mi = MONTH_OF.get(c["month"][:3].lower())
-        if not mi:
+        mon = MONTH_OF.get(c["month"][:3].lower())
+        if not mon:
             continue
-        m = f"{year_of(mi)}-{mi:02d}"
         found = by_order.get(c["order"], [])
-        if found:
-            matched += 1
-        code = c["code"] or (found[0]["code"] if found else "")
-        mo = master.get(code) or {}
-        day = found[0]["day"] if found else None
-        status = found[0]["st"] if found else ""
-        total = sum(r["tot"] for r in found)
-        name = mo.get("n") or c["name"] or (found[0]["name"] if found else "")
-        comp_count[(code, m)] += 1
-        complaint_rows.append([m, enc("src", c["src"]), c["order"], code, name, enc("rl", mo.get("rl", "")),
-                               enc("zn", mo.get("zn", "")), enc("cat", c["cat"]), enc("sub", c["sub"]),
-                               enc("dbl", c["dbl"]), c["det"], c["fb"], status, round(total), iso(day), 1 if found else 0])
+        matched += bool(found)
+        o = outlet(c["code"] or (found[0]["code"] if found else ""), c["name"])
+        complaint_rows.append([f"{year_of(mon)}-{mon:02d}", lists["src"](c["src"]), c["order"], o, lists["cat"](c["cat"]),
+                               lists["sub"](c["sub"]), lists["dbl"](c["dbl"]), c["det"], c["fb"],
+                               found[0]["st"] if found else "", round(sum(r["tot"] for r in found)),
+                               iso(found[0]["day"]) if found else "", 1 if found else 0])
 
-    # products: the top 100 for each month
-    products = {}
-    for m, prod in prods.items():
-        top = sorted(prod.items(), key=lambda kv: kv[1][1], reverse=True)[:100]
-        products[m] = [[name, p[0], len(p[2]), round(p[1])] for name, p in top]
+    products = {m: [[name, p[0], len(p[2]), round(p[1])] for name, p in sorted(prod.items(), key=lambda kv: -kv[1][1])[:100]]
+                for m, prod in prods.items()}
+    opened = sorted(([rec["o"], rec["s"], outlet(rec["code"], rec["name"]), rec["st"], rec["cr"].strftime("%Y-%m-%d %H:%M"),
+                      iso(rec["day"]), rec["sl"], rec["pay"], round(rec["tot"]), (asof.date() - rec["cr"].date()).days]
+                     for rec in recs if rec["st"] in OPEN), key=lambda r: -r[-1])
 
-    # open: pending or processing in the latest snapshot
-    opened = []
-    for rec in recs:
-        if rec["st"] in OPEN:
-            opened.append([rec["o"], rec["s"], rec["code"], master.get(rec["code"], {}).get("n") or rec["name"], rec["st"],
-                           rec["cr"].strftime("%Y-%m-%d %H:%M"), iso(rec["day"]), rec["sl"], rec["pay"], round(rec["tot"]),
-                           (asof.date() - rec["cr"].date()).days])
-    opened.sort(key=lambda r: -r[-1])
-
-    def rnd(x):
-        return round(x) if isinstance(x, float) else x
-
+    keys = sorted(daily, key=lambda k: (k[1], k[0]))
     payload = {
         "schema": SCHEMA,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "source": {"key": fkey, "asOf": asof.strftime("%Y-%m-%d %H:%M"), "files": used,
                    "complaintsMatched": matched, "complaints": len(complaint_rows)},
         "months": months,
-        "days": {m: len(M[m]["days"]) for m in months},
-        "m": {m: {"n": v["n"], "orders": len(v["orders"]), "days": len(v["days"]), "gmv": rnd(v["gmv"]),
-                  "net": rnd(v["net"]), "canc": v["canc"], "custc": v["custc"], "boc": v["boc"], "deliv": v["deliv"],
-                  "late": v["late"], "late60": v["late60"], "lateMin": rnd(v["lateMin"]), "edited": v["edited"],
-                  "cod": v["cod"], "open": v["open"]} for m, v in M.items()},
-        "reasons": {m: dict(reasons[m].most_common()) for m in months},
-        "ered": {m: dict(ered[m].most_common()) for m in months},
-        "slots": {m: sorted([[k, *v] for k, v in slot_of[m].items()], key=lambda r: r[1]) for m in months},
-        "zones": {m: dict(zones[m]) for m in months},
-        "districts": {m: sorted([[k, v[0], rnd(v[1])] for k, v in dist_of[m].items()], key=lambda r: -r[1])[:15] for m in months},
-        "pays": {m: dict(pays[m]) for m in months},
-        "outlets": sorted([[code, v[5] or name_of(code), (master.get(code) or {}).get("rl", ""),
-                            (master.get(code) or {}).get("zn", ""), (master.get(code) or {}).get("dis", "") or v[6],
-                            m, v[0], rnd(v[1]), v[2], v[3], v[4], comp_count[(code, m)]]
-                           for (code, m), v in outl.items()], key=lambda r: (r[5], -r[7])),
+        "mdays": {m: sum(1 for d in days if f"{d:%Y-%m}" == m) for m in months},
+        "days": [iso(d) for d in days],
+        "outlets": outlets,
+        "daily": {"o": [k[0] for k in keys], "d": [k[1] for k in keys],
+                  **{name: [round(daily[k][i]) for k in keys] for i, name in enumerate(DAILY)}},
+        "why": {"list": why_codes.list, "r": [[*k, v] for k, v in sorted(why.items())]},
+        "edits": {"list": edit_codes.list, "r": [[*k, v] for k, v in sorted(edits.items())]},
+        "slots": {"list": [[s, slot_start[s]] for s in slot_list], "r": [[*k, *v] for k, v in sorted(slots.items())]},
+        "pays": {"list": pay_codes.list, "r": [[*k, v] for k, v in sorted(pays.items())]},
+        "dists": {"list": dist_codes.list, "r": [[*k, v[0], round(v[1])] for k, v in sorted(dists.items())]},
         "products": products,
         "open": opened,
-        "lists": lists,
+        "lists": {k: v.list for k, v in lists.items()},
         "complaints": complaint_rows,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     os.replace(tmp, OUT)
-    log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(recs)} sub-orders, {len(complaint_rows)} complaints "
-        f"({matched} matched to an order), {months[0]} to {months[-1]}, data to {asof:%d %b %Y %H:%M}.")
+    log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(recs)} sub-orders, {len(outlets)} outlets, "
+        f"{len(complaint_rows)} complaints ({matched} matched to an order), {months[0]} to {months[-1]}, "
+        f"data to {asof:%d %b %Y %H:%M}.")
     return 0
 
 
