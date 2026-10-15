@@ -5880,8 +5880,8 @@
       <div style="font-size:15px;font-weight:700;margin:18px 0 2px">Major weak points (Current Visit) &amp; actions</div>
       ${[1, 2, 3, 4, 5].map(() => '<div style="border-bottom:1px solid #b9c9cd;height:25px;display:flex;align-items:flex-end;font-size:14px">•</div>').join("")}
       <table style="width:100%;border-collapse:collapse;margin-top:22px;border:1px solid #1d2a2e">
-        <tr><th style="${th};width:36px"></th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
-        <tr style="background:#f3f7f8"><td class="sa-cur" style="${tdb};width:36px;padding:0;position:relative"><div style="position:absolute;left:50%;top:50%;width:150px;height:14px;margin:-7px 0 0 -75px;transform:rotate(-90deg);text-align:center;font-size:9px;font-weight:600;letter-spacing:.08em;line-height:14px;white-space:nowrap;color:#47646d">Current Situation</div></td>
+        <tr><th class="sa-cur" rowspan="2" style="width:40px;padding:0;background:#e7eef0;border:1px solid #1d2a2e;position:relative"><div style="position:absolute;left:50%;top:50%;width:160px;height:16px;margin:-8px 0 0 -80px;transform:rotate(-90deg);text-align:center;font-size:9.5px;font-weight:700;letter-spacing:.06em;line-height:16px;white-space:nowrap;color:#1c6b87">Current Situation</div></th><th style="${th}">SALES<br>(Monthly Amt)</th><th style="${th}">PROFIT (PNL)<br>(Amt)</th><th style="${th}">GROWTH<br>(Growth / Degrowth)</th><th style="${th}">GP %<br>(Current)</th></tr>
+        <tr style="background:#f3f7f8">
           ${cell(isNum(sales) ? bdt(sales) : "—", rp ? `${e(fmonth(rp.date.slice(0, 7)))} till ${e(fdate(rp.date, true))}${isNum(ach) ? ` · ${pc(ach)} of target` : ""}` : "")}
           ${cell(isNum(profit) ? bdt(profit) : "—", pm ? `P&amp;L ${e(fmonth(pm))}, before financing` : "No P&amp;L", isNum(profit) ? (profit < 0 ? "#b64a1c" : "#0e6f59") : "")}
           ${cell(isNum(gr) ? `${gr > 0 ? "▲ +" : gr < 0 ? "▼ −" : ""}${Math.abs(gr * 100).toFixed(1)}%` : "—", "vs last year, same days", isNum(gr) ? (gr < 0 ? "#b64a1c" : "#0e6f59") : "")}
