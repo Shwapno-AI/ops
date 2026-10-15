@@ -349,4 +349,4 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .sv-cap{margin:4px 0 0;font-size:12.5px;color:var(--ink-2)}
 .sa-dl{display:inline-flex;gap:8px;flex-wrap:wrap}
 .sa-form th,.sa-form td{position:static!important;left:auto!important;box-shadow:none!important}
-.sa-form td.sa-rot{position:relative!important}
+.sa-form td.sa-rot,.sa-form td.sa-cur{position:relative!important}
