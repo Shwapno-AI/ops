@@ -46,8 +46,8 @@ WASTAGE_MOVES = {"551", "552"}
 CONSUMABLE_MOVES = {"Z21", "Z22", "201", "202"}
 def is_sales(heads):
     """A sales till-date header: an outlet, a date, a division and POS NSI column, under any of the names the
-    reader accepts (e.g. "Outlet Code" with "Article Division", or "Outlet" with "Division")."""
-    return all(heads & aliases for aliases in bd.SALES_ALIASES.values())
+    reader accepts (e.g. "Outlet Code" with "Article Division", or "Plant" with "Posting Date")."""
+    return all(heads & set(aliases) for aliases in bd.SALES_ALIASES.values())
 ZONE_HEADERS = {"code", "outlet name", "format", "division", "district", "pnp non pnp status", "status"}
 TARGET_HEADERS = {"final criteria", *(h.casefold() for h in bd.TARGET_COLUMNS.values())}
 
@@ -90,7 +90,7 @@ def sap_kind(path):
     return ("consumable" if prefixes.get("60", 0) > sum(prefixes.values()) / 2 else "wastage"), latest
 
 
-def sheet_headers(path, rows=15):
+def sheet_headers(path, rows=bd.SALES_SCAN_ROWS):
     """Yield (raw cells, normalised header set) for the first rows of every sheet."""
     wb = load_workbook(io.BytesIO(path.read_bytes()), read_only=True, data_only=True)
     try:
@@ -139,11 +139,13 @@ def table_kind(path):
 def sales_latest(path):
     wb = load_workbook(io.BytesIO(path.read_bytes()), read_only=True, data_only=True)
     try:
-        ws = wb["Comparative"] if "Comparative" in wb.sheetnames else wb.worksheets[0]
-        rows = ws.iter_rows(values_only=True)
-        idx = {norm(v): i for i, v in enumerate(next(rows))}.get("date")
+        found = bd.find_sales_header(wb)  # the same sheet and heading row the build reads
+        if found is None:
+            return None
+        name, number, picks = found
+        idx = picks["Date"][0]
         latest = None
-        for r in rows:
+        for r in wb[name].iter_rows(min_row=number + 1, values_only=True):
             d = bd.parse_date(r[idx]) if idx is not None and idx < len(r) else None
             if d and (latest is None or d > latest):
                 latest = d

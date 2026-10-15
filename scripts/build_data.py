@@ -124,6 +124,11 @@ def excel_files(folder):
 
 
 # --------------------------------------------------------------------------- recognition
+# Headings of the day-wise sales export (read by the network and consumable builds, skipped here).
+SALES_OUTLET_HEADS = {"outlet code", "store code", "plant", "plant code", "site code", "site", "outlet", "code"}
+SALES_DATE_HEADS = {"date", "sales date", "business date", "posting date", "transaction date", "pos date", "calendar day"}
+
+
 def first_rows(ws, n=4, cols=120):
     return [list(r) for r in ws.iter_rows(min_row=1, max_row=n, max_col=cols, values_only=True)]
 
@@ -165,6 +170,15 @@ def classify(path):
         f = flat(rows)
         if "pos nsi" in f and "date" in f and ({"outlet", "outlet code"} & f):
             return None, None  # till-date sales by outlet and day: used by the other dashboards, not this build
+    # The same export with its headings under a few title rows or on a later sheet, or named the SAP way.
+    for ws in wb.worksheets:
+        try:
+            for row in ws.iter_rows(min_row=1, max_row=20, max_col=120, values_only=True):
+                cells = {norm(v) for v in row if v is not None}
+                if "pos nsi" in cells and cells & SALES_DATE_HEADS and cells & SALES_OUTLET_HEADS:
+                    return None, None
+        except Exception:
+            continue
     return "unknown", None
 
 

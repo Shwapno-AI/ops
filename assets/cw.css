@@ -235,7 +235,7 @@ tr.lr-top td{background:var(--bad-soft)}
 .lr-stack{display:flex;flex-direction:column;gap:16px;min-width:0}
 .lr-row>#t-loss-grp,.lr-row>#t-profit-grp{contain:size;display:flex;flex-direction:column;min-width:0}
 .lr-row>#t-loss-grp>.table-wrap,.lr-row>#t-profit-grp>.table-wrap{flex:1 1 0;min-height:0;max-height:none;overflow:auto}
-@media (max-width:1000px){.lr-row{grid-template-columns:1fr}.lr-row>#t-loss-grp,.lr-row>#t-profit-grp{contain:none}.lr-row>#t-loss-grp>.table-wrap,.lr-row>#t-profit-grp>.table-wrap{flex:none;max-height:560px}}
+@media (max-width:1000px){.lr-row{grid-template-columns:minmax(0,1fr)}.lr-row>#t-loss-grp,.lr-row>#t-profit-grp{contain:none}.lr-row>#t-loss-grp>.table-wrap,.lr-row>#t-profit-grp>.table-wrap{flex:none;max-height:560px}}
 
 /* Audit fixes */
 /* KPI toolbar stays put on phones so it does not cover a quarter of the screen */

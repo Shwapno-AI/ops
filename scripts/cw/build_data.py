@@ -9,6 +9,7 @@ import io
 import json
 import re
 from collections import Counter, defaultdict
+from itertools import chain, islice
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -339,31 +340,59 @@ def read_zone_distribution(path: Path, targets: dict[str, dict[str, Any]]) -> tu
     return records, quality
 
 
+# Heading names of the till-date sales export, most likely first. Both layouts ("Outlet Code / Division" and
+# "Outlet / Article Division") and SAP-style names ("Plant", "Posting Date") are accepted.
 SALES_ALIASES = {
-    "Outlet Code": {"outlet code", "outlet", "plant", "store code"},
-    "Date": {"date", "posting date", "sales date", "business date"},
-    "Division": {"division", "article division"},
-    "POS NSI": {"pos nsi"},
+    "Outlet Code": ("outlet code", "store code", "plant", "plant code", "site code", "site", "outlet", "code"),
+    "Date": ("date", "sales date", "business date", "posting date", "transaction date", "pos date", "calendar day"),
+    "Division": ("division", "article division"),
+    "POS NSI": ("pos nsi",),
 }
+SALES_SCAN_ROWS = 20  # the headings can sit under a few title rows
+
+
+def sales_outlet_code(value: Any) -> str:
+    """'D001' or 'D001 - Gulshan' -> 'D001'; '' when the cell holds no outlet code."""
+    text = clean_text(value).upper()
+    if OUTLET_CODE_RE.fullmatch(text):
+        return text
+    match = re.match(r"^([A-Z][0-9]{3,4})(?=[\s\-–:/])", text)
+    return match.group(1) if match else ""
+
+
+def find_sales_header(workbook: Any) -> tuple[str, int, dict[str, list[int]]] | None:
+    """Where the sales table starts: (sheet, header row number, {heading: candidate columns, likeliest first}).
+
+    Looks at the top rows of every sheet, "Comparative" first, so the table can sit under a title or on any sheet.
+    """
+    for name in sorted(workbook.sheetnames, key=lambda n: n.casefold() != "comparative"):
+        for number, row in enumerate(workbook[name].iter_rows(max_row=SALES_SCAN_ROWS, values_only=True), start=1):
+            cells = [clean_text(value).casefold() for value in row]
+            picks = {canonical: [i for alias in aliases for i, cell in enumerate(cells) if cell == alias]
+                     for canonical, aliases in SALES_ALIASES.items()}
+            if all(picks.values()):
+                return name, number, picks
+    return None
 
 
 def read_sales(path: Path) -> tuple[dict[tuple[str, dt.date], dict[str, float]], dict[str, Any]]:
     workbook = load_workbook(path, read_only=True, data_only=True)
-    sheet_name = "Comparative" if "Comparative" in workbook.sheetnames else workbook.sheetnames[0]
-    sheet = workbook[sheet_name]
-    rows = sheet.iter_rows(values_only=True)
-    headers = [clean_text(value) for value in next(rows)]
-    index = {header: position for position, header in enumerate(headers)}
-    # Accept both till-date layouts: "Outlet Code / Division" and "Outlet / Article Division".
-    for canonical, aliases in SALES_ALIASES.items():
-        if canonical not in index:
-            found = next((index[h] for h in headers if h.casefold() in aliases), None)
-            if found is not None:
-                index[canonical] = found
-    required = {"Outlet Code", "Date", "Division", "POS NSI"}
-    missing = sorted(required - set(index))
-    if missing:
-        raise ValueError(f"Sales file is missing columns: {', '.join(missing)}")
+    found = find_sales_header(workbook)
+    if found is None:
+        sheets = ", ".join(workbook.sheetnames)
+        workbook.close()
+        raise ValueError(
+            f"Sales file is missing columns: no sheet has Outlet Code, Date, Division and POS NSI headings "
+            f"in its top {SALES_SCAN_ROWS} rows (sheets: {sheets})"
+        )
+    sheet_name, header_number, picks = found
+    rows = workbook[sheet_name].iter_rows(min_row=header_number + 1, values_only=True)
+    # Several outlet headings ("Plant" and "Outlet", say): use the column whose values are outlet codes.
+    head = list(islice(rows, 500))
+    outlet_hits = lambda i: sum(1 for r in head if i < len(r) and sales_outlet_code(r[i]))  # noqa: E731
+    outlet = max(picks["Outlet Code"], key=lambda i: (outlet_hits(i), -picks["Outlet Code"].index(i)))
+    index = {"Outlet Code": outlet, "Date": picks["Date"][0], "Division": picks["Division"][0], "POS NSI": picks["POS NSI"][0]}
+    rows = chain(head, rows)
 
     def value(row: tuple[Any, ...], name: str) -> Any:
         position = index.get(name)
@@ -376,6 +405,7 @@ def read_sales(path: Path) -> tuple[dict[tuple[str, dt.date], dict[str, float]],
     division_value: dict[str, float] = defaultdict(float)
     dates: list[dt.date] = []
     invalid_rows = 0
+    unplaced = 0
     row_count = 0
     detail_total = 0.0
     reported_total: float | None = None
@@ -387,11 +417,13 @@ def read_sales(path: Path) -> tuple[dict[tuple[str, dt.date], dict[str, float]],
         if raw_code.upper().startswith("TOTAL"):
             reported_total = sales_value
             continue
-        code = normalize_outlet_code(raw_code)
+        code = sales_outlet_code(raw_code)
         date = parse_date(value(row, "Date"))
         if not code or date is None:
             if raw_code or sales_value:
                 invalid_rows += 1
+            # sales on a blank outlet cell, or on an outlet without a date (repeated cells left blank)
+            unplaced += bool(sales_value and (not raw_code or code))
             continue
         division = clean_text(value(row, "Division"))
         daily[(code, date)]["sales"] += sales_value
@@ -404,6 +436,12 @@ def read_sales(path: Path) -> tuple[dict[tuple[str, dt.date], dict[str, float]],
         dates.append(date)
         row_count += 1
     workbook.close()
+    # An export that leaves repeated outlet or date cells blank would understate sales without this check.
+    if unplaced > max(50, row_count * 0.05):
+        raise ValueError(
+            f"Sales file: {unplaced} rows (sheet {sheet_name}) carry sales without an outlet code or date, "
+            f"against {row_count} usable rows. Export it with every row's outlet code and date filled in."
+        )
 
     reconciliation: dict[str, Any] = {
         "detailTotal": round_money(detail_total),
@@ -425,6 +463,7 @@ def read_sales(path: Path) -> tuple[dict[tuple[str, dt.date], dict[str, float]],
 
     quality = {
         "sheet": sheet_name,
+        "headerRow": header_number,
         "rows": row_count,
         "invalidRows": invalid_rows,
         "dateMin": iso_date(min(dates) if dates else None),
