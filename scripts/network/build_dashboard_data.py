@@ -103,12 +103,13 @@ def read_first_sheet(path: Path) -> tuple[str, list[list[object]]]:
         output: list[list[object]] = []
         for row in worksheet.findall(".//m:sheetData/m:row", NS):
             cells: dict[int, object] = {}
+            last_column = 0
             for cell in row.findall("m:c", NS):
                 ref = cell.attrib.get("r", "")
                 match = re.match(r"([A-Z]+)", ref)
-                if not match:
-                    continue
-                column = col_to_num(match.group(1))
+                # Some exports leave out the cell reference: those cells follow each other from the last column.
+                column = col_to_num(match.group(1)) if match else last_column + 1
+                last_column = column
                 cell_type = cell.attrib.get("t")
                 value_node = cell.find("m:v", NS)
                 value: object = None
@@ -191,43 +192,46 @@ def read_named_sheet(path: Path, sheet_names: tuple[str, ...], max_columns: int 
         output: list[list[object]] = []
         with archive.open(sheet_path) as handle:
             cells: dict[int, object] = {}
+            last_column = 0
             for event, element in ET.iterparse(handle, events=("end",)):
                 tag = element.tag
                 if tag == f"{{{MAIN_NS}}}c":
                     ref = element.attrib.get("r", "")
                     match = re.match(r"([A-Z]+)", ref)
-                    if match:
-                        column = col_to_num(match.group(1))
-                        if column <= max_columns:
-                            cell_type = element.attrib.get("t")
-                            value_node = element.find("m:v", NS)
-                            value: object = None
-                            if cell_type == "inlineStr":
-                                inline = element.find("m:is", NS)
-                                if inline is not None:
-                                    value = "".join((t.text or "") for t in inline.iter(f"{{{MAIN_NS}}}t"))
-                            elif value_node is not None:
-                                raw = value_node.text or ""
-                                if cell_type == "s":
-                                    index = int(raw)
-                                    value = shared_strings[index] if index < len(shared_strings) else ""
-                                elif cell_type == "b":
-                                    value = raw == "1"
-                                elif cell_type == "str":
+                    # Some exports leave out the cell reference: those cells follow each other from the last column.
+                    column = col_to_num(match.group(1)) if match else last_column + 1
+                    last_column = column
+                    if column <= max_columns:
+                        cell_type = element.attrib.get("t")
+                        value_node = element.find("m:v", NS)
+                        value: object = None
+                        if cell_type == "inlineStr":
+                            inline = element.find("m:is", NS)
+                            if inline is not None:
+                                value = "".join((t.text or "") for t in inline.iter(f"{{{MAIN_NS}}}t"))
+                        elif value_node is not None:
+                            raw = value_node.text or ""
+                            if cell_type == "s":
+                                index = int(raw)
+                                value = shared_strings[index] if index < len(shared_strings) else ""
+                            elif cell_type == "b":
+                                value = raw == "1"
+                            elif cell_type == "str":
+                                value = raw
+                            else:
+                                try:
+                                    number = float(raw)
+                                    value = int(number) if number.is_integer() else number
+                                except ValueError:
                                     value = raw
-                                else:
-                                    try:
-                                        number = float(raw)
-                                        value = int(number) if number.is_integer() else number
-                                    except ValueError:
-                                        value = raw
-                            cells[column] = value
+                        cells[column] = value
                     element.clear()
                 elif tag == f"{{{MAIN_NS}}}row":
                     if cells:
                         width = max(cells)
                         output.append([cells.get(i) for i in range(1, width + 1)])
                     cells = {}
+                    last_column = 0
                     element.clear()
                     if len(output) >= max_rows:
                         break
