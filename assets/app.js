@@ -5629,7 +5629,8 @@
   // daily line chart, drawn once the panel has its width; tip(i) gives the hover text for day i
   function ecTrend(host, d, series, mi, fmt, label, tip) {
     if (!host) return;
-    const W = Math.max(300, host.clientWidth || 800), H = 230, ml = 56, mr = 12, mt = 12, mb = 26, L = series.length;
+    // the chart fills its panel: the panel's stretched height is read before drawing (the svg is absolutely placed)
+    const W = Math.max(300, host.clientWidth || 800), H = Math.max(230, host.clientHeight || 230), ml = 56, mr = 12, mt = 12, mb = 26, L = series.length;
     const top = (Math.max(...series.filter(isNum), 0) || 1) * 1.08;
     const X = (i) => ml + (L > 1 ? (i / (L - 1)) * (W - ml - mr) : 0), Y = (v) => mt + (1 - v / top) * (H - mt - mb);
     let g = "";
@@ -5657,7 +5658,7 @@
   function ecScatter(host, pts, ym) {
     if (!host) return;
     if (pts.length < 3) { host.innerHTML = `<p class="ec-note">Too few outlets with 30 or more sub-orders for this selection.</p>`; return; }
-    const W = Math.max(300, host.clientWidth || 700), H = 300, ml = 46, mr = 16, mt = 14, mb = 34;
+    const W = Math.max(300, host.clientWidth || 700), H = Math.max(300, host.clientHeight || 300), ml = 46, mr = 16, mt = 14, mb = 34;
     const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), xMax = Math.max(...xs) * 1.06, yMax = Math.max(...ys, 0.01) * 1.12;
     const X = (v) => ml + (v / xMax) * (W - ml - mr), Y = (v) => mt + (1 - v / yMax) * (H - mt - mb);
     const med = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }, mx = med(xs), my = med(ys);

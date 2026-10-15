@@ -314,7 +314,11 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ec-kpi svg{display:block;width:100%;height:30px;margin-top:6px}
 .ec-up{color:var(--good);font-weight:650}.ec-down{color:var(--bad);font-weight:650}.ec-flat{color:var(--ink-3);font-weight:650}
 .ec-row{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));align-items:start}
-.ec-row.wide{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
+.ec-row.wide{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);align-items:stretch}
+.ec-row.wide>.panel{display:flex;flex-direction:column}
+.ec-row.wide>.panel>.panel-body{flex:1;display:flex;flex-direction:column;min-height:0}
+.ec-row.wide .ec-chart{position:relative;flex:1;min-height:230px}
+.ec-row.wide .ec-chart svg{position:absolute;inset:0;width:100%;height:100%}
 @media (max-width:980px){.ec-row.wide{grid-template-columns:minmax(0,1fr)}}
 .ec-chart{min-width:0}
 .ec-chart svg{display:block;overflow:visible}
