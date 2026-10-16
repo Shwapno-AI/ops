@@ -1,0 +1,92 @@
+/* Sidebar in the manner of Claude's: a warm neutral panel with no heavy rules, quiet labels, small stroke
+   icons, soft rounded highlights for hover and the current page, a profile row at the foot, and a collapse
+   button that folds the sidebar to an icon strip. Loaded after the other stylesheets; sidebar only. */
+:root{
+  --sb-bg:#1f1e1d;--sb-hover:#2a2926;--sb-active:#33322e;--sb-line:#2e2d2a;
+  --sb-ink:#ecebe4;--sb-ink-2:#c2c0b6;--sb-ink-3:#8f8d85;--sb-avatar:#c96442;
+  --sb-w:260px;--sb-w-min:60px;
+}
+[data-theme="light"]{
+  --sb-bg:#f5f4ef;--sb-hover:#ebe9e1;--sb-active:#e3e1d8;--sb-line:#e6e4dc;
+  --sb-ink:#28261f;--sb-ink-2:#4d4b43;--sb-ink-3:#7d7b72;--sb-avatar:#c96442;
+}
+
+.rail{width:var(--sb-w);background:var(--sb-bg);border-right:1px solid var(--sb-line);color:var(--sb-ink-2);
+  font-size:13.5px;scrollbar-width:thin;scrollbar-color:var(--sb-active) transparent;transition:width .18s ease}
+@media (prefers-reduced-motion:reduce){.rail{transition:none}}
+
+/* top: logo, name, collapse button */
+.rail .brand{background:var(--sb-bg);border-bottom:0;padding:14px 10px 10px 14px;gap:10px}
+.rail .brand .brand-mark{width:56px;height:28px;flex:0 0 56px}
+.rail .brand-t{min-width:0;flex:1}
+.rail .brand strong{font-size:14.5px;font-weight:600;color:var(--sb-ink);letter-spacing:-.005em}
+.rail .brand small{font-size:11.5px;color:var(--sb-ink-3)}
+.sb-toggle{all:unset;box-sizing:border-box;display:grid;place-items:center;width:32px;height:32px;border-radius:8px;color:var(--sb-ink-3);cursor:pointer;flex:none}
+.sb-toggle:hover{background:var(--sb-hover);color:var(--sb-ink)}
+.sb-toggle:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+@media (min-width:1081px){.topbar .rail-btn{display:none}}
+@media (max-width:1080px){.sb-toggle{display:none}}
+
+/* navigation */
+.rail .nav{padding:4px 8px 10px;gap:1px}
+.rail .nav-top{display:flex;flex-direction:column;gap:1px;margin-bottom:10px}
+.rail .nav button{gap:10px;justify-content:flex-start;padding:7px 10px;border-radius:8px;color:var(--sb-ink-2);font-size:13.5px;font-weight:450;line-height:1.3;min-height:20px}
+.rail .nav button .nav-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rail .nav button:hover{background:var(--sb-hover);color:var(--sb-ink)}
+.rail .nav button:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.rail .nav button[aria-current="page"]{background:var(--sb-active);color:var(--sb-ink);font-weight:550;box-shadow:none}
+.rail .nav button[data-page="ar"]{font-size:13.5px;font-weight:450;color:var(--sb-ink-2)}
+.rail .nav button[data-page="ar"][aria-current="page"]{color:var(--sb-ink);font-weight:550}
+.rail .nav-ic{flex:none;color:var(--sb-ink-3)}
+.rail .nav button:hover .nav-ic,.rail .nav button[aria-current="page"] .nav-ic,.rail .nav button.here .nav-ic{color:var(--sb-ink)}
+
+/* groups: a row like the others, with a chevron that turns when open */
+.rail .nav button.nav-group{margin-top:0;padding:7px 10px;font-size:13.5px;font-weight:450;color:var(--sb-ink-2);border-radius:8px}
+.rail .nav button.nav-group:hover{background:var(--sb-hover);color:var(--sb-ink)}
+.rail .nav button.nav-group.here{color:var(--sb-ink);font-weight:550}
+.rail .nav-caret{flex:none;width:14px;height:14px;color:var(--sb-ink-3);transition:transform .15s ease}
+.rail .nav button.nav-group[aria-expanded="true"] .nav-caret{transform:rotate(90deg)}
+.rail .nav-items{gap:1px;margin:1px 0 6px 18px;padding-left:10px;border-left:1px solid var(--sb-line)}
+.rail .nav-items button{padding:6px 10px;font-size:13px}
+
+/* filters, when a page has them */
+.rail .filters{border-top:1px solid var(--sb-line);margin:0 8px;padding:12px 6px 8px}
+.rail .filters h2{font-size:12px;font-weight:550;color:var(--sb-ink-3);letter-spacing:.01em}
+.rail-foot{border-top:1px solid var(--sb-line);color:var(--sb-ink-3)}
+
+/* foot: the builder, as a profile row */
+.rail .rail-credit{display:flex;flex-direction:row;align-items:center;gap:10px;margin:6px 8px 10px;padding:8px;border:0;border-radius:10px;text-decoration:none;color:var(--sb-ink-2);font-size:12px;line-height:1.3}
+.rail .rail-credit:hover{background:var(--sb-hover)}
+.rail .rail-credit:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.sb-avatar{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--sb-avatar);color:#fff;font-weight:600;font-size:13px}
+.sb-who{display:flex;flex-direction:column;min-width:0}
+.sb-who strong{color:var(--sb-ink);font-size:13px;font-weight:550}
+.sb-who span,.sb-who small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-who small{font-size:10.5px;color:var(--sb-ink-3);text-transform:none;letter-spacing:0}
+
+/* collapsed: an icon strip (desktop) instead of hiding the sidebar */
+@media (min-width:1081px){
+  .shell.rail-hidden .rail{display:flex;width:var(--sb-w-min);overflow-x:hidden}
+  .shell.rail-hidden .rail .brand{flex-direction:column;padding:12px 0 8px;gap:8px}
+  .shell.rail-hidden .rail .brand .brand-mark,.shell.rail-hidden .rail .brand-t{display:none}
+  .shell.rail-hidden .rail .nav{padding:4px 10px}
+  .shell.rail-hidden .rail .nav button{justify-content:center;padding:9px 0}
+  .shell.rail-hidden .rail .nav .nav-t,.shell.rail-hidden .rail .nav .nav-caret,.shell.rail-hidden .rail .nav .soon{display:none}
+  .shell.rail-hidden .rail .nav-items,.shell.rail-hidden .rail .filters,.shell.rail-hidden .rail .rail-foot{display:none}
+  .shell.rail-hidden .rail .nav-top{margin-bottom:6px}
+  .shell.rail-hidden .rail .rail-credit{justify-content:center;margin:6px 0 10px;padding:6px 0}
+  .shell.rail-hidden .rail .sb-who{display:none}
+}
+
+/* filter controls inside the sidebar take its neutral surfaces */
+.rail .filters-head .btn{background:transparent;border-color:var(--sb-line);color:var(--sb-ink-2);border-radius:8px}
+.rail .filters-head .btn:hover{background:var(--sb-hover);color:var(--sb-ink)}
+.rail .ms-label{color:var(--sb-ink-3);font-weight:550}
+.rail .ms-btn{background:var(--sb-hover);border:1px solid transparent;border-radius:8px;color:var(--sb-ink)}
+.rail .ms-btn:hover{border-color:var(--sb-line);background:var(--sb-active)}
+.rail .ms-btn.active{border-color:var(--sb-ink-3)}
+.rail .ms-panel{background:var(--sb-bg);border-color:var(--sb-line);border-radius:8px}
+.rail .ms-panel input[type="search"],.rail .ms-panel input[type="text"]{background:var(--sb-hover);border-color:var(--sb-line);color:var(--sb-ink)}
+.rail .ms-opt:hover{background:var(--sb-hover);border-radius:6px}
+.rail .ms-count{background:var(--sb-active);color:var(--sb-ink)}
+.rail select.sel{background-color:var(--sb-hover);border-color:transparent;color:var(--sb-ink);border-radius:8px}
