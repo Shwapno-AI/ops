@@ -5486,7 +5486,7 @@
   // outlet master. Every fact in the file carries its outlet, so the month, RHO and zonal filters at the top
   // narrow every chart on the page. The customer ranking groups orders by name; contact details are omitted.
   // Chart colours are the page's own validated set (--ec-1 to --ec-4 in styles.css), not the status colours.
-  const EC_TABS = [["over", "Overview"], ["outlets", "Outlets"], ["cancel", "Cancellations & edits"], ["slots", "Delivery & slots"], ["cust", "Customers"], ["comp", "Complaints"], ["open", "Open orders"]];
+  const EC_TABS = [["over", "Overview"], ["outlets", "Outlets"], ["cancel", "Cancellations & edits"], ["slots", "Delivery & slots"], ["cust", "Customers"], ["comp", "Complaints"], ["open", "Open orders"], ["fields", "All fields"]];
   const EC_WHY = { OrderedByMistake: "Ordered by mistake", DelayedDelivery: "Delayed delivery", AdminOthers: "Other (back office)", CustomerOthers: "Other (customer)", DeliveryTimeNotSuitable: "Delivery time did not suit", ProductUnavailable: "Product unavailable", AdminProductUnavailable: "Product unavailable (back office)", BillingPaymentIssue: "Billing or payment issue", OutOfServiceArea: "Outside service area", QualityIssue: "Quality issue", FoundCheaper: "Found cheaper elsewhere", CustomerUnreachable: "Customer unreachable", FraudulentOrder: "Fraudulent order", TechnicalSystemError: "Technical or system error", WeatherEmergencyDisruption: "Weather or emergency", "(not given)": "Reason not given" };
   const EC_EDIT = { "Customer Requested Change": "Customer changed the order", "Out of Stock": "Item out of stock", "Quality Issue": "Quality issue", Damaged: "Damaged item" };
   const EC_PAYGRP = { CashOnDelivery: 0, Bkash: 1, SslCommerz: 2, EasternBank: 2, CityBank: 2 };
@@ -5513,7 +5513,7 @@
     S.ecomLoading = true; S.ecomErr = null;
     fetch("data/ecom.json", { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { if (![2, 3].includes(d.schema)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
+      .then((d) => { if (![2, 3, 4].includes(d.schema)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
       .catch((e) => { S.ecomErr = e.message; })
       .finally(() => { S.ecomLoading = false; if (S.page === "ecom") render(); });
   }
@@ -5521,6 +5521,7 @@
     const none = "Not in outlet register";
     d.O = d.outlets.map(([c, n, rl, zn], i) => ({ i, c, n, rl: rl || none, zn: zn || none }));
     d.dm = d.days.map((x) => d.months.indexOf(x.slice(0, 7)));
+    d.dom = d.days.map((x) => +x.slice(8, 10));
     d.rls = [...new Set(d.O.map((o) => o.rl))].sort();
     d.cmonths = [...new Set(d.complaints.map((c) => c[0]))].sort();
   }
@@ -5533,7 +5534,7 @@
   function ecScope(d) {
     const rl = S.ecomRho || "", zn = S.ecomZn || "", outlet = S.ecomOutlet || "";
     const selected = d.O.find((o) => o.c === outlet);
-    return { rl, zn, outlet, on: d.O.map((o) => (!rl || o.rl === rl) && (!zn || o.zn === zn) && (!outlet || o.c === outlet)), label: selected ? `${selected.c} ${selected.n}` : zn || rl || "All outlets" };
+    return { rl, zn, outlet, key: `${rl}|${zn}|${outlet}`, on: d.O.map((o) => (!rl || o.rl === rl) && (!zn || o.zn === zn) && (!outlet || o.c === outlet)), label: selected ? `${selected.c} ${selected.n}` : zn || rl || "All outlets" };
   }
   // per-day sums for the outlets in scope
   function ecDays(d, on) {
@@ -5589,6 +5590,251 @@
     return { has, months, rows, label };
   }
   const ecCatOf = (d, c) => { const k = EC_CAT.indexOf(d.lists.cat[c[4]]); return k < 0 ? 3 : k; };
+
+  // ---- periods and comparison. The selected month's days are compared with the same days of the month before
+  // (SPLM: 1–13 Oct against 1–13 Sep) and with the whole month before (MoM). Counts and amounts compare per day,
+  // so periods of different length compare fairly; rates compare in percentage points.
+  const ecPrevMonth = (m) => { const y = +m.slice(0, 4), k = +m.slice(5, 7); return k === 1 ? `${y - 1}-12` : `${y}-${String(k - 1).padStart(2, "0")}`; };
+  function ecPeriods(d, mi) {
+    const m = d.months[mi], pm = ecPrevMonth(m), has = d.months.includes(pm), cur = [], mom = [];
+    d.days.forEach((x, i) => { if (x.startsWith(m)) cur.push(i); else if (has && x.startsWith(pm)) mom.push(i); });
+    const from = cur.length ? d.dom[cur[0]] : 1, to = cur.length ? d.dom[cur[cur.length - 1]] : 1;
+    const splm = mom.filter((i) => d.dom[i] >= from && d.dom[i] <= to);
+    const full = from === 1 && to >= ecDim(m), span = (mm, a, b) => (a === b ? `${a} ${ecMon(mm)}` : `${a}–${b} ${ecMon(mm)}`);
+    const P = { m, pm: has ? pm : null, cur, mom, splm, from, to, full,
+      curLabel: full ? fmonth(m) : `${span(m, from, to)} ${m.slice(0, 4)}`,
+      splmLabel: has ? span(pm, from, Math.min(to, ecDim(pm))) : "",
+      momLabel: has ? fmonth(pm) + (d.mdays[pm] < ecDim(pm) ? " (part)" : "") : "" };
+    P.cmpKey = S.ecomCmp === "mom" ? "mom" : "splm";
+    P.cmp = P[P.cmpKey];
+    P.cmpLabel = P.cmpKey === "mom" ? P.momLabel : P.splmLabel;
+    P.cmpName = P.cmpKey === "mom" ? "last month" : "same period last month";
+    return P;
+  }
+  function ecSum(days, idx) {
+    const t = Object.fromEntries(EC_F.map((k) => [k, 0]));
+    t.days = idx.length;
+    idx.forEach((i) => EC_F.forEach((k) => (t[k] += days[k][i])));
+    return t;
+  }
+  const ecMask = (d, idx) => { const m = new Uint8Array(d.days.length); idx.forEach((i) => (m[i] = 1)); return m; };
+
+  // sub-order history (one row per sub-order) as typed arrays, read once: orders, customers, gross value, lead time
+  function ecHistPrep(d) {
+    if (d.H !== undefined) return d.H;
+    const h = d.customers?.history;
+    if (!Array.isArray(h) || !h.length) return (d.H = null);
+    const N = h.length, at = new Map(d.days.map((x, i) => [x, i])), pid = new Map(), cancelled = (d.customers.statuses || []).indexOf("Cancelled");
+    const H = { N, o: new Int32Array(N), c: new Int32Array(N), p: new Int32Array(N), sd: new Int32Array(N), lead: new Int16Array(N), g: new Float64Array(N), canc: new Uint8Array(N) };
+    const first = new Int32Array(Math.max(1, d.customers.list.length)).fill(1e9);
+    for (let i = 0; i < N; i++) {
+      const r = h[i], sd = at.has(r[5]) ? at.get(r[5]) : -1;
+      let p = pid.get(r[2]);
+      if (p === undefined) { p = pid.size; pid.set(r[2], p); }
+      const pl = Date.parse(r[4] + "T00:00:00Z"), sl = Date.parse(r[5] + "T00:00:00Z");
+      H.o[i] = r[0]; H.c[i] = r[1]; H.p[i] = p; H.sd[i] = sd; H.g[i] = +r[7] || 0; H.canc[i] = r[6] === cancelled ? 1 : 0;
+      H.lead[i] = Number.isFinite(pl) && Number.isFinite(sl) ? Math.max(-1, Math.min(999, Math.round((sl - pl) / 864e5))) : -1;
+      if (r[1] >= 0 && sd >= 0 && sd < first[r[1]]) first[r[1]] = sd;
+    }
+    H.first = first;
+    return (d.H = H);
+  }
+  // orders, customers and values of the sub-orders in scope with a slot day in idx
+  function ecHistSum(d, on, idx, key) {
+    const H = ecHistPrep(d);
+    if (!H || !idx.length) return null;
+    d.HC = d.HC || new Map();
+    const ck = `${key}|${idx[0]}|${idx[idx.length - 1]}|${idx.length}`;
+    if (d.HC.has(ck)) return d.HC.get(ck);
+    const mask = ecMask(d, idx), lo = idx[0], par = new Set(), parNet = new Set(), per = new Map();
+    let gross = 0, cancAmt = 0, l0 = 0, l1 = 0, l2 = 0;
+    for (let i = 0; i < H.N; i++) {
+      const s = H.sd[i];
+      if (s < 0 || !mask[s] || !on[H.o[i]]) continue;
+      par.add(H.p[i]);
+      if (!H.canc[i]) parNet.add(H.p[i]);
+      gross += H.g[i];
+      if (H.canc[i]) cancAmt += H.g[i];
+      else { const L = H.lead[i]; if (L === 0) l0++; else if (L === 1) l1++; else if (L > 1) l2++; }
+      const c = H.c[i];
+      if (c >= 0) { let ps = per.get(c); if (!ps) per.set(c, (ps = new Set())); ps.add(H.p[i]); }
+    }
+    let newC = 0, rep = 0, ordC = 0;
+    per.forEach((ps, c) => { if (H.first[c] >= lo) newC++; if (ps.size > 1) rep++; ordC += ps.size; });
+    const out = { orders: par.size, ordersNet: parNet.size, cust: per.size, newC, retC: per.size - newC, rep, ordC, gross, cancAmt, l0, l1, l2, ln: l0 + l1 + l2,
+      base: lo === 0 }; // the first month of the data: every customer looks new
+    d.HC.set(ck, out);
+    return out;
+  }
+  // totals for a set of days: daily facts plus the history figures (t.h)
+  function ecTotals(C, idx) {
+    const t = ecSum(C.days, idx);
+    t.h = ecHistSum(C.d, C.sc.on, idx, C.sc.key);
+    return t;
+  }
+
+  // ---- the measures. kind: amt and cnt compare per day, rate in points, avg in per cent, state not at all.
+  // up: a rise is good. same: distinct customers do not add up by day, so they compare only over as many days.
+  const ecH = (f) => (t) => (t.h ? f(t.h, t) : null);
+  const ecMoney1 = (v) => (isNum(v) ? bdt(v) : "—");
+  const ecNum1 = (v) => (isNum(v) ? v.toFixed(2) : "—");
+  const EC_MET = [
+    ["Sales", [
+      { k: "net", label: "Net sales", kind: "amt", up: 1, v: (t) => t.net, fmt: ecMoney1, note: "Not cancelled" },
+      { k: "gross", label: "Gross order value", kind: "amt", up: 1, v: ecH((h) => h.gross), fmt: ecMoney1, note: "All sub-orders, cancelled included" },
+      { k: "cancAmt", label: "Cancelled value", kind: "amt", up: 0, v: ecH((h) => h.cancAmt), fmt: ecMoney1 },
+      { k: "aov", label: "Average sub-order", kind: "avg", up: 1, v: (t) => ecDiv(t.net, t.n - t.canc), fmt: ecMoney1, note: "Net sales ÷ sub-orders not cancelled" },
+      { k: "basket", label: "Average basket (order)", kind: "avg", up: 1, v: ecH((h, t) => ecDiv(t.net, h.ordersNet)), fmt: ecMoney1, note: "Net sales ÷ orders not cancelled" },
+    ]],
+    ["Orders", [
+      { k: "n", label: "Sub-orders", kind: "cnt", up: 1, v: (t) => t.n, fmt: int },
+      { k: "orders", label: "Orders", kind: "cnt", up: 1, v: ecH((h) => h.orders), fmt: int, note: "Distinct order numbers" },
+      { k: "spo", label: "Sub-orders per order", kind: "avg", up: 1, v: ecH((h, t) => ecDiv(t.n, h.orders)), fmt: ecNum1 },
+      { k: "deliv", label: "Delivered", kind: "cnt", up: 1, v: (t) => t.deliv, fmt: int },
+      { k: "open", label: "Still open", kind: "state", up: 0, v: (t) => t.open, fmt: int, note: "Pending or processing in the latest export" },
+    ]],
+    ["Customers", [
+      { k: "cust", same: 1, label: "Customers", kind: "cnt", up: 1, v: ecH((h) => h.cust), fmt: int, note: "Distinct names; same names are one customer" },
+      { k: "newC", same: 1, label: "New customers", kind: "cnt", up: 1, v: ecH((h) => (h.base ? null : h.newC)), fmt: int, note: "First order in the data" },
+      { k: "retC", same: 1, label: "Returning customers", kind: "cnt", up: 1, v: ecH((h) => (h.base ? null : h.retC)), fmt: int, note: "Ordered in an earlier period too" },
+      { k: "repeat", same: 1, label: "Ordered more than once", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.rep, h.cust)), fmt: (v) => ecPct(v), note: "Share of customers with 2+ orders in the period" },
+      { k: "opc", same: 1, label: "Orders per customer", kind: "avg", up: 1, v: ecH((h) => ecDiv(h.ordC, h.cust)), fmt: ecNum1 },
+      { k: "spc", same: 1, label: "Net sales per customer", kind: "avg", up: 1, v: ecH((h, t) => ecDiv(t.net, h.cust)), fmt: ecMoney1 },
+    ]],
+    ["Delivery", [
+      { k: "ontime", label: "Delivered on time", kind: "rate", up: 1, v: (t) => ecDiv(t.deliv - t.late, t.deliv), fmt: (v) => ecPct(v) },
+      { k: "late", label: "Delivered late", kind: "cnt", up: 0, v: (t) => t.late, fmt: int },
+      { k: "late60", label: "More than an hour late", kind: "rate", up: 0, v: (t) => ecDiv(t.late60, t.deliv), fmt: (v) => ecPct(v), note: "Share of deliveries" },
+      { k: "lateMin", label: "Average delay when late", kind: "avg", up: 0, v: (t) => ecDiv(t.lateMin, t.late), fmt: (v) => (isNum(v) ? `${int(v)} min` : "—"), note: "Mean minutes after the slot ended; a few deliveries recorded hours later raise it" },
+      { k: "same", label: "Delivered the day it was ordered", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.l0, h.ln)), fmt: (v) => ecPct(v), note: "Slot on the day the order was placed" },
+      { k: "next", label: "Delivered the next day", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.l1, h.ln)), fmt: (v) => ecPct(v) },
+    ]],
+    ["Cancellations and edits", [
+      { k: "canc", label: "Cancelled", kind: "rate", up: 0, v: (t) => ecDiv(t.canc, t.n), fmt: (v) => ecPct(v), note: "Share of sub-orders" },
+      { k: "custc", label: "Cancelled by the customer", kind: "rate", up: 0, v: (t) => ecDiv(t.custc, t.n), fmt: (v) => ecPct(v) },
+      { k: "boc", label: "Cancelled by back office", kind: "rate", up: 0, v: (t) => ecDiv(t.canc - t.custc, t.n), fmt: (v) => ecPct(v) },
+      { k: "edited", label: "Edited after ordering", kind: "rate", up: 0, v: (t) => ecDiv(t.edited, t.n), fmt: (v) => ecPct(v) },
+      { k: "custed", label: "Customer changed the order", kind: "rate", up: 0, v: (t) => ecDiv(t.custed, t.n), fmt: (v) => ecPct(v) },
+    ]],
+  ];
+  const EC_MK = Object.fromEntries(EC_MET.flatMap(([, ms]) => ms.map((m) => [m.k, m])));
+  // change of measure m from b (compare) to a (current): {v, pts} or null
+  function ecChg(m, a, b) {
+    if (!a || !b || !b.days || m.kind === "state" || (m.same && a.days !== b.days)) return null;
+    const x = m.v(a), y = m.v(b);
+    if (!isNum(x) || !isNum(y)) return null;
+    if (m.kind === "rate") return { v: x - y, pts: true };
+    if (m.kind === "avg") return y ? { v: x / y - 1 } : null;
+    const xd = x / (a.days || 1), yd = y / (b.days || 1);
+    return yd ? { v: xd / yd - 1 } : null;
+  }
+  function ecChgHtml(m, c, vs) {
+    if (!c) return vs ? `<span class="ec-flat">—</span><span>${esc(vs)}</span>` : `<span class="ec-flat">—</span>`;
+    const size = Math.abs(c.v * 100), cls = size < 0.05 ? "ec-flat" : (c.v > 0) === !!m.up ? "ec-up" : "ec-down";
+    return `<span class="${cls}">${size < 0.05 ? "■" : c.v > 0 ? "▲" : "▼"} ${size >= 100 ? int(size) : size.toFixed(1)}${c.pts ? " pts" : "%"}</span>${vs ? `<span>${esc(vs)}</span>` : ""}`;
+  }
+  // a value by day of month (index 0 = day 1) for the days in idx; fn(i) gives day i's value
+  const ecByDom = (d, idx, fn) => { const a = new Array(31).fill(null); idx.forEach((i) => (a[d.dom[i] - 1] = fn(i))); return a; };
+  // sparkline of this period (solid) over the same days of last month (dashed)
+  function ecSpark2(cur, prev, to) {
+    const L = Math.max(2, to), c = cur.slice(0, L), p = (prev || []).slice(0, L), all = [...c, ...p].filter(isNum);
+    if (c.filter(isNum).length < 2) return "";
+    const max = Math.max(...all), min = Math.min(0, ...all), W = 100, H = 30;
+    const line = (a) => a.map((x, i) => (isNum(x) ? `${((i / (L - 1)) * W).toFixed(2)},${(H - 2 - ((x - min) / (max - min || 1)) * (H - 4)).toFixed(2)}` : null)).filter(Boolean).join(" ");
+    const pl = p.filter(isNum).length > 1 ? `<polyline points="${line(p)}" fill="none" stroke="var(--ink-3)" stroke-width="1.4" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : "";
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${pl}<polyline points="${line(c)}" fill="none" stroke="var(--ec-1)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  }
+  // KPI card: value, change against the same period last month and against last month, and a sparkline
+  function ecKpiM(C, k, daily, valueOverride) {
+    const m = EC_MK[k], { P, T, Ts, Tm, d } = C, v = valueOverride !== undefined ? valueOverride : m.v(T);
+    const perDay = m.kind === "amt" || m.kind === "cnt";
+    const l1 = P.splm.length ? ecChgHtml(m, ecChg(m, T, Ts), `vs ${P.splmLabel}`) : `<span>No ${esc(P.pm ? fmonth(P.pm) : "earlier month")} in the data</span>`;
+    const l2 = !P.mom.length ? "" : m.same && Tm && Tm.days !== T.days ? `<span>vs ${esc(P.momLabel)}: ${m.fmt(m.v(Tm))} (longer period, not compared)</span>` : ecChgHtml(m, ecChg(m, T, Tm), `vs ${P.momLabel}${perDay ? ", a day" : ""}`);
+    const sp = daily ? ecSpark2(ecByDom(d, P.cur, daily), ecByDom(d, P.splm, daily), P.to) : "";
+    return `<div class="ec-kpi" ${m.note ? `title="${esc(m.note)}"` : ""}><span class="l">${esc(m.label)}</span><span class="v">${m.fmt(v)}</span><span class="d">${l1}</span>${l2 ? `<span class="d">${l2}</span>` : ""}${sp}</div>`;
+  }
+
+  // every measure in one table: this period, the same period last month, last month, and each month as a small column
+  function ecScorecard(C) {
+    const { d, P, T, Ts, Tm, mi } = C;
+    const MT = d.months.map((_, i) => C.monthTotals(i));
+    const minis = (m) => {
+      const vals = MT.map((t) => { const v = m.v(t); return !isNum(v) ? null : m.kind === "amt" || m.kind === "cnt" ? v / (t.days || 1) : v; });
+      const fin = vals.filter(isNum), max = Math.max(...fin, 0), min = Math.min(0, ...fin);
+      const tip = `<strong>${esc(m.label)}${m.kind === "amt" || m.kind === "cnt" ? ", a day" : ""}</strong><dl>${MT.map((t, i) => `<dt>${esc(ecMonthName(d, d.months[i]))}</dt><dd>${isNum(vals[i]) ? m.kind === "cnt" ? int(vals[i]) : m.fmt(vals[i]) : "—"}</dd>`).join("")}</dl>`;
+      return `<span class="ec-mini-cols" ${ecTipAttr(tip)}>${vals.map((v, i) => `<i class="${i === mi ? "on" : ""}" style="height:${isNum(v) && max > min ? Math.max(8, ((v - min) / (max - min)) * 100) : 4}%"></i>`).join("")}</span>`;
+    };
+    const head = `<tr><th>Measure</th><th class="num ec-on">${esc(P.curLabel)}</th><th class="num">${esc(P.splmLabel || "Same period last month")}</th><th class="num">Change</th><th class="num">${esc(P.momLabel || "Last month")}</th><th class="num">Change<span class="cell-secondary">a day for totals; customers only over equal days</span></th><th>By month</th></tr>`;
+    const body = EC_MET.map(([g, ms]) => `<tr class="ec-grp"><th colspan="7">${esc(g)}</th></tr>${ms.map((m) => `<tr>
+      <td><span class="cell-primary">${esc(m.label)}</span>${m.note ? `<span class="cell-secondary">${esc(m.note)}</span>` : ""}</td>
+      <td class="num ec-on"><b>${m.fmt(m.v(T))}</b></td>
+      <td class="num">${Ts && P.splm.length ? m.fmt(m.v(Ts)) : "—"}</td><td class="num">${ecChgHtml(m, ecChg(m, T, Ts))}</td>
+      <td class="num">${Tm && P.mom.length ? m.fmt(m.v(Tm)) : "—"}</td><td class="num">${ecChgHtml(m, ecChg(m, T, Tm))}</td>
+      <td>${minis(m)}</td></tr>`).join("")}`).join("");
+    const csv = [["Group", "Measure", P.curLabel, P.splmLabel || "Same period last month", "Change vs same period", P.momLabel || "Last month", "Change vs last month"]];
+    EC_MET.forEach(([g, ms]) => ms.forEach((m) => {
+      const raw = (t) => (t ? m.v(t) : null), c1 = ecChg(m, T, Ts), c2 = ecChg(m, T, Tm), cv = (c) => (c ? (c.pts ? `${(c.v * 100).toFixed(2)} pts` : `${(c.v * 100).toFixed(2)}%`) : "");
+      csv.push([g, m.label, raw(T), P.splm.length ? raw(Ts) : "", cv(c1), P.mom.length ? raw(Tm) : "", cv(c2)].map((x) => (isNum(x) ? +x.toFixed(4) : x ?? "")));
+    }));
+    C.scoreCsv = csv;
+    const note = [!P.full ? `${esc(P.curLabel)} is a part month, so it is set against the same days of ${esc(P.pm ? fmonth(P.pm) : "last month")}.` : "",
+      T.h?.base ? "This is the first month in the data, so new and returning customers cannot be told apart." : "",
+      !T.h ? "Order, customer and lead-time measures need the customer history in the data file." : ""].filter(Boolean).join(" ");
+    return ecPanel("Scorecard", `Every measure for ${esc(sC(C))}: this period against the same period last month (SPLM) and against last month (MoM). Totals compare a day, so a part month compares fairly; shares compare in points. Green is better, orange worse.${note ? " " + note : ""}`,
+      `<div class="table-wrap ec-score"><table class="compact"><thead>${head}</thead><tbody>${body}</tbody></table></div>`,
+      `<button class="btn" type="button" data-ec-csv="score">Download CSV</button>`);
+  }
+  const sC = (C) => C.sc.label;
+
+  // one month against the month before, day by day (or running total): solid this month, dashed last month
+  const EC_PACE = [["net", "Net sales"], ["n", "Sub-orders"], ["aov", "Average sub-order"], ["canc", "Cancelled %"], ["late", "Late %"]];
+  function ecPaceSeries(C, k, cum) {
+    const { d, P, days } = C;
+    const spec = { net: [(i) => days.net[i], null, bdt], n: [(i) => days.n[i], null, int], aov: [(i) => days.net[i], (i) => days.n[i] - days.canc[i], bdt],
+      canc: [(i) => days.canc[i], (i) => days.n[i], (v) => ecPct(v)], late: [(i) => days.late[i], (i) => days.deliv[i], (v) => ecPct(v)] }[k];
+    const [num, den, fmt] = spec;
+    const run = (idx) => {
+      const nu = ecByDom(d, idx, num), de = den ? ecByDom(d, idx, den) : null, out = new Array(31).fill(null);
+      let a = 0, b = 0;
+      for (let j = 0; j < 31; j++) {
+        if (nu[j] === null) continue;
+        if (cum) { a += nu[j]; b += de ? de[j] : 0; out[j] = de ? ecDiv(a, b) : a; } else out[j] = de ? ecDiv(nu[j], de[j]) : nu[j];
+      }
+      return out;
+    };
+    return { cur: run(P.cur), prev: run(P.mom), fmt, rate: !!den };
+  }
+  function ecPace(host, C, k, cum) {
+    if (!host) return;
+    const { P } = C, s = ecPaceSeries(C, k, cum), L = Math.max(ecDim(P.m), P.pm ? ecDim(P.pm) : 0);
+    const curName = fmonth(P.m), prevName = P.pm ? fmonth(P.pm) : "";
+    host.innerHTML = `${ecLegend([[curName, "var(--ec-1)"], ...(P.pm ? [[prevName + " (dashed)", "var(--ink-3)"]] : [])])}<div class="ec-pace-svg"></div>`;
+    const box = host.querySelector(".ec-pace-svg");
+    const W = Math.max(300, box.clientWidth || 800), H = Math.max(230, Math.min(420, box.clientHeight || 230)), ml = 58, mr = 12, mt = 12, mb = 26;
+    const vals = [...s.cur, ...s.prev].filter(isNum), top = (Math.max(...vals, 0) || 1) * 1.08;
+    const X = (j) => ml + (j / (L - 1)) * (W - ml - mr), Y = (v) => mt + (1 - v / top) * (H - mt - mb);
+    let g = "";
+    for (let q = 0; q <= 4; q++) { const v = (top * q) / 4, y = Y(v).toFixed(1); g += `<line x1="${ml}" x2="${W - mr}" y1="${y}" y2="${y}" style="stroke:var(--grid)"/><text x="${ml - 6}" y="${+y + 3.5}" text-anchor="end" class="cw-axis">${s.fmt(v)}</text>`; }
+    [1, 5, 10, 15, 20, 25, L].forEach((dd) => { g += `<text x="${X(dd - 1)}" y="${H - 8}" text-anchor="middle" class="cw-axis">${dd}</text>`; });
+    const path = (a) => { let p = "", pen = false; a.forEach((v, j) => { if (!isNum(v)) { pen = false; return; } p += `${pen ? "L" : "M"}${X(j).toFixed(1)},${Y(v).toFixed(1)}`; pen = true; }); return p; };
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(`${cum ? "Running" : "Daily"} ${k} by day of month, ${curName} against ${prevName}`)}">${g}
+      <path d="${path(s.prev)}" fill="none" style="stroke:var(--ink-3)" stroke-width="1.8" stroke-dasharray="5 4"/>
+      <path d="${path(s.cur)}" fill="none" style="stroke:var(--ec-1)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+      <line class="ec-x" y1="${mt}" y2="${H - mb}" style="stroke:var(--ink-3)" visibility="hidden"/><circle class="ec-dot" r="4.5" style="fill:var(--ec-1);stroke:var(--surface)" stroke-width="2" visibility="hidden"/>
+      <rect class="ec-hit" x="${ml}" y="0" width="${W - ml - mr}" height="${H - mb}" fill="transparent"/></svg>`;
+    const svg = box.querySelector("svg"), hit = svg.querySelector(".ec-hit"), xl = svg.querySelector(".ec-x"), dot = svg.querySelector(".ec-dot");
+    const move = (e) => {
+      const r = svg.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * W, j = Math.max(0, Math.min(L - 1, Math.round(((x - ml) / (W - ml - mr)) * (L - 1))));
+      const a = s.cur[j], b = s.prev[j];
+      xl.setAttribute("x1", X(j)); xl.setAttribute("x2", X(j)); xl.setAttribute("visibility", "visible");
+      if (isNum(a)) { dot.setAttribute("cx", X(j)); dot.setAttribute("cy", Y(a)); dot.setAttribute("visibility", "visible"); } else dot.setAttribute("visibility", "hidden");
+      const ch = isNum(a) && isNum(b) ? (s.rate ? `${a >= b ? "+" : "−"}${Math.abs((a - b) * 100).toFixed(1)} pts` : b ? `${a >= b ? "+" : "−"}${Math.abs((a / b - 1) * 100).toFixed(1)}%` : "—") : "—";
+      showTip(e, `<strong>Day ${j + 1}${cum ? ", running" : ""}</strong><dl><dt>${esc(curName)}</dt><dd>${isNum(a) ? s.fmt(a) : "—"}</dd>${P.pm ? `<dt>${esc(prevName)}</dt><dd>${isNum(b) ? s.fmt(b) : "—"}</dd><dt>Change</dt><dd>${ch}</dd>` : ""}</dl>`);
+    };
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerenter", move);
+    hit.addEventListener("pointerleave", () => { xl.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); hideTip(); });
+  }
 
   // ---- building blocks
   function ecDelta(cur, prev, kind, good, vs) {
@@ -5720,6 +5966,7 @@
     act("[data-ec-rl]", (n) => { closeDrawer(); S.ecomRho = n.dataset.ecRl; S.ecomZn = ""; S.ecomOutlet = ""; S.ecomBy = "zn"; changed(); });
     act("[data-ec-zn]", (n) => { closeDrawer(); const z = n.dataset.ecZn, o = S.ecom.O.find((x) => x.zn === z && (!S.ecomRho || x.rl === S.ecomRho)); S.ecomZn = z; S.ecomOutlet = ""; if (o) S.ecomRho = o.rl; S.ecomBy = "o"; changed(); });
     act("[data-ec-tab]", (n) => { closeDrawer(); S.ecomTab = n.dataset.ecTab; changed(); window.scrollTo(0, 0); });
+    act("[data-ec-csv]", () => { const C = S.ecomC; if (C?.scoreCsv) saveCsv(`ecommerce_scorecard_${C.sc.label.replace(/\W+/g, "_")}`, C.scoreCsv[0], C.scoreCsv.slice(1), C.m); });
     act("[data-ec-clear]", () => { S.ecomRho = ""; S.ecomZn = ""; S.ecomOutlet = ""; changed(); });
     const rho = $('[data-sel="ecomRho"]', root), zonal = $('[data-sel="ecomZn"]', root);
     if (rho) rho.onchange = () => { S.ecomRho = rho.value; S.ecomZn = ""; S.ecomOutlet = ""; changed(); };
@@ -5729,6 +5976,7 @@
   // ---- the page's tabs
   function ecHead(C) {
     const { d, m, sc } = C;
+    S.ecomCmp = S.ecomCmp === "mom" ? "mom" : "splm";
     const opt = (v, t, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`;
     const zns = [...new Set(d.O.filter((o) => !sc.rl || o.rl === sc.rl).map((o) => o.zn))].sort();
     const outlets = d.O.filter((o) => (!sc.rl || o.rl === sc.rl) && (!sc.zn || o.zn === sc.zn)).sort((a, b) => a.c.localeCompare(b.c));
@@ -5740,13 +5988,36 @@
         <select class="sel" data-sel="ecomZn" aria-label="Zonal">${opt("", sc.rl ? "All their zonals" : "All zonals", sc.zn)}${zns.map((x) => opt(x, x, sc.zn)).join("")}</select>
         <select class="sel" data-sel="ecomOutlet" aria-label="Outlet">${opt("", "All outlets in scope", sc.outlet)}${outlets.map((o) => opt(o.c, `${o.c} ${o.n}`, sc.outlet)).join("")}</select>
         ${sc.rl || sc.zn || sc.outlet ? `<button class="btn" type="button" data-ec-clear>Clear</button>` : ""}<button class="btn" type="button" data-ec-lock>Lock</button>
-      </div></section>
+      </div>
+      <div class="ec-period">${seg("ecomCmp", [["splm", "vs same period last month"], ["mom", "vs last month"]], "Compare with")}
+        <p><b>${esc(C.P.curLabel)}</b>${C.P.pm ? ` compared with <b>${esc(C.P.cmpLabel)}</b> (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}</p></div></section>
       <div class="ec-tabs">${seg("ecomTab", EC_TABS, "E-Commerce view")}</div>`;
   }
 
   function ecProblems(C) {
     const { d, mi, m, sc, cur: t, prev: p } = C, out = [], pm = mi > 0 ? ecMon(d.months[mi - 1]) : "";
     const add = (lvl, title, detail, attr) => out.push({ lvl, title, detail, attr });
+    // against the comparison period: the whole scope, then the zonal and the outlet that fell most
+    const P = C.P, Tp = P.cmpKey === "mom" ? C.Tm : C.Ts;
+    if (P.cmp.length && Tp && Tp.net) {
+      const g = ecChg(EC_MK.net, C.T, Tp);
+      if (g && Math.abs(g.v) >= 0.03) add(g.v <= -0.1 ? 2 : g.v < 0 ? 1 : 0, `Net sales ${g.v < 0 ? "down" : "up"} ${Math.abs(g.v * 100).toFixed(1)}% against ${P.cmpLabel}`, `${bdt(C.T.net / (C.T.days || 1))} a day against ${bdt(Tp.net / Tp.days)}; sub-orders ${ecChgHtml(EC_MK.n, ecChg(EC_MK.n, C.T, Tp)).replace(/<[^>]+>/g, "")}.`, `data-ec-tab="outlets"`);
+      const a = ecByOutletIdx(d, sc.on, P.cur), b = ecByOutletIdx(d, sc.on, P.cmp), total = Tp.net / Tp.days;
+      const fall = (key) => {
+        const g2 = new Map();
+        [[a, 0], [b, 1]].forEach(([src, k]) => src.forEach((x) => { const id = key(x.o), r = g2.get(id) || { id, o: x.o, v: [0, 0] }; r.v[k] += x.net / (k ? Tp.days : C.T.days || 1); g2.set(id, r); }));
+        return [...g2.values()].filter((r) => r.v[1] >= total * 0.02).map((r) => ({ ...r, d: r.v[0] - r.v[1], g: r.v[1] ? r.v[0] / r.v[1] - 1 : null })).sort((x, y) => x.d - y.d)[0];
+      };
+      if (!sc.zn && !sc.outlet) {
+        const z = fall((o) => o.zn);
+        if (z && z.d < 0 && isNum(z.g) && z.g <= -0.05) add(z.g <= -0.15 ? 2 : 1, `${z.id}: net sales down ${Math.abs(z.g * 100).toFixed(0)}% against ${P.cmpLabel}`, `${bdt(-z.d)} a day less, the largest fall of any zonal. ${z.o.rl}.`, `data-ec-zn="${esc(z.id)}"`);
+      }
+      if (!sc.outlet) {
+        const g2 = new Map(); a.forEach((x) => g2.set(x.o.i, { o: x.o, c: x.net / (C.T.days || 1), p: 0 })); b.forEach((x) => { const r = g2.get(x.o.i) || { o: x.o, c: 0, p: 0 }; r.p = x.net / Tp.days; g2.set(x.o.i, r); });
+        const w = [...g2.values()].filter((r) => r.p > 0).map((r) => ({ ...r, d: r.c - r.p, g: r.c / r.p - 1 })).sort((x, y) => x.d - y.d)[0];
+        if (w && w.g <= -0.1) add(w.g <= -0.25 ? 2 : 1, `${w.o.c} ${w.o.n}: net sales down ${Math.abs(w.g * 100).toFixed(0)}%`, `${bdt(-w.d)} a day less than ${P.cmpLabel}, the largest fall of any outlet in view. ${w.o.zn}.`, `data-ec-outlet="${w.o.i}"`);
+      }
+    }
     const cr = ecDiv(t.canc, t.n), pr = p ? ecDiv(p.canc, p.n) : null;
     if (isNum(cr) && t.canc) {
       const why = [...ecWhyBy(d, sc.on, mi).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1])[0];
@@ -5776,30 +6047,84 @@
     if (oos) add(oos / t.n >= 0.1 ? 1 : 0, `Item out of stock on ${ecPct(oos / t.n)} of sub-orders`, `${int(oos)} sub-orders were edited because an item was out of stock.`, `data-ec-tab="cancel"`);
     out.sort((a, b) => b.lvl - a.lvl);
     const chip = [["info", "Note"], ["warn", "Watch"], ["bad", "Act"]];
-    return out.length ? `<ul class="ec-issues">${out.slice(0, 6).map((x) => `<li class="ec-issue" ${x.attr} tabindex="0" role="button"><span class="chip ${chip[x.lvl][0]}">${chip[x.lvl][1]}</span><div><b>${esc(x.title)}</b><span>${esc(x.detail)}</span></div><span class="ec-go" aria-hidden="true">›</span></li>`).join("")}</ul>` : `<p class="ec-note">Nothing stands out for this selection.</p>`;
+    return out.length ? `<ul class="ec-issues">${out.slice(0, 7).map((x) => `<li class="ec-issue" ${x.attr} tabindex="0" role="button"><span class="chip ${chip[x.lvl][0]}">${chip[x.lvl][1]}</span><div><b>${esc(x.title)}</b><span>${esc(x.detail)}</span></div><span class="ec-go" aria-hidden="true">›</span></li>`).join("")}</ul>` : `<p class="ec-note">Nothing stands out for this selection.</p>`;
   }
 
+  // ---- facts for a set of days (the period or its comparison)
+  function ecByOutletIdx(d, on, idx) {
+    const mask = ecMask(d, idx), D = d.daily, g = new Map();
+    for (let i = 0; i < D.o.length; i++) {
+      const o = D.o[i];
+      if (!on[o] || !mask[D.d[i]]) continue;
+      let t = g.get(o);
+      if (!t) { t = Object.fromEntries(EC_F.map((k) => [k, 0])); t.o = d.O[o]; t.days = idx.length; g.set(o, t); }
+      for (const k of EC_F) t[k] += D[k][i];
+    }
+    return g;
+  }
+  // which: "cur" or "cmp". By day when the data file has it; otherwise by month, so only last month can compare.
+  function ecWhyFor(C, which) {
+    const { d, sc, P } = C, idx = which === "cur" ? P.cur : P.cmp;
+    if (d.whyD) {
+      const mask = ecMask(d, idx), g = new Map();
+      d.whyD.r.forEach(([o, dd, r, w, n]) => { if (!mask[dd] || !sc.on[o]) return; const a = g.get(r) || [0, 0, 0]; a[w] += n; g.set(r, a); });
+      return g;
+    }
+    const mi = which === "cur" ? C.mi : P.cmpKey === "mom" ? C.pmi : -1;
+    return mi >= 0 ? ecWhyBy(d, sc.on, mi) : null;
+  }
+  function ecEditFor(C, which) {
+    const { d, sc, P } = C, idx = which === "cur" ? P.cur : P.cmp;
+    if (d.editsD) {
+      const mask = ecMask(d, idx), g = new Map(), key = (k) => (/^other:/i.test(k) ? `Other: ${k.replace(/^other:\s*/i, "").toLowerCase()}` : k);
+      d.editsD.r.forEach(([o, dd, e, n]) => { if (mask[dd] && sc.on[o]) { const k = key(d.edits.list[e]); g.set(k, (g.get(k) || 0) + n); } });
+      return g;
+    }
+    const mi = which === "cur" ? C.mi : P.cmpKey === "mom" ? C.pmi : -1;
+    return mi >= 0 ? ecEditBy(d, sc.on, mi) : null;
+  }
+  // a categorical column (schema 4 dims) for a set of days: value index -> [sub-orders, net]
+  function ecDimFor(C, name, idx) {
+    const dm = C.d.dims?.[name];
+    if (!dm) return null;
+    const mask = ecMask(C.d, idx), g = new Map();
+    dm.r.forEach(([o, dd, k, n, net]) => { if (!mask[dd] || !C.sc.on[o]) return; const a = g.get(k) || [0, 0]; a[0] += n; a[1] += net; g.set(k, a); });
+    return g;
+  }
+  // "▲ 2.1 pts" style change of a share, for bar labels
+  const ecPtsTxt = (a, b, up) => {
+    if (!isNum(a) || !isNum(b)) return "";
+    const v = (a - b) * 100, cls = Math.abs(v) < 0.05 ? "ec-flat" : (v > 0) === !!up ? "ec-up" : "ec-down";
+    return ` <span class="${cls}">${Math.abs(v) < 0.05 ? "■" : v > 0 ? "▲" : "▼"} ${Math.abs(v).toFixed(1)} pts</span>`;
+  };
+  const ecPctTxt = (a, b, up = 1) => {
+    if (!isNum(a) || !isNum(b) || !b) return "";
+    const v = (a / b - 1) * 100, cls = Math.abs(v) < 0.05 ? "ec-flat" : (v > 0) === !!up ? "ec-up" : "ec-down";
+    return ` <span class="${cls}">${Math.abs(v) < 0.05 ? "■" : v > 0 ? "▲" : "▼"} ${Math.abs(v) >= 100 ? int(Math.abs(v)) : Math.abs(v).toFixed(1)}%</span>`;
+  };
+  const ecCmpNote = (C) => (C.P.cmp.length ? `Changes are against ${esc(C.P.cmpLabel)} (${esc(C.P.cmpName)}).` : `There is no ${esc(C.P.pm ? fmonth(C.P.pm) : "earlier month")} in the data to compare with.`);
+
+  // ---- Overview
   function ecOverview(C) {
-    const { d, mi, m, sc, days, cur: t, prev: p } = C, pm = mi > 0 ? ecMon(d.months[mi - 1]) : "";
-    const idx = d.dm.map((x, i) => (x === mi ? i : -1)).filter((i) => i >= 0), sp = (fn) => ecSpark(idx.map(fn));
-    const aov = (x) => ecDiv(x.net, x.n - x.canc), ontime = (x) => ecDiv(x.deliv - x.late, x.deliv);
+    const { d, mi, m, sc, days, P } = C;
     const cs = ecCompScope(d, sc, m), cOrders = [...ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)).values()].reduce((a, x) => a + x.n, 0);
-    const kpis = `<div class="ec-kpis">
-      ${ecKpi("Orders a day", int(t.n / t.days), p && ecDelta(t.n / t.days, p.n / p.days, "rel", "up", pm), `${int(t.n)} sub-orders`, sp((i) => days.n[i]))}
-      ${ecKpi("Net sales", bdt(t.net), p && ecDelta(t.net / t.days, p.net / p.days, "rel", "up", `${pm}, a day`), `${bdt(t.net / t.days)} a day`, sp((i) => days.net[i]))}
-      ${ecKpi("Average order", bdt(aov(t)), p && ecDelta(aov(t), aov(p), "rel", "up", pm), "Not cancelled", sp((i) => ecDiv(days.net[i], days.n[i] - days.canc[i])))}
-      ${ecKpi("Cancelled", ecPct(ecDiv(t.canc, t.n)), p && ecDelta(ecDiv(t.canc, t.n), ecDiv(p.canc, p.n), "pts", "down", pm), `${int(t.canc)} sub-orders`, sp((i) => ecDiv(days.canc[i], days.n[i])))}
-      ${ecKpi("Delivered on time", ecPct(ontime(t)), p && ecDelta(ontime(t), ontime(p), "pts", "up", pm), `${int(t.late)} late`, sp((i) => ecDiv(days.deliv[i] - days.late[i], days.deliv[i])))}
-      ${ecKpi("Complaints per 1,000", cs.rows.length ? int(ecDiv(cs.rows.length * 1000, cOrders)) : "—", "", cs.rows.length ? `${int(cs.rows.length)} in ${esc(cs.has ? ecMon(m) : cs.label)}` : "None in the file")}
+    const pcm = ecPrevMonth(m), pcs = cs.has && d.cmonths.includes(pcm) ? ecCompScope(d, sc, pcm) : null;
+    const pOrders = pcs ? [...ecByOutlet(d, sc.on, ecMonthSet(d, [pcm])).values()].reduce((a, x) => a + x.n, 0) : 0;
+    const per1k = cs.rows.length ? ecDiv(cs.rows.length * 1000, cOrders) : null, pPer1k = pcs && pOrders ? ecDiv(pcs.rows.length * 1000, pOrders) : null;
+    const kpis = `<div class="ec-kpis ec-kpis-8" aria-live="polite">
+      ${ecKpiM(C, "net", (i) => days.net[i])}
+      ${ecKpiM(C, "n", (i) => days.n[i])}
+      ${ecKpiM(C, "cust")}
+      ${ecKpiM(C, "newC")}
+      ${ecKpiM(C, "aov", (i) => ecDiv(days.net[i], days.n[i] - days.canc[i]))}
+      ${ecKpiM(C, "canc", (i) => ecDiv(days.canc[i], days.n[i]))}
+      ${ecKpiM(C, "ontime", (i) => ecDiv(days.deliv[i] - days.late[i], days.deliv[i]))}
+      ${ecKpi("Complaints per 1,000", isNum(per1k) ? int(per1k) : "—", isNum(pPer1k) ? ecDelta(per1k, pPer1k, "rel", "down", fmonth(pcm)) : "", cs.rows.length ? `${int(cs.rows.length)} in ${esc(cs.has ? ecMon(m) : cs.label)}${cs.has ? "" : " (no " + esc(ecMon(m)) + " yet)"} · by month only` : "None in the file")}
     </div>`;
-    S.ecomMetric = S.ecomMetric || "n";
-    const METS = [["n", "Orders"], ["net", "Net sales"], ["canc", "Cancelled %"], ["late", "Late %"]];
-    const met = S.ecomMetric, L = d.days.length;
-    const series = Array.from({ length: L }, (_, i) => met === "n" ? days.n[i] : met === "net" ? days.net[i] : met === "canc" ? ecDiv(days.canc[i], days.n[i]) : ecDiv(days.late[i], days.deliv[i]));
-    const fmt = met === "n" ? int : met === "net" ? bdt : (v) => `${(v * 100).toFixed(0)}%`;
-    const tip = (i) => `<strong>${esc(fdate(d.days[i]))}</strong><dl><dt>Sub-orders</dt><dd>${int(days.n[i])}</dd><dt>Net sales</dt><dd>${bdt(days.net[i])}</dd><dt>Cancelled</dt><dd>${ecPct(ecDiv(days.canc[i], days.n[i]))}</dd><dt>Delivered late</dt><dd>${ecPct(ecDiv(days.late[i], days.deliv[i]))}</dd></dl>`;
-    AFTER.push(() => ecTrend($("#ecTrend"), d, series, mi, fmt, `Daily ${METS.find((x) => x[0] === met)[1].toLowerCase()}`, tip));
-    const tot = d.months.map((_, i) => ecMonth(d, days, i));
+    S.ecomPaceM = EC_PACE.some(([k]) => k === S.ecomPaceM) ? S.ecomPaceM : "net";
+    S.ecomPaceC = S.ecomPaceC === "day" ? "day" : "cum";
+    AFTER.push(() => ecPace($("#ecPace"), C, S.ecomPaceM, S.ecomPaceC === "cum"));
+    const tot = d.months.map((_, i) => ecMonth(d, days, i)), aov = (x) => ecDiv(x.net, x.n - x.canc), ontime = (x) => ecDiv(x.deliv - x.late, x.deliv);
     const mults = ecMults(d, mi, [
       ["Orders a day", (i) => tot[i].n / tot[i].days, int], ["Net sales a day", (i) => tot[i].net / tot[i].days, ecTk],
       ["Cancelled", (i) => ecDiv(tot[i].canc, tot[i].n), (v) => ecPct(v)], ["Delivered on time", (i) => ontime(tot[i]), (v) => ecPct(v)],
@@ -5808,53 +6133,82 @@
     const row = (label, fn, fmt2) => `<tr><td class="cell-primary">${label}</td>${d.months.map((_, i) => `<td class="num${i === mi ? " ec-on" : ""}">${fmt2(fn(i))}</td>`).join("")}</tr>`;
     const table = `<div class="table-wrap"><table class="compact"><thead><tr><th>Quantity and amount</th>${d.months.map((x, i) => `<th class="num${i === mi ? " ec-on" : ""}">${esc(fmonth(x))}<span class="cell-secondary">${d.mdays[x]} days</span></th>`).join("")}</tr></thead><tbody>
       ${row("Sub-orders", (i) => tot[i].n, int)}${row("Sub-orders a day", (i) => tot[i].n / tot[i].days, int)}${row("Net sales", (i) => tot[i].net, bdt)}${row("Net sales a day", (i) => tot[i].net / tot[i].days, bdt)}
-      ${row("Change in net sales a day", chg, (v) => (isNum(v) ? `<span class="${v >= 0 ? "ec-up" : "ec-down"}">${v >= 0 ? "▲" : "▼"} ${Math.abs(v * 100).toFixed(1)}%</span>` : "—"))}
-      ${row("Average order", (i) => aov(tot[i]), bdt)}${row("Cancelled", (i) => ecDiv(tot[i].canc, tot[i].n), (v) => ecPct(v))}${row("Delivered on time", (i) => ontime(tot[i]), (v) => ecPct(v))}</tbody></table></div>`;
+      ${row("Change in net sales a day (MoM)", chg, (v) => (isNum(v) ? `<span class="${v >= 0 ? "ec-up" : "ec-down"}">${v >= 0 ? "▲" : "▼"} ${Math.abs(v * 100).toFixed(1)}%</span>` : "—"))}
+      ${row("Average sub-order", (i) => aov(tot[i]), bdt)}${row("Cancelled", (i) => ecDiv(tot[i].canc, tot[i].n), (v) => ecPct(v))}${row("Delivered on time", (i) => ontime(tot[i]), (v) => ecPct(v))}</tbody></table></div>`;
+    const paceName = EC_PACE.find(([k]) => k === S.ecomPaceM)[1];
     return `${kpis}
       <div class="ec-row wide">
-        ${ecPanel("Daily trend", `Every delivery day in the exports; the shaded band is ${esc(ecMonthName(d, m))}. Hover for the day's figures.`, `<div class="ec-chart" id="ecTrend"></div>`, seg("ecomMetric", METS, "Trend measure"))}
-        ${ecPanel("Problems to act on", `Worked out from the data for ${esc(ecMonthName(d, m))} and ${esc(sc.label)}. Click one to see it.`, ecProblems(C))}
+        ${ecPanel(`${S.ecomPaceC === "cum" ? "Month to date" : "Day by day"}: ${esc(fmonth(m))} against ${esc(P.pm ? fmonth(P.pm) : "last month")}`, `${esc(paceName)} by day of the month. ${S.ecomPaceC === "cum" ? "Running total (or running share) from the 1st, so the gap between the lines is how far ahead or behind last month the month is." : "Each day's figure."} Hover for both months.`,
+          `<div class="ec-chart ec-pace" id="ecPace"></div>`, `${seg("ecomPaceM", EC_PACE, "Pace measure")}${seg("ecomPaceC", [["cum", "Month to date"], ["day", "Daily"]], "Pace view")}`)}
+        ${ecPanel("Problems to act on", `Worked out from the data for ${esc(P.curLabel)} and ${esc(sc.label)}. Click one to see it.`, ecProblems(C))}
       </div>
+      ${ecScorecard(C)}
       ${ecPanel("Month by month", "Per day, so a part month compares fairly with a full one; the solid column is the selected month.", `${mults}${table}`)}`;
   }
 
+  // ---- Outlets: league with change, movers, volume against problems, products
+  function ecGroupRows(C, by, g0, cmp) {
+    const { d } = C, key = (o) => (by === "o" ? o.i : by === "zn" ? o.zn : o.rl), g = new Map();
+    const add = (src, slot) => src.forEach((x) => {
+      const k = key(x.o);
+      let a = g.get(k);
+      if (!a) { a = { k, ref: x.o, cur: Object.fromEntries(EC_F.map((f) => [f, 0])), cmp: Object.fromEntries(EC_F.map((f) => [f, 0])), outs: new Set() }; a.cur.days = C.P.cur.length; a.cmp.days = C.P.cmp.length; g.set(k, a); }
+      EC_F.forEach((f) => (a[slot][f] += x[f]));
+      if (slot === "cur") a.outs.add(x.o.i);
+    });
+    add(g0, "cur"); add(cmp, "cmp");
+    return [...g.values()].filter((a) => a.cur.n || a.cmp.n);
+  }
   function ecOutlets(C) {
-    const { d, mi, m, sc, cur: t } = C;
+    const { d, mi, m, sc, P, T } = C;
     const by = S.ecomBy || "o";
-    const bo = [...ecByOutlet(d, sc.on, mi).values()];
+    const cur = [...ecByOutletIdx(d, sc.on, P.cur).values()], cmp = P.cmp.length ? [...ecByOutletIdx(d, sc.on, P.cmp).values()] : [];
     const cs = ecCompScope(d, sc, m), cOrd = ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)), comp = new Map();
     cs.rows.forEach((i) => { const o = d.complaints[i][3]; comp.set(o, (comp.get(o) || 0) + 1); });
     const open = new Map(); d.open.forEach((r) => { if (sc.on[r[2]]) open.set(r[2], (open.get(r[2]) || 0) + 1); });
-    // a group's first outlet is kept as "ref" (not "o", which the table's CSV would read as the row's outlet)
-    const key = (o) => (by === "o" ? o.i : by === "zn" ? o.zn : o.rl), g = new Map();
-    bo.forEach((x) => {
-      const k = key(x.o), a = g.get(k) || { k, ref: x.o, comp: 0, cord: 0, openNow: 0, outs: 0 };
-      EC_F.forEach((f) => (a[f] = (a[f] || 0) + x[f])); a.outs++; g.set(k, a);
+    const key = (o) => (by === "o" ? o.i : by === "zn" ? o.zn : o.rl);
+    const groups = ecGroupRows(C, by, cur, cmp), gi = new Map(groups.map((a) => [a.k, a]));
+    groups.forEach((a) => { a.comp = 0; a.cord = 0; a.openNow = 0; });
+    [...comp.entries()].forEach(([o, n]) => { const a = gi.get(key(d.O[o])); if (a) a.comp += n; });
+    [...cOrd.values()].forEach((x) => { const a = gi.get(key(x.o)); if (a) a.cord += x.n; });
+    [...open.entries()].forEach(([o, n]) => { const a = gi.get(key(d.O[o])); if (a) a.openNow += n; });
+    const pd = (v, t) => (t.days ? v / t.days : 0);
+    const rows = groups.map((a) => {
+      const c = a.cur, p = a.cmp, has = P.cmp.length && p.n > 0;
+      return { k: a.k, ref: a.ref, name: by === "o" ? `${a.ref.c} ${a.ref.n}` : a.k, sub: by === "o" ? `${a.ref.zn} · ${a.ref.rl}` : by === "zn" ? `${a.ref.rl} · ${int(a.outs.size)} outlets` : `${int(a.outs.size)} outlets`,
+        code: by === "o" ? a.ref.c : "", rl: a.ref.rl, zn: by === "rl" ? "" : a.ref.zn,
+        n: c.n, net: c.net, aov: ecDiv(c.net, c.n - c.canc), cp: ecDiv(c.canc, c.n), lp: ecDiv(c.late, c.deliv),
+        netC: has ? p.net : null, gNet: has && pd(p.net, p) ? pd(c.net, c) / pd(p.net, p) - 1 : null, gN: has && p.n ? pd(c.n, c) / pd(p.n, p) - 1 : null,
+        dNet: has ? (pd(c.net, c) - pd(p.net, p)) * (c.days || 0) : null,
+        dCp: has ? ecDiv(c.canc, c.n) - ecDiv(p.canc, p.n) : null, dLp: has && p.deliv && c.deliv ? ecDiv(c.late, c.deliv) - ecDiv(p.late, p.deliv) : null,
+        cper: a.cord ? (a.comp * 1000) / a.cord : null, openNow: a.openNow,
+        attr: by === "o" ? `data-ec-outlet="${a.ref.i}"` : by === "zn" ? `data-ec-zn="${esc(a.k)}"` : `data-ec-rl="${esc(a.k)}"` };
     });
-    [...comp.entries()].forEach(([o, n]) => { const a = g.get(key(d.O[o])); if (a) a.comp += n; });
-    [...cOrd.values()].forEach((x) => { const a = g.get(key(x.o)); if (a) a.cord += x.n; });
-    [...open.entries()].forEach(([o, n]) => { const a = g.get(key(d.O[o])); if (a) a.openNow += n; });
-    const rows = [...g.values()].map((a) => ({ ...a, name: by === "o" ? `${a.ref.c} ${a.ref.n}` : a.k, sub: by === "o" ? `${a.ref.zn} · ${a.ref.rl}` : by === "zn" ? `${a.ref.rl} · ${int(a.outs)} outlets` : `${int(a.outs)} outlets`,
-      code: by === "o" ? a.ref.c : "", rl: a.ref.rl, zn: by === "rl" ? "" : a.ref.zn,
-      aov: ecDiv(a.net, a.n - a.canc), cp: ecDiv(a.canc, a.n), lp: ecDiv(a.late, a.deliv), cper: a.cord ? (a.comp * 1000) / a.cord : null,
-      attr: by === "o" ? `data-ec-outlet="${a.ref.i}"` : by === "zn" ? `data-ec-zn="${esc(a.k)}"` : `data-ec-rl="${esc(a.k)}"` }));
-    const maxN = Math.max(...rows.map((r) => r.n), 1), maxNet = Math.max(...rows.map((r) => r.net), 1);
-    const avgC = ecDiv(t.canc, t.n), avgL = ecDiv(t.late, t.deliv);
+    const maxNet = Math.max(...rows.map((r) => r.net), 1);
+    const avgC = ecDiv(T.canc, T.n), avgL = ecDiv(T.late, T.deliv);
     const flag = (v, avg) => (isNum(v) && isNum(avg) && v > avg + 0.05 ? "ec-down" : "");
-    const level = { o: "outlets", zn: "zonals", rl: "RHOs" }[by];
+    const chgPct = (v, up = 1) => (isNum(v) ? `<span class="${Math.abs(v) < 0.0005 ? "ec-flat" : (v > 0) === !!up ? "ec-up" : "ec-down"}">${v > 0 ? "▲" : v < 0 ? "▼" : "■"} ${Math.abs(v * 100) >= 100 ? int(Math.abs(v * 100)) : Math.abs(v * 100).toFixed(1)}%</span>` : '<span class="muted">—</span>');
+    const chgPts = (v, up = 0) => (isNum(v) ? `<span class="${Math.abs(v) < 0.0005 ? "ec-flat" : (v > 0) === !!up ? "ec-up" : "ec-down"}">${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(1)}</span>` : '<span class="muted">—</span>');
+    const level = { o: "outlets", zn: "zonals", rl: "RHOs" }[by], vs = P.cmp.length ? P.cmpLabel : "";
     const lead = mountTable("ec-lead", {
-      title: by === "o" ? `Top 30 outlets, ${ecMonthName(d, m)}` : `${by === "zn" ? "Zonals" : "RHOs"}, ${ecMonthName(d, m)}`, file: `ecommerce_${level}_${m}`, stamp: m,
-      desc: (n) => `${int(n)} ${level}, largest net sales first. ${by === "o" ? "Click an outlet for its details." : "Click a row to narrow the page to it."} Shares in red are 5 points or more worse than ${esc(sc.label)}. Complaints per 1,000 use ${cs.label}.`,
+      title: `${by === "o" ? "Outlets" : by === "zn" ? "Zonals" : "RHOs"}, ${P.curLabel}`, file: `ecommerce_${level}_${m}_vs_${P.cmpKey}`, stamp: m,
+      desc: (n) => `${int(n)} ${level}, largest net sales first. ${by === "o" ? "Click an outlet for its details." : "Click a row to narrow the page to it."} ${vs ? `Changes are against ${esc(vs)} (${esc(P.cmpName)}); totals compare a day, shares in points.` : ""} Shares in orange are 5 points or more worse than ${esc(sc.label)}. Complaints per 1,000 use ${cs.label}.`,
       rows, key: (r) => String(r.k), searchText: (r) => `${r.name} ${r.sub}`, defaultSort: "net", defaultDir: "desc", pageSize: by === "o" ? 30 : 50,
       tools: seg("ecomBy", [["rl", "By RHO"], ["zn", "By zonal"], ["o", "By outlet"]], "Group by"),
       rowAttr: (r) => `${r.attr} class="k-click" tabindex="0" role="button"`, wire: (el) => ecWire(el),
       cols: [
         { k: "name", label: by === "o" ? "Outlet" : by === "zn" ? "Zonal" : "RHO", firstDir: "asc", fmt: (r) => `<span class="cell-primary">${esc(r.name)}</span><span class="cell-secondary">${esc(r.sub)}</span>` },
-        { k: "n", label: "Sub-orders", num: true, fmt: (r) => `${ecCellBar(r.n, maxN)}${int(r.n)}` },
         { k: "net", label: "Net sales", num: true, fmt: (r) => `${ecCellBar(r.net, maxNet)}${bdt(r.net)}` },
-        { k: "aov", label: "Average order", num: true, fmt: (r) => bdt(r.aov) },
+        { k: "netC", label: vs ? `Net sales, ${vs}` : "Net sales before", num: true, fmt: (r) => (isNum(r.netC) ? bdt(r.netC) : "—") },
+        { k: "gNet", label: "Net sales change", csvLabel: "Net sales change a day", num: true, fmt: (r) => chgPct(r.gNet) },
+        { k: "dNet", label: "Change, taka", csvLabel: "Net sales change in taka at the same number of days", num: true, fmt: (r) => (isNum(r.dNet) ? `<span class="${r.dNet >= 0 ? "ec-up" : "ec-down"}">${r.dNet >= 0 ? "+" : "−"}${bdt(Math.abs(r.dNet))}</span>` : "—") },
+        { k: "n", label: "Sub-orders", num: true, fmt: (r) => int(r.n) },
+        { k: "gN", label: "Sub-orders change", csvLabel: "Sub-orders change a day", num: true, fmt: (r) => chgPct(r.gN) },
+        { k: "aov", label: "Average sub-order", num: true, fmt: (r) => bdt(r.aov) },
         { k: "cp", label: "Cancelled", num: true, fmt: (r) => `<span class="${flag(r.cp, avgC)}">${ecPct(r.cp)}</span>` },
+        { k: "dCp", label: "± pts", csvLabel: "Cancelled change in points", num: true, fmt: (r) => chgPts(r.dCp) },
         { k: "lp", label: "Late", num: true, fmt: (r) => `<span class="${flag(r.lp, avgL)}">${ecPct(r.lp)}</span>` },
+        { k: "dLp", label: "± pts ", csvLabel: "Late change in points", num: true, fmt: (r) => chgPts(r.dLp) },
         { k: "cper", label: "Complaints /1k", csvLabel: "Complaints per 1,000 orders", num: true, fmt: (r) => (isNum(r.cper) ? int(r.cper) : "—") },
         { k: "openNow", label: "Open", num: true, fmt: (r) => int(r.openNow) },
         ...(by === "o" ? [{ k: "code", label: "Outlet code", hide: true }] : []),
@@ -5862,74 +6216,247 @@
         ...(by === "o" ? [{ k: "zn", label: "Zonal", hide: true }] : []),
       ],
     });
+    // movers: largest rise and fall in net sales at the same number of days
+    const mv = rows.filter((r) => isNum(r.dNet));
+    const top = (arr) => arr.slice(0, 10), maxD = Math.max(...mv.map((r) => Math.abs(r.dNet)), 1);
+    const moverBars = (arr, col) => ecBars(arr.map((r) => ({ label: r.name, sub: by === "o" ? r.ref.zn : "", parts: [[Math.abs(r.dNet), col]], val: `${r.dNet >= 0 ? "+" : "−"}${bdt(Math.abs(r.dNet))} · ${isNum(r.gNet) ? `${r.gNet >= 0 ? "+" : "−"}${Math.abs(r.gNet * 100).toFixed(0)}%` : "new"}`, attr: r.attr,
+      tip: `<strong>${esc(r.name)}</strong><dl><dt>${esc(P.curLabel)}</dt><dd>${bdt(r.net)}</dd><dt>${esc(vs)}</dt><dd>${bdt(r.netC)}</dd><dt>Change a day</dt><dd>${isNum(r.gNet) ? ecPct(r.gNet) : "—"}</dd></dl>` })), { max: maxD, empty: "Nothing to show." });
+    const gains = top(mv.filter((r) => r.dNet > 0).sort((a, b) => b.dNet - a.dNet)), falls = top(mv.filter((r) => r.dNet < 0).sort((a, b) => a.dNet - b.dNet));
+    const movers = P.cmp.length ? `<div class="ec-row">
+        ${ecPanel(`Biggest gains in net sales`, `${esc(level[0].toUpperCase() + level.slice(1))} that grew most against ${esc(vs)}, in taka at the same number of days. Click one to open it.`, moverBars(gains, "var(--ec-3)"))}
+        ${ecPanel(`Biggest falls in net sales`, `${esc(level[0].toUpperCase() + level.slice(1))} that fell most against ${esc(vs)}.`, moverBars(falls, "var(--ec-2)"))}
+      </div>` : "";
     S.ecomY = S.ecomY || "late";
     const ym = S.ecomY;
-    const pts = bo.filter((x) => x.n >= 30 && (ym !== "late" || x.deliv >= 20)).map((x) => ({ o: x.o, x: x.n / t.days, y: ym === "late" ? x.late / x.deliv : x.canc / x.n }));
+    const pts = cur.filter((x) => x.n >= 30 && (ym !== "late" || x.deliv >= 20)).map((x) => ({ o: x.o, x: x.n / (P.cur.length || 1), y: ym === "late" ? x.late / x.deliv : x.canc / x.n }));
     AFTER.push(() => ecScatter($("#ecScatter"), pts, ym));
-    const pr = d.products[m] || [];
-    const prod = pr.length ? ecBars(pr.slice(0, 30).map(([name, lines, orders, amount]) => ({ label: name, parts: [[amount, "var(--ec-1)"]], val: bdt(amount), tip: `<strong>${esc(name)}</strong><dl><dt>Amount</dt><dd>${bdt(amount)}</dd><dt>Product lines</dt><dd>${int(lines)}</dd><dt>Sub-orders</dt><dd>${int(orders)}</dd></dl>` })))
-      : `<p class="ec-note">Product detail is not in the ${esc(fmonth(m))} export. Products are read only from exports with one row per product whose amounts add up to the sub-order totals (so far, October).</p>`;
-    return `${lead}
+    const pr = d.products[m] || [], pp = (P.pm && d.products[P.pm]) || [], ppAt = new Map(pp.map((x) => [x[0], x]));
+    const prod = pr.length ? ecBars(pr.slice(0, 30).map(([name, lines, orders, amount]) => { const q = ppAt.get(name); return { label: name, parts: [[amount, "var(--ec-1)"]], val: `${bdt(amount)}${q ? ecPctTxt(amount / d.mdays[m], q[3] / d.mdays[P.pm]) : ""}`, tip: `<strong>${esc(name)}</strong><dl><dt>Amount</dt><dd>${bdt(amount)}</dd><dt>Product lines</dt><dd>${int(lines)}</dd><dt>Sub-orders</dt><dd>${int(orders)}</dd>${q ? `<dt>${esc(fmonth(P.pm))}</dt><dd>${bdt(q[3])}</dd>` : ""}</dl>` }; }))
+      : `<p class="ec-note">Product detail is not in the ${esc(fmonth(m))} export. Products are read only from exports with one row per product whose amounts add up to the sub-order totals (so far, ${esc(Object.keys(d.products).map(fmonth).join(", ") || "none")}).</p>`;
+    return `${lead}${movers}
       <div class="ec-row wide">
-        ${ecPanel(`Volume against ${ym === "late" ? "late delivery" : "cancellation"}`, `Each dot is an outlet with 30 or more sub-orders in ${esc(ecMonthName(d, m))}: busier to the right, worse higher up. Click a dot for the outlet.`, `<div class="ec-chart" id="ecScatter"></div>`, seg("ecomY", [["late", "Late %"], ["canc", "Cancelled %"]], "Vertical measure"))}
-        ${ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled. Products are for all outlets: the export does not split them by outlet.` : "", prod)}
+        ${ecPanel(`Volume against ${ym === "late" ? "late delivery" : "cancellation"}`, `Each dot is an outlet with 30 or more sub-orders in ${esc(P.curLabel)}: busier to the right, worse higher up. Click a dot for the outlet.`, `<div class="ec-chart" id="ecScatter"></div>`, seg("ecomY", [["late", "Late %"], ["canc", "Cancelled %"]], "Vertical measure"))}
+        ${ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled, all outlets (the export does not split products by outlet).${pp.length ? ` The change is a day against ${esc(fmonth(P.pm))}.` : " No product detail for last month, so there is no change to show."}` : "", prod)}
       </div>`;
   }
 
+  // ---- Cancellations and edits
   function ecCancel(C) {
-    const { d, mi, m, sc, days, cur: t, prev: p } = C, pm = mi > 0 ? ecMon(d.months[mi - 1]) : "";
+    const { d, mi, m, sc, days, P, T } = C;
     const tot = d.months.map((_, i) => ecMonth(d, days, i));
-    const why = [...ecWhyBy(d, sc.on, mi).entries()].map(([r, a]) => ({ r: d.why.list[r], a, n: a[0] + a[1] + a[2] })).sort((x, y) => y.n - x.n);
+    const wc = ecWhyFor(C, "cur"), wp = P.cmp.length ? ecWhyFor(C, "cmp") : null, Tp = P.cmpKey === "mom" ? C.Tm : C.Ts;
+    const why = [...(wc || new Map()).entries()].map(([r, a]) => ({ r: d.why.list[r], a, n: a[0] + a[1] + a[2], p: wp ? (wp.get(r) || [0, 0, 0]).reduce((s, v) => s + v, 0) : null })).sort((x, y) => y.n - x.n);
     const WHO = [["Customer", "var(--ec-1)"], ["Back office", "var(--ec-2)"], ["Not given", "var(--ec-4)"]];
-    const whyBars = ecBars(why.map((x) => ({ label: ecWhyName(x.r), parts: x.a.map((v, k) => [v, WHO[k][1]]), val: `${int(x.n)} · ${ecPct(x.n / t.canc, 0)}`,
-      tip: `<strong>${esc(ecWhyName(x.r))}</strong><dl>${x.a.map((v, k) => (v ? `<dt>${WHO[k][0]}</dt><dd>${int(v)}</dd>` : "")).join("")}<dt>Share of cancelled</dt><dd>${ecPct(x.n / t.canc)}</dd></dl>` })), { empty: "No cancellations for this selection." });
-    const ed = [...ecEditBy(d, sc.on, mi).entries()].sort((a, b) => b[1] - a[1]);
-    const edTop = ed.slice(0, 8), edRest = ed.slice(8).reduce((a, x) => a + x[1], 0);
-    const edBars = ecLegend([["Customer changed the order", "var(--ec-3)"], ["Other reasons", "var(--ec-1)"]]) + ecBars([...edTop, ...(edRest ? [["Other reasons", edRest]] : [])].map(([k, n]) => ({ label: ecEditName(k), parts: [[n, k === "Customer Requested Change" ? "var(--ec-3)" : "var(--ec-1)"]], val: `${int(n)} · ${ecPct(n / t.n)}`, tip: `<strong>${esc(ecEditName(k))}</strong>${int(n)} sub-orders, ${ecPct(n / t.n)} of all` })), { empty: "No edits for this selection." });
+    // a reason's share of all sub-orders, now against the comparison, in points
+    const share = (n, t) => ecDiv(n, t?.n);
+    const whyBars = ecBars(why.map((x) => ({ label: ecWhyName(x.r), parts: x.a.map((v, k) => [v, WHO[k][1]]), val: `${int(x.n)} · ${ecPct(share(x.n, T))}${wp && Tp ? ecPtsTxt(share(x.n, T), share(x.p, Tp), 0) : ""}`,
+      tip: `<strong>${esc(ecWhyName(x.r))}</strong><dl>${x.a.map((v, k) => (v ? `<dt>${WHO[k][0]}</dt><dd>${int(v)}</dd>` : "")).join("")}<dt>Share of sub-orders</dt><dd>${ecPct(share(x.n, T))}</dd>${wp && Tp ? `<dt>${esc(P.cmpLabel)}</dt><dd>${int(x.p)} · ${ecPct(share(x.p, Tp))}</dd>` : ""}<dt>Share of cancelled</dt><dd>${ecPct(x.n / T.canc)}</dd></dl>` })), { empty: "No cancellations for this selection." });
+    const ec = ecEditFor(C, "cur") || new Map(), ep = P.cmp.length ? ecEditFor(C, "cmp") : null;
+    const ed = [...ec.entries()].sort((a, b) => b[1] - a[1]), edTop = ed.slice(0, 8), edRestKeys = new Set(ed.slice(8).map((x) => x[0]));
+    const edRest = ed.slice(8).reduce((a, x) => a + x[1], 0), epRest = ep ? [...ep.entries()].filter(([k]) => edRestKeys.has(k) || !ec.has(k)).reduce((a, x) => a + x[1], 0) : 0;
+    const edBars = ecLegend([["Customer changed the order", "var(--ec-3)"], ["Other reasons", "var(--ec-1)"]]) + ecBars([...edTop, ...(edRest ? [["Other reasons", edRest]] : [])].map(([k, n]) => {
+      const pn = ep ? (k === "Other reasons" ? epRest : ep.get(k) || 0) : null;
+      return { label: ecEditName(k), parts: [[n, k === "Customer Requested Change" ? "var(--ec-3)" : "var(--ec-1)"]], val: `${int(n)} · ${ecPct(n / T.n)}${ep && Tp ? ecPtsTxt(n / T.n, ecDiv(pn, Tp.n), 0) : ""}`, tip: `<strong>${esc(ecEditName(k))}</strong>${int(n)} sub-orders, ${ecPct(n / T.n)} of all${ep && Tp ? `; ${esc(P.cmpLabel)}: ${int(pn)} (${ecPct(ecDiv(pn, Tp.n))})` : ""}` };
+    }), { empty: "No edits for this selection." });
     const kpis = `<div class="ec-kpis">
-      ${ecKpi("Cancelled", ecPct(ecDiv(t.canc, t.n)), p && ecDelta(ecDiv(t.canc, t.n), ecDiv(p.canc, p.n), "pts", "down", pm), `${int(t.canc)} sub-orders`)}
-      ${ecKpi("By the customer", ecPct(ecDiv(t.custc, t.n)), p && ecDelta(ecDiv(t.custc, t.n), ecDiv(p.custc, p.n), "pts", "down", pm), `${int(t.custc)} sub-orders`)}
-      ${ecKpi("By back office", ecPct(ecDiv(t.canc - t.custc, t.n)), p && ecDelta(ecDiv(t.canc - t.custc, t.n), ecDiv(p.canc - p.custc, p.n), "pts", "down", pm), `${int(t.canc - t.custc)} sub-orders`)}
-      ${ecKpi("Edited after ordering", ecPct(ecDiv(t.edited, t.n)), p && ecDelta(ecDiv(t.edited, t.n), ecDiv(p.edited, p.n), "pts", "down", pm), `${int(t.edited)} sub-orders`)}
-      ${ecKpi("Customer changed the order", int(t.custed), p && ecDelta(ecDiv(t.custed, t.n), ecDiv(p.custed, p.n), "pts", "down", pm), `${ecPct(ecDiv(t.custed, t.n))} of sub-orders`)}
+      ${ecKpiM(C, "canc", (i) => ecDiv(days.canc[i], days.n[i]))}
+      ${ecKpiM(C, "custc", (i) => ecDiv(days.custc[i], days.n[i]))}
+      ${ecKpiM(C, "boc", (i) => ecDiv(days.canc[i] - days.custc[i], days.n[i]))}
+      ${ecKpiM(C, "cancAmt")}
+      ${ecKpiM(C, "edited", (i) => ecDiv(days.edited[i], days.n[i]))}
+      ${ecKpiM(C, "custed", (i) => ecDiv(days.custed[i], days.n[i]))}
     </div>`;
     const monthly = ecStack(d, mi, [["By the customer", "var(--ec-1)", (i) => ecDiv(tot[i].custc, tot[i].n)], ["By back office", "var(--ec-2)", (i) => ecDiv(tot[i].canc - tot[i].custc, tot[i].n)]], (v) => ecPct(v));
     const edMonthly = ecMults(d, mi, [["Edited after ordering", (i) => ecDiv(tot[i].edited, tot[i].n), (v) => ecPct(v)], ["Customer changed the order", (i) => ecDiv(tot[i].custed, tot[i].n), (v) => ecPct(v)]]);
+    const daily = !d.whyD && P.cmpKey === "splm" && P.cmp.length ? " Reasons are by month in this data file, so they compare with last month after the next data refresh." : "";
     return `${kpis}
       <div class="ec-row wide">
-        ${ecPanel("Why orders were cancelled", `${int(t.canc)} cancelled sub-orders in ${esc(ecMonthName(d, m))}, split by who cancelled. The share is of all cancellations.`, `${ecLegend(WHO)}${whyBars}`)}
+        ${ecPanel("Why orders were cancelled", `${int(T.canc)} cancelled sub-orders in ${esc(P.curLabel)}, split by who cancelled. The share is of all sub-orders; ▲▼ is the change in points against ${esc(P.cmpLabel || "last month")}.${daily}`, `${ecLegend(WHO)}${whyBars}`)}
         ${ecPanel("Cancelled by month", "Share of all sub-orders, by who cancelled.", monthly)}
       </div>
       <div class="ec-row wide">
-        ${ecPanel("Why orders were edited", `Sub-orders edited after they were placed, ${esc(ecMonthName(d, m))}; one can have more than one reason. The share is of all sub-orders.`, edBars)}
+        ${ecPanel("Why orders were edited", `Sub-orders edited after they were placed, ${esc(P.curLabel)}; one can have more than one reason. The share is of all sub-orders.`, edBars)}
         ${ecPanel("Edits by month", "Share of all sub-orders.", edMonthly)}
       </div>`;
   }
 
+  // ---- Delivery and slots
+  function ecPlacedHeat(C) {
+    const { d, sc, mi } = C;
+    if (!d.placed) return `<p class="ec-note">When orders were placed is added by the next data refresh.</p>`;
+    const g = Array.from({ length: 24 }, () => new Array(7).fill(0));
+    d.placed.r.forEach(([o, m, wd, h, n]) => { if (m === mi && sc.on[o]) g[h][wd] += n; });
+    const hours = g.map((r, h) => ({ h, r, t: r.reduce((a, v) => a + v, 0) })).filter((x) => x.t);
+    if (!hours.length) return `<p class="ec-note">No orders for this selection.</p>`;
+    const all = hours.reduce((a, x) => a + x.t, 0), top = Math.max(...hours.flatMap((x) => x.r)) || 1;
+    const td = (v, label) => `<td style="background:color-mix(in oklab, var(--ec-1) ${Math.round((v / top) * 88)}%, var(--surface-2))${v / top > 0.55 ? ";color:#fff" : ""}" ${ecTipAttr(`<strong>${esc(label)}</strong>${int(v)} sub-orders, ${ecPct(v / all)} of the month`)}>${v ? int(v) : "·"}</td>`;
+    return `<div class="ec-heat"><table><thead><tr><th class="r">Hour placed</th>${EC_WD.map((w) => `<th>${EC_WDN[w]}</th>`).join("")}<th>Share</th></tr></thead><tbody>
+      ${hours.map((x) => `<tr><th class="r">${ecHour(x.h)}</th>${EC_WD.map((w) => td(x.r[w], `${ecHour(x.h)}, ${EC_WDN[w]}`)).join("")}<td class="low">${ecPct(x.t / all, 0)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="ec-scale"><span>Fewer</span><i aria-hidden="true" style="background:linear-gradient(90deg,var(--surface-2),var(--ec-1))"></i><span>More orders placed</span></div>`;
+  }
   function ecSlots(C) {
-    const { d, mi, m, sc, cur: t, prev: p } = C, pm = mi > 0 ? ecMon(d.months[mi - 1]) : "";
-    const why = ecWhyBy(d, sc.on, mi), whyN = (k) => { const r = d.why.list.indexOf(k), a = why.get(r); return a ? a[0] + a[1] + a[2] : 0; };
-    const ontime = (x) => ecDiv(x.deliv - x.late, x.deliv);
+    const { d, mi, m, sc, days, P, T } = C;
+    const why = ecWhyFor(C, "cur") || new Map(), whyN = (k) => { const r = d.why.list.indexOf(k), a = why.get(r); return a ? a[0] + a[1] + a[2] : 0; };
     const kpis = `<div class="ec-kpis">
-      ${ecKpi("Delivered on time", ecPct(ontime(t)), p && ecDelta(ontime(t), ontime(p), "pts", "up", pm), `${int(t.deliv)} delivered`)}
-      ${ecKpi("Delivered late", int(t.late), p && ecDelta(ecDiv(t.late, t.deliv), ecDiv(p.late, p.deliv), "pts", "down", pm), `${ecPct(ecDiv(t.late, t.deliv))} of deliveries`)}
-      ${ecKpi("Late by under an hour", int(t.late - t.late60), "", `${ecPct(ecDiv(t.late - t.late60, t.late), 0)} of the late ones`)}
-      ${ecKpi("More than an hour late", int(t.late60), "", `${ecPct(ecDiv(t.late60, t.late), 0)} of the late ones`)}
-      ${ecKpi("Cancelled: delivery time did not suit", int(whyN("DeliveryTimeNotSuitable")), "", `Delayed delivery: ${int(whyN("DelayedDelivery"))}`)}
+      ${ecKpiM(C, "ontime", (i) => ecDiv(days.deliv[i] - days.late[i], days.deliv[i]))}
+      ${ecKpiM(C, "late", (i) => days.late[i])}
+      ${ecKpiM(C, "late60", (i) => ecDiv(days.late60[i], days.deliv[i]))}
+      ${ecKpiM(C, "lateMin", (i) => ecDiv(days.lateMin[i], days.late[i]))}
+      ${ecKpiM(C, "same")}
+      ${ecKpiM(C, "next")}
     </div>`;
-    const sl = ecSlotBy(d, sc.on, mi).map((wd, s) => ({ s, t: wd.reduce(ecAdd4, [0, 0, 0, 0]) })).filter((x) => x.t[0]);
-    const slotBars = ecBars(sl.map((x) => ({ label: d.slots.list[x.s][0], parts: [[x.t[0], "var(--ec-1)"]], val: `${int(x.t[0])} · ${ecPct(ecDiv(x.t[3], x.t[2]), 0)} late`,
-      tip: `<strong>${esc(d.slots.list[x.s][0])}</strong><dl><dt>Sub-orders</dt><dd>${int(x.t[0])}</dd><dt>Late</dt><dd>${int(x.t[3])} (${ecPct(ecDiv(x.t[3], x.t[2]))})</dd><dt>Cancelled</dt><dd>${int(x.t[1])} (${ecPct(ecDiv(x.t[1], x.t[0]))})</dd></dl>` })));
-    const lateO = [...ecByOutlet(d, sc.on, mi).values()].filter((x) => x.late).sort((a, b) => b.late - a.late).slice(0, 12);
-    const lateBars = ecBars(lateO.map((x) => ({ label: `${x.o.c} ${x.o.n}`, sub: x.o.zn, parts: [[x.late, "var(--ec-2)"]], val: `${int(x.late)} · ${ecPct(x.late / x.deliv, 0)}`, attr: `data-ec-outlet="${x.o.i}"`,
-      tip: `<strong>${esc(x.o.c)} ${esc(x.o.n)}</strong><dl><dt>Delivered</dt><dd>${int(x.deliv)}</dd><dt>Late</dt><dd>${int(x.late)} (${ecPct(x.late / x.deliv)})</dd><dt>Over an hour</dt><dd>${int(x.late60)}</dd></dl>` })), { empty: "No late deliveries for this selection." });
+    const sl = ecSlotBy(d, sc.on, mi).map((wd, s) => ({ s, t: wd.reduce(ecAdd4, [0, 0, 0, 0]) }));
+    const slp = C.pmi >= 0 ? ecSlotBy(d, sc.on, C.pmi).map((wd) => wd.reduce(ecAdd4, [0, 0, 0, 0])) : null;
+    const slotBars = ecBars(sl.filter((x) => x.t[0]).map((x) => { const q = slp?.[x.s]; return { label: d.slots.list[x.s][0], parts: [[x.t[0], "var(--ec-1)"]], val: `${int(x.t[0])} · ${ecPct(ecDiv(x.t[3], x.t[2]), 0)} late${q && q[2] ? ecPtsTxt(ecDiv(x.t[3], x.t[2]), ecDiv(q[3], q[2]), 0) : ""}`,
+      tip: `<strong>${esc(d.slots.list[x.s][0])}</strong><dl><dt>Sub-orders</dt><dd>${int(x.t[0])}</dd><dt>Late</dt><dd>${int(x.t[3])} (${ecPct(ecDiv(x.t[3], x.t[2]))})</dd><dt>Cancelled</dt><dd>${int(x.t[1])} (${ecPct(ecDiv(x.t[1], x.t[0]))})</dd>${q ? `<dt>${esc(fmonth(P.pm))}, late</dt><dd>${ecPct(ecDiv(q[3], q[2]))}</dd>` : ""}</dl>` }; }));
+    const lateO = [...ecByOutletIdx(d, sc.on, P.cur).values()].filter((x) => x.late).sort((a, b) => b.late - a.late).slice(0, 12);
+    const lateP = P.cmp.length ? ecByOutletIdx(d, sc.on, P.cmp) : null;
+    const lateBars = ecBars(lateO.map((x) => { const q = lateP?.get(x.o.i); return { label: `${x.o.c} ${x.o.n}`, sub: x.o.zn, parts: [[x.late, "var(--ec-2)"]], val: `${int(x.late)} · ${ecPct(x.late / x.deliv, 0)}${q && q.deliv ? ecPtsTxt(x.late / x.deliv, q.late / q.deliv, 0) : ""}`, attr: `data-ec-outlet="${x.o.i}"`,
+      tip: `<strong>${esc(x.o.c)} ${esc(x.o.n)}</strong><dl><dt>Delivered</dt><dd>${int(x.deliv)}</dd><dt>Late</dt><dd>${int(x.late)} (${ecPct(x.late / x.deliv)})</dd><dt>Over an hour</dt><dd>${int(x.late60)}</dd>${q ? `<dt>${esc(P.cmpLabel)}</dt><dd>${int(q.late)} late (${ecPct(ecDiv(q.late, q.deliv))})</dd>` : ""}</dl>` }; }), { empty: "No late deliveries for this selection." });
+    const hc = T.h, hp = (P.cmpKey === "mom" ? C.Tm : C.Ts)?.h;
+    const leadRows = hc ? [["The same day", "l0"], ["The next day", "l1"], ["2 or more days later", "l2"]].map(([label, k]) => ({ label, parts: [[hc[k], "var(--ec-1)"]], val: `${int(hc[k])} · ${ecPct(ecDiv(hc[k], hc.ln))}${hp ? ecPtsTxt(ecDiv(hc[k], hc.ln), ecDiv(hp[k], hp.ln), k === "l0" ? 1 : k === "l2" ? 0 : 1) : ""}` })) : [];
     return `${kpis}
       ${ecPanel("Late deliveries by slot and weekday", `Share of deliveries that arrived after their slot ended, ${esc(ecMonthName(d, m))}. Darker is later; hover a cell for the counts.`, ecHeat(d, sc, mi))}
       <div class="ec-row">
-        ${ecPanel("Orders by slot", "Sub-orders booked into each delivery slot, with the late share.", slotBars)}
-        ${ecPanel("Most late deliveries", "Outlets with the most deliveries after the slot ended. Click one for its details.", lateBars)}
+        ${ecPanel("Orders by slot", `Sub-orders booked into each delivery slot, with the late share${slp ? ` and its change in points against ${esc(fmonth(P.pm))} (slots are by month)` : ""}.`, slotBars)}
+        ${ecPanel("Most late deliveries", `Outlets with the most deliveries after the slot ended${lateP ? `; ▲▼ is the late share against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, lateBars)}
       </div>
-      ${ecPanel("Slot changes", "", `<p class="ec-note" style="margin:0">The exports keep only each order's final delivery slot, so a slot that was changed cannot be seen. The nearest signs are the cancellations above: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery. A slot-change export in the Drive folder would let this page show them.</p>`)}`;
+      <div class="ec-row">
+        ${ecPanel("When customers order", `Sub-orders delivered in ${esc(ecMonthName(d, m))} by the hour and weekday the order was placed.`, ecPlacedHeat(C))}
+        ${ecPanel("How far ahead customers book", `Days from placing the order to its delivery slot, sub-orders not cancelled${hp ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}.`, hc ? ecBars(leadRows) : `<p class="ec-note">Needs the customer history in the data file.</p>`)}
+      </div>
+      ${ecPanel("Slot changes", "", `<p class="ec-note" style="margin:0">The exports keep only each order's final delivery slot, so a slot that was changed cannot be seen. The nearest signs are the cancellations: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery.</p>`)}`;
+  }
+
+  // ---- Customers: cohorts (customers by the month of their first order, and how many came back)
+  function ecCohorts(C) {
+    const { d, sc } = C, H = ecHistPrep(d);
+    if (!H) return `<p class="ec-note">Needs the customer history in the data file.</p>`;
+    const M = d.months.length, bits = new Map();
+    for (let i = 0; i < H.N; i++) {
+      const c = H.c[i], s = H.sd[i];
+      if (c < 0 || s < 0 || !sc.on[H.o[i]]) continue;
+      bits.set(c, (bits.get(c) || 0) | (1 << d.dm[s]));
+    }
+    const size = new Array(M).fill(0), back = Array.from({ length: M }, () => new Array(M).fill(0));
+    bits.forEach((b, c) => {
+      const f = d.dm[H.first[c]];
+      if (!(b & (1 << f))) return; // first order outside this scope
+      size[f]++;
+      for (let k = f; k < M; k++) if (b & (1 << k)) back[f][k]++;
+    });
+    const cell = (f, k) => {
+      if (k < f) return `<td class="ec-coh-x"></td>`;
+      const r = ecDiv(back[f][k], size[f]);
+      if (k === f) return `<td class="num"><b>${int(size[f])}</b></td>`;
+      return `<td class="num" style="background:color-mix(in oklab, var(--ec-3) ${Math.round((r || 0) * 140)}%, transparent)" ${ecTipAttr(`<strong>First ordered in ${esc(fmonth(d.months[f]))}</strong>${int(back[f][k])} of ${int(size[f])} ordered again in ${esc(ecMonthName(d, d.months[k]))}`)}>${ecPct(r, 0)}</td>`;
+    };
+    return `<div class="table-wrap"><table class="compact ec-coh"><thead><tr><th>First order</th>${d.months.map((x) => `<th class="num">${esc(ecMon(x))}${d.mdays[x] < ecDim(x) ? '<span class="cell-secondary">part</span>' : ""}</th>`).join("")}</tr></thead><tbody>
+      ${d.months.map((x, f) => `<tr><td class="cell-primary">${esc(fmonth(x))}${f === 0 ? '<span class="cell-secondary">and earlier</span>' : ""}</td>${d.months.map((_, k) => cell(f, k)).join("")}</tr>`).join("")}</tbody></table></div>
+      <p class="ec-note">The bold figure is customers whose first order in the data falls in that month; the shares are how many of them ordered again in each later month. The data starts in ${esc(fmonth(d.months[0]))}, so that row includes everyone who ordered before.</p>`;
+  }
+  function ecPayPanel(C) {
+    const { d, mi, sc, P } = C;
+    if (d.dims?.["Payment method"]) {
+      const dm = d.dims["Payment method"], grp = (g) => { const out = [[0, 0], [0, 0], [0, 0], [0, 0]]; g.forEach(([n, net], k) => { const x = out[EC_PAYGRP[dm.list[k]] ?? 3]; x[0] += n; x[1] += net; }); return out; };
+      const a = grp(ecDimFor(C, "Payment method", P.cur)), b = P.cmp.length ? grp(ecDimFor(C, "Payment method", P.cmp)) : null;
+      const an = a.reduce((s, x) => s + x[0], 0) || 1, bn = b ? b.reduce((s, x) => s + x[0], 0) || 1 : 1;
+      return ecPanel("How customers pay", `Share of sub-orders and net sales by payment method, ${esc(P.curLabel)}${b ? `; ▲▼ is the share against ${esc(P.cmpLabel)}` : ""}.`,
+        ecBars(a.map((x, k) => ({ label: EC_PAYNAME[k], parts: [[x[0] / an, EC_COL[k]]], val: `${ecPct(x[0] / an)} · ${bdt(x[1])}${b ? ecPtsTxt(x[0] / an, b[k][0] / bn, k === 0 ? 0 : 1) : ""}`, tip: `<strong>${EC_PAYNAME[k]}</strong><dl><dt>Sub-orders</dt><dd>${int(x[0])}</dd><dt>Net sales</dt><dd>${bdt(x[1])}</dd><dt>Average</dt><dd>${bdt(ecDiv(x[1], x[0]))}</dd>${b ? `<dt>${esc(P.cmpLabel)}</dt><dd>${int(b[k][0])} · ${bdt(b[k][1])}</dd>` : ""}</dl>` })).filter((r, k) => a[k][0] || b?.[k][0]), { max: 1 }));
+    }
+    const pays = d.months.map(() => [0, 0, 0, 0]);
+    d.pays.r.forEach(([o, mm, k, n]) => { if (sc.on[o]) pays[mm][EC_PAYGRP[d.pays.list[k]] ?? 3] += n; });
+    return ecPanel("How customers pay, by month", "Primary payment method of each sub-order.", `${ecLegend(EC_PAYNAME.map((n, k) => [n, EC_COL[k]]))}${ecBars(d.months.map((x, i) => { const raw = pays[i].reduce((a, v) => a + v, 0), s = raw || 1; return { label: ecMonthName(d, x), parts: pays[i].map((v, k) => [v / s, EC_COL[k]]), val: `${int(raw)}`, tip: `<strong>${esc(ecMonthName(d, x))}</strong><dl>${pays[i].map((v, k) => `<dt>${EC_PAYNAME[k]}</dt><dd>${ecPct(v / s)}</dd>`).join("")}</dl>` }; }), { max: 1 })}`);
+  }
+  function ecDistPanel(C) {
+    const { d, mi, sc, P } = C;
+    let cur, prev, list;
+    if (d.dims?.["Delivery district"]) { list = d.dims["Delivery district"].list; cur = ecDimFor(C, "Delivery district", P.cur); prev = P.cmp.length ? ecDimFor(C, "Delivery district", P.cmp) : null; }
+    else {
+      list = d.dists.list; cur = new Map(); prev = C.pmi >= 0 && P.cmpKey === "mom" ? new Map() : null;
+      d.dists.r.forEach(([o, mm, k, n, net]) => { if (!sc.on[o]) return; const g = mm === mi ? cur : mm === C.pmi && prev ? prev : null; if (!g) return; const a = g.get(k) || [0, 0]; a[0] += n; a[1] += net; g.set(k, a); });
+    }
+    const cd = P.cur.length || 1, pdys = (prev === null ? 1 : (d.dims?.["Delivery district"] ? P.cmp.length : (C.pmi >= 0 ? d.mdays[P.pm] : 1))) || 1;
+    const rows = [...cur.entries()].sort((a, b) => b[1][0] - a[1][0]).slice(0, 15);
+    return ecPanel("Delivery districts", `The 15 districts with the most sub-orders in ${esc(P.curLabel)}, with net sales${prev ? ` and the change a day against ${esc(P.cmpKey === "mom" || !d.dims?.["Delivery district"] ? P.momLabel : P.cmpLabel)}` : ""}.`,
+      ecBars(rows.map(([k, [n, net]]) => { const q = prev?.get(k); return { label: list[k], parts: [[n, "var(--ec-1)"]], val: `${int(n)} · ${bdt(net)}${q ? ecPctTxt(net / cd, q[1] / pdys) : ""}`, tip: `<strong>${esc(list[k])}</strong><dl><dt>Sub-orders</dt><dd>${int(n)}</dd><dt>Net sales</dt><dd>${bdt(net)}</dd><dt>Average sub-order</dt><dd>${bdt(ecDiv(net, n))}</dd>${q ? `<dt>Before</dt><dd>${int(q[0])} · ${bdt(q[1])}</dd>` : ""}</dl>` }; })));
+  }
+  function ecCustomers(C) {
+    const { d, mi, m, sc, days } = C;
+    C.customerAnalysis = globalThis.EcomCustomerAnalysis?.analyze(d, sc.on, m) || null;
+    S.ecomCustomerAnalysis = C.customerAnalysis;
+    const tot = d.months.map((_, i) => ecMonth(d, days, i));
+    const cs = ecCompScope(d, sc, m), src = new Map(); cs.rows.forEach((i) => { const k = d.lists.src[d.complaints[i][1]] || "Not recorded"; src.set(k, (src.get(k) || 0) + 1); });
+    const srcBars = ecBars([...src.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ label: k, parts: [[n, "var(--ec-1)"]], val: `${int(n)} · ${ecPct(n / cs.rows.length, 0)}` })), { empty: "No complaints for this selection." });
+    const actRow = (label, fn, fmt) => `<tr><td class="cell-primary">${label}</td>${d.months.map((_, i) => `<td class="num${i === mi ? " ec-on" : ""}">${fmt(fn(i))}</td>`).join("")}</tr>`;
+    const MT = d.months.map((_, i) => C.monthTotals(i));
+    const acts = `<div class="table-wrap"><table class="compact"><thead><tr><th>Customers by month</th>${d.months.map((x, i) => `<th class="num${i === mi ? " ec-on" : ""}">${esc(fmonth(x))}</th>`).join("")}</tr></thead><tbody>
+      ${actRow("Customers", (i) => MT[i].h?.cust, int)}${actRow("New customers", (i) => (MT[i].h && !MT[i].h.base ? MT[i].h.newC : null), int)}${actRow("Orders per customer", (i) => ecDiv(MT[i].h?.ordC, MT[i].h?.cust), ecNum1)}
+      ${actRow("Net sales per customer", (i) => ecDiv(MT[i].net, MT[i].h?.cust), bdt)}
+      ${actRow("Cancelled by the customer", (i) => ecDiv(tot[i].custc, tot[i].n), (v) => ecPct(v))}${actRow("Changed the order", (i) => ecDiv(tot[i].custed, tot[i].n), (v) => ecPct(v))}</tbody></table></div>`;
+    return `<div class="ec-kpis">
+        ${ecKpiM(C, "cust")}${ecKpiM(C, "newC")}${ecKpiM(C, "retC")}${ecKpiM(C, "repeat")}${ecKpiM(C, "opc")}${ecKpiM(C, "spc")}
+      </div>
+      ${C.T.h?.base ? `<p class="ec-banner">${esc(fmonth(m))} is the first month in the data, so every customer counts as new. Pick a later month to split new from returning customers.</p>` : ""}
+      <div class="ec-row wide">
+        ${ecPanel("Do customers come back?", "Customers grouped by the month of their first order, and the share who ordered again in each later month.", ecCohorts(C))}
+        ${ecPanel("Customers by month", "Customer counts by delivery month; shares are of all sub-orders.", acts)}
+      </div>
+      ${ecCustomerHealth(C)}${ecCustomerTable(C)}
+      <div class="ec-row">
+        ${ecPayPanel(C)}
+        ${ecDistPanel(C)}
+      </div>
+      ${ecPanel("How complaints reached us", `${esc(cs.label)}, by the source the complaints file records.`, srcBars)}`;
+  }
+
+  // ---- All fields: every column of the workbooks, what the page does with it, and the extra ones charted
+  const EC_USE = { used: ["good", "Shown on the page"], dim: ["info", "Charted below"], num: ["info", "Summed below"], private: ["idle", "Private: not exported"], id: ["idle", "Identifier"], date: ["idle", "Date or time"], text: ["idle", "Free text: listed only"], empty: ["idle", "Empty"] };
+  function ecFields(C) {
+    const { d, P, T } = C, files = d.source.files || [];
+    const cols = new Map();
+    files.forEach((f) => (f.columns || []).forEach((c) => {
+      const k = `${f.kind}|${c.name}`, a = cols.get(k) || { kind: f.kind, name: c.name, type: c.kind, use: c.use, files: [], filled: 0, rows: 0, distinct: 0 };
+      a.files.push(f.month ? ecMon(f.month) : "complaints"); a.filled += c.filled; a.rows += f.sourceRows || 0; a.distinct = Math.max(a.distinct, c.distinct);
+      if (c.use === "used" || a.use === "used") a.use = "used"; else if (c.use === "dim" || c.use === "num") a.use = c.use;
+      cols.set(k, a);
+    }));
+    const fileList = `<div class="table-wrap"><table class="compact"><thead><tr><th>Workbook</th><th>Holds</th><th class="num">Rows</th><th class="num">Records used</th><th class="num">Columns</th></tr></thead><tbody>
+      ${files.map((f) => `<tr><td class="cell-primary">${esc(f.path)}</td><td>${f.kind === "orders" ? `Sub-orders, ${esc(fmonth(f.month))}` : "Complaints"}</td><td class="num">${isNum(f.sourceRows) ? int(f.sourceRows) : "—"}</td><td class="num">${int(f.rows)}</td><td class="num">${f.columns ? int(f.columns.length) : "—"}</td></tr>`).join("")}</tbody></table></div>`;
+    const inv = cols.size ? mountTable("ec-fields", {
+      title: "Every column in the workbooks", file: "ecommerce_columns", stamp: d.source.asOf.slice(0, 10),
+      desc: (n) => `${int(n)} columns across the sub-order and complaint workbooks, and what this page does with each. Contact and identity details are never copied into the dashboard.`,
+      rows: [...cols.values()].map((a) => ({ ...a, fill: ecDiv(a.filled, a.rows), where: a.files.join(", ") })), key: (r) => `${r.kind}|${r.name}`, searchText: (r) => `${r.name} ${r.use} ${r.where}`, defaultSort: "use", defaultDir: "asc", pageSize: 100,
+      cols: [
+        { k: "name", label: "Column", firstDir: "asc", fmt: (r) => `<span class="cell-primary">${esc(r.name)}</span><span class="cell-secondary">${r.kind === "orders" ? "Sub-order exports" : "Complaints"}</span>` },
+        { k: "use", label: "On this page", fmt: (r) => chip({ cls: EC_USE[r.use]?.[0] || "idle", label: EC_USE[r.use]?.[1] || r.use }) },
+        { k: "type", label: "Values", fmt: (r) => esc({ num: "Numbers", text: "Text", date: "Dates", empty: "Empty" }[r.type] || r.type) },
+        { k: "fill", label: "Filled", num: true, fmt: (r) => ecPct(r.fill, 0) },
+        { k: "distinct", label: "Distinct values", num: true, fmt: (r) => (r.distinct > 60 ? "60+" : int(r.distinct)), csvLabel: "Distinct values (sample, capped at 61)" },
+        { k: "where", label: "In", fmt: (r) => esc(r.where) },
+      ],
+    }) : ecPanel("Every column in the workbooks", "", `<p class="ec-note">The column list is added by the next data refresh: the refresh reads every workbook and records each column and how it is used.</p>`);
+    // categorical columns (dims) other than the ones shown on other tabs
+    const shown = new Set(["Payment method", "Delivery district"]);
+    const dimPanels = Object.entries(d.dims || {}).filter(([k]) => !shown.has(k)).map(([name, dm]) => {
+      const a = ecDimFor(C, name, P.cur), b = P.cmp.length ? ecDimFor(C, name, P.cmp) : null;
+      const an = [...a.values()].reduce((s, x) => s + x[0], 0) || 1, bn = b ? [...b.values()].reduce((s, x) => s + x[0], 0) || 1 : 1;
+      const rows = [...a.entries()].sort((x, y) => y[1][0] - x[1][0]).slice(0, 15);
+      return ecPanel(esc(name), `Sub-orders by ${esc(name)}, ${esc(P.curLabel)}, with net sales${b ? `; ▲▼ is the share against ${esc(P.cmpLabel)}` : ""}.`,
+        ecBars(rows.map(([k, [n, net]]) => { const q = b?.get(k); return { label: dm.list[k] || "(blank)", parts: [[n, "var(--ec-1)"]], val: `${int(n)} · ${ecPct(n / an, 0)} · ${bdt(net)}${b ? ecPtsTxt(n / an, (q ? q[0] : 0) / bn, 1).replace(/ec-up|ec-down/, "ec-flat") : ""}`, tip: `<strong>${esc(dm.list[k] || "(blank)")}</strong><dl><dt>Sub-orders</dt><dd>${int(n)} (${ecPct(n / an)})</dd><dt>Net sales</dt><dd>${bdt(net)}</dd>${b ? `<dt>${esc(P.cmpLabel)}</dt><dd>${int(q ? q[0] : 0)} (${ecPct((q ? q[0] : 0) / bn)})</dd>` : ""}</dl>` }; }), { empty: "No sub-orders for this selection." }));
+    });
+    // numeric columns (nums)
+    let numPanel = "";
+    if (d.nums?.cols?.length) {
+      const sum = (idx) => { const mask = ecMask(d, idx), out = new Array(d.nums.cols.length).fill(0); d.nums.r.forEach((r) => { if (mask[r[1]] && C.sc.on[r[0]]) r.slice(2).forEach((v, j) => (out[j] += v)); }); return out; };
+      const a = sum(P.cur), b = P.cmp.length ? sum(P.cmp) : null, sub = T.n - T.canc, subP = b ? (P.cmpKey === "mom" ? C.Tm : C.Ts) : null;
+      numPanel = ecPanel("Other figures in the exports", `Each numeric column summed over sub-orders not cancelled, ${esc(P.curLabel)}${b ? `, against ${esc(P.cmpLabel)} (a day)` : ""}. "Per product line" columns are added up across the products of a sub-order; the others count once per sub-order.`,
+        `<div class="table-wrap"><table class="compact"><thead><tr><th>Column</th><th class="num">${esc(P.curLabel)}</th><th class="num">Per sub-order</th>${b ? `<th class="num">${esc(P.cmpLabel)}</th><th class="num">Change a day</th>` : ""}</tr></thead><tbody>
+        ${d.nums.cols.map((c, j) => `<tr><td><span class="cell-primary">${esc(c.name)}</span><span class="cell-secondary">${c.level === "line" ? "Per product line" : "Per sub-order"}</span></td><td class="num">${int(a[j])}</td><td class="num">${ecNum1(ecDiv(a[j], sub))}</td>${b ? `<td class="num">${int(b[j])}</td><td class="num">${ecPctTxt(a[j] / (P.cur.length || 1), b[j] / (P.cmp.length || 1)) || "—"}</td>` : ""}</tr>`).join("")}</tbody></table></div>`);
+    }
+    const none = !d.dims && !d.nums ? `<p class="ec-banner">This data file predates the column scan. After the next data refresh this tab lists every column of every workbook and charts the extra ones (for example Zone, order status and payment status) with the same comparisons as the rest of the page.</p>` : "";
+    return `${none}${ecPanel("Workbooks read", `From the E-commerce Drive folder; sub-orders are counted once, in the month of their delivery slot.`, fileList)}
+      ${inv}${numPanel}${dimPanels.length ? `<div class="ec-row">${dimPanels.join("")}</div>` : ""}`;
   }
 
   function ecCustomerRanks(d, on, mi) {
@@ -6081,50 +6608,34 @@
     showDrawer();
   }
 
-  function ecCustomers(C) {
-    const { d, mi, m, sc, days } = C;
-    C.customerAnalysis = globalThis.EcomCustomerAnalysis?.analyze(d, sc.on, m) || null;
-    S.ecomCustomerAnalysis = C.customerAnalysis;
-    const tot = d.months.map((_, i) => ecMonth(d, days, i));
-    const pays = d.months.map(() => [0, 0, 0, 0]);
-    d.pays.r.forEach(([o, mm, k, n]) => { if (sc.on[o]) pays[mm][EC_PAYGRP[d.pays.list[k]] ?? 3] += n; });
-    const payBars = ecBars(d.months.map((x, i) => { const raw = pays[i].reduce((a, v) => a + v, 0), s = raw || 1; return { label: ecMonthName(d, x), parts: pays[i].map((v, k) => [v / s, EC_COL[k]]), val: `${int(raw)}`,
-      tip: `<strong>${esc(ecMonthName(d, x))}</strong><dl>${pays[i].map((v, k) => `<dt>${EC_PAYNAME[k]}</dt><dd>${ecPct(v / s)}</dd>`).join("")}</dl>` }; }), { max: 1 });
-    const payNow = pays[mi], payTot = payNow.reduce((a, v) => a + v, 0) || 1;
-    const dist = new Map(); d.dists.r.forEach(([o, mm, k, n, net]) => { if (mm !== mi || !sc.on[o]) return; const a = dist.get(k) || [0, 0]; a[0] += n; a[1] += net; dist.set(k, a); });
-    const distBars = ecBars([...dist.entries()].sort((a, b) => b[1][0] - a[1][0]).slice(0, 12).map(([k, [n, net]]) => ({ label: d.dists.list[k], parts: [[n, "var(--ec-1)"]], val: `${int(n)} · ${bdt(net)}`, tip: `<strong>${esc(d.dists.list[k])}</strong><dl><dt>Sub-orders</dt><dd>${int(n)}</dd><dt>Net sales</dt><dd>${bdt(net)}</dd><dt>Average order</dt><dd>${bdt(ecDiv(net, n))}</dd></dl>` })));
-    const cs = ecCompScope(d, sc, m), src = new Map(); cs.rows.forEach((i) => { const k = d.lists.src[d.complaints[i][1]] || "Not recorded"; src.set(k, (src.get(k) || 0) + 1); });
-    const srcBars = ecBars([...src.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ label: k, parts: [[n, "var(--ec-1)"]], val: `${int(n)} · ${ecPct(n / cs.rows.length, 0)}` })), { empty: "No complaints for this selection." });
-    const actRow = (label, fn, fmt) => `<tr><td class="cell-primary">${label}</td>${d.months.map((_, i) => `<td class="num${i === mi ? " ec-on" : ""}">${fmt(fn(i))}</td>`).join("")}</tr>`;
-    const acts = `<div class="table-wrap"><table class="compact"><thead><tr><th>Customer actions</th>${d.months.map((x, i) => `<th class="num${i === mi ? " ec-on" : ""}">${esc(fmonth(x))}</th>`).join("")}</tr></thead><tbody>
-      ${actRow("Cancelled by the customer", (i) => ecDiv(tot[i].custc, tot[i].n), (v) => ecPct(v))}${actRow("Changed the order", (i) => ecDiv(tot[i].custed, tot[i].n), (v) => ecPct(v))}
-      ${actRow("Sub-orders", (i) => tot[i].n, int)}</tbody></table></div>`;
-    return `<div class="ec-kpis">
-        ${ecKpi("Cash on delivery", ecPct(payNow[0] / payTot), "", `${int(payNow[0])} sub-orders`)}
-        ${ecKpi("Paid online", ecPct((payNow[1] + payNow[2]) / payTot), "", "bKash, cards and banks")}
-        ${ecKpi("Cancelled by the customer", ecPct(ecDiv(C.cur.custc, C.cur.n)), "", `${int(C.cur.custc)} sub-orders`)}
-        ${ecKpi("Changed the order", ecPct(ecDiv(C.cur.custed, C.cur.n)), "", `${int(C.cur.custed)} sub-orders`)}
-      </div>
-      ${ecCustomerHealth(C)}${ecCustomerTable(C)}
-      <div class="ec-row wide">
-        ${ecPanel("How customers pay, by month", "Primary payment method of each sub-order.", `${ecLegend(EC_PAYNAME.map((n, k) => [n, EC_COL[k]]))}${payBars}`)}
-        ${ecPanel("Customer actions by month", "Shares of all sub-orders.", acts)}
-      </div>
-      <div class="ec-row">
-        ${ecPanel("Delivery districts", `The 12 districts with the most sub-orders in ${esc(ecMonthName(d, m))}, with net sales.`, distBars)}
-        ${ecPanel("How complaints reached us", `${esc(cs.label)}, by the source the complaints file records.`, srcBars)}
-      </div>`;
+  // complaints by category and month, per 1,000 sub-orders: the month-on-month view of the complaints file
+  function ecCompMonths(C) {
+    const { d, sc } = C, months = d.cmonths;
+    if (months.length < 2) return "";
+    const cnt = new Map(), totals = months.map(() => 0);
+    d.complaints.forEach((c) => { if (!sc.on[c[3]]) return; const j = months.indexOf(c[0]), k = d.lists.cat[c[4]]; if (j < 0) return; const a = cnt.get(k) || months.map(() => 0); a[j]++; totals[j]++; cnt.set(k, a); });
+    const ord = months.map((mm) => [...ecByOutlet(d, sc.on, ecMonthSet(d, [mm])).values()].reduce((a, x) => a + x.n, 0));
+    const rows = [...cnt.entries()].sort((a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0));
+    const cellv = (v, j) => `<td class="num">${int(v)}<span class="cell-secondary">${ord[j] ? (v * 1000 / ord[j]).toFixed(1) + "/1k" : "—"}</span></td>`;
+    const chgCell = (a) => { const j = months.length - 1; return `<td class="num">${ord[j] && ord[j - 1] ? ecPctTxt(a[j] / ord[j], a[j - 1] / ord[j - 1], 0) || "—" : "—"}</td>`; };
+    return ecPanel("Complaints by month", `Count and complaints per 1,000 sub-orders, by category. The last column is the change in the rate from ${esc(fmonth(months[months.length - 2]))} to ${esc(fmonth(months[months.length - 1]))} (month on month: the complaints file has no days).`,
+      `<div class="table-wrap"><table class="compact"><thead><tr><th>Category</th>${months.map((mm) => `<th class="num">${esc(fmonth(mm))}</th>`).join("")}<th class="num">MoM</th></tr></thead><tbody>
+      <tr class="ec-grp"><th>All complaints</th>${totals.map((v, j) => `<th class="num">${int(v)}<span class="cell-secondary">${ord[j] ? (v * 1000 / ord[j]).toFixed(1) + "/1k" : "—"}</span></th>`).join("")}${chgCell(totals).replace("<td", "<th").replace("</td>", "</th>")}</tr>
+      ${rows.map(([k, a]) => `<tr><td class="cell-primary">${esc(k)}</td>${a.map(cellv).join("")}${chgCell(a)}</tr>`).join("")}</tbody></table></div>`);
   }
-
   function ecComplaintsTab(C) {
     const { d, m, sc } = C, cs = ecCompScope(d, sc, m), rows = cs.rows.map((i) => d.complaints[i]);
     if (!d.cmonths.length) return ecPanel("Complaints", "", `<p class="ec-note">The complaints file has no rows yet.</p>`);
     const ords = ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)), orders = [...ords.values()].reduce((a, x) => a + x.n, 0);
     const n = rows.length, catN = [0, 0, 0, 0]; rows.forEach((c) => catN[ecCatOf(d, c)]++);
     const banner = cs.has ? "" : `<p class="ec-banner">The complaints file has no ${esc(fmonth(m))} yet, so this tab shows ${esc(cs.label)}.</p>`;
+    // complaints are recorded by month, so they compare with the month before (MoM) only
+    const pcm = cs.months.length === 1 ? ecPrevMonth(cs.months[0]) : null, pcs = pcm && d.cmonths.includes(pcm) ? ecCompScope(d, sc, pcm) : null;
+    const pOrd = pcs ? [...ecByOutlet(d, sc.on, ecMonthSet(d, [pcm])).values()].reduce((a, x) => a + x.n, 0) : 0;
+    const per = n ? ecDiv(n * 1000, orders) : null, pPer = pcs && pOrd ? ecDiv(pcs.rows.length * 1000, pOrd) : null;
     const kpis = `<div class="ec-kpis">
-      ${ecKpi("Complaints", int(n), "", esc(cs.label))}
-      ${ecKpi("Per 1,000 orders", n ? int(ecDiv(n * 1000, orders)) : "—", "", `${int(orders)} sub-orders`)}
+      ${ecKpi("Complaints", int(n), pcs ? ecDelta(n, pcs.rows.length, "rel", "down", fmonth(pcm)) : "", esc(cs.label))}
+      ${ecKpi("Per 1,000 orders", n ? int(per) : "—", isNum(pPer) ? ecDelta(per, pPer, "rel", "down", fmonth(pcm)) : "", `${int(orders)} sub-orders`)}
       ${ecKpi("Linked to an order", ecPct(ecDiv(rows.filter((c) => c[12]).length, n), 0), "", "Order found in the exports")}
       ${EC_CATNAME.slice(0, 3).map((nm, k) => ecKpi(nm, int(catN[k]), "", `${ecPct(ecDiv(catN[k], n), 0)} of complaints`)).join("")}
     </div>`;
@@ -6160,7 +6671,7 @@
       <div class="ec-row wide">
         ${ecPanel(`Complaints by ${who}`, `${lvl === "rl" ? "Click an RHO to see its zonals." : lvl === "zn" ? "Click a zonal to see its outlets." : "Click an outlet for its details."} The second figure is complaints per 1,000 sub-orders.`, `${ecLegend(EC_CATNAME.map((nm, k) => [nm, EC_COL[k]]))}${grpBars}`)}
         ${ecPanel("By category", `${esc(cs.label)}.`, catBars)}
-      </div>${list}`;
+      </div>${ecCompMonths(C)}${list}`;
   }
 
   function ecOpenTab(C) {
@@ -6200,6 +6711,8 @@
     const d = S.ecom, o = d.O[oi]; if (!o) return;
     const mi = d.months.includes(S.ecomM) ? d.months.indexOf(S.ecomM) : d.months.length - 1, m = d.months[mi];
     const on = d.O.map((x) => x.i === oi), days = ecDays(d, on), t = ecMonth(d, days, mi);
+    const P = ecPeriods(d, mi), oc = { d, sc: { on, key: `o${oi}` }, days }, T = ecTotals(oc, P.cur), Tp = P.cmp.length ? ecTotals(oc, P.cmp) : null;
+    const vsRow = Tp ? `<h3 class="ec-dh">Against ${esc(P.cmpLabel)} <span class="muted">(${esc(P.cmpName)})</span></h3><div class="stat-grid three">${["net", "n", "cust", "aov", "canc", "ontime"].map((k) => { const m2 = EC_MK[k]; return `<div class="stat"><small>${esc(m2.label)}</small><strong>${m2.fmt(m2.v(T))}</strong><span class="ec-stat-d">${ecChgHtml(m2, ecChg(m2, T, Tp), `vs ${m2.fmt(m2.v(Tp))}`)}</span></div>`; }).join("")}</div>` : "";
     const comps = d.complaints.map((c, i) => [c, i]).filter(([c]) => c[3] === oi).sort((a, b) => b[0][0].localeCompare(a[0][0]));
     const open = d.open.filter((r) => r[2] === oi);
     const why = [...ecWhyBy(d, on, mi).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -6208,6 +6721,7 @@
     $("#drawerTitle").textContent = `${o.c} ${o.n}`;
     $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${esc(o.zn)} · ${esc(o.rl)} · ${esc(ecMonthName(d, m))}</p>
       <div class="stat-grid three">${stat("Sub-orders", int(t.n))}${stat("Net sales", bdt(t.net))}${stat("Average order", bdt(ecDiv(t.net, t.n - t.canc)))}${stat("Cancelled", ecPct(ecDiv(t.canc, t.n)))}${stat("Delivered late", ecPct(ecDiv(t.late, t.deliv)))}${stat("Open now", int(open.length))}</div>
+      ${vsRow}
       <h3 class="ec-dh">Sub-orders a day</h3><div class="ec-chart" id="ecOutTrend"></div>
       <h3 class="ec-dh">Why its orders were cancelled</h3>${ecBars(why.map(([k, n]) => ({ label: ecWhyName(k), parts: [[n, "var(--ec-2)"]], val: `${int(n)} · ${ecPct(ecDiv(n, t.canc), 0)}` })), { empty: "No cancellations this month." })}
       <h3 class="ec-dh">Complaints <span class="muted">(${int(comps.length)}, all months)</span></h3>
@@ -6271,8 +6785,14 @@
     if (S.ecomZn && !d.O.some((o) => o.zn === S.ecomZn && (!S.ecomRho || o.rl === S.ecomRho))) S.ecomZn = "";
     if (S.ecomOutlet && !d.O.some((o) => o.c === S.ecomOutlet && (!S.ecomRho || o.rl === S.ecomRho) && (!S.ecomZn || o.zn === S.ecomZn))) S.ecomOutlet = "";
     const sc = ecScope(d), days = ecDays(d, sc.on), cur = ecMonth(d, days, mi), prev = mi > 0 ? ecMonth(d, days, mi - 1) : null;
-    const C = { d, mi, m, sc, days, cur, prev };
-    const body = { over: ecOverview, outlets: ecOutlets, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab }[S.ecomTab](C);
+    const P = ecPeriods(d, mi), C = { d, mi, m, sc, days, cur, prev, P, pmi: P.pm ? d.months.indexOf(P.pm) : -1 };
+    C.T = ecTotals(C, P.cur);
+    C.Ts = P.splm.length ? ecTotals(C, P.splm) : null;
+    C.Tm = P.mom.length ? ecTotals(C, P.mom) : null;
+    const mt = new Map();
+    C.monthTotals = (i) => { if (!mt.has(i)) mt.set(i, ecTotals(C, d.days.map((_, k) => k).filter((k) => d.dm[k] === i))); return mt.get(i); };
+    S.ecomC = C;
+    const body = { over: ecOverview, outlets: ecOutlets, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
     AFTER.push(() => {
       ecWire($("#view"));
       $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomBad = false; delete S.tables["ec-customers"]; delete S.tables["ec-customer-health"]; hideTip(); render(); }));
