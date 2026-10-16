@@ -21,16 +21,7 @@ Environment:
   QWEN_KEY or QWEN_API_KEY, QWEN_MODEL     its key and model
   QWEN_LABEL               name shown in the menu (default "Alibaba Qwen")
   QWEN_REASONING_EFFORT    optional; sent to the model as reasoning_effort (dropped if the model rejects it)
-  OPENCODE_CONSOLE_TOKEN   an OpenCode Console service account key (or OPENCODE_API_KEY), sent as Authorization: Bearer.
-                           Paid models need it; free chat models (…-free) work without it. The OpenCode entry (id
-                           "opencode") appears in the menu when this or OPENCODE_MODEL is set.
-  OPENCODE_ORG_ID          optional organisation (org_...), sent as an x-opencode-org-id header
-  OPENCODE_MODEL           its model (default glm-5.3-flash-free); only Chat Completions models (GLM, Kimi, MiniMax,
-                           DeepSeek and the free ones), not GPT (Responses API), Claude or Qwen (Messages) or Gemini
-  OPENCODE_ENDPOINT        OpenAI-compatible base URL (default https://opencode.ai/inference/openai/v1)
-  OPENCODE_LABEL           name shown in the menu (default "OpenCode GLM 5.3 Flash")
-  OPENCODE2_* ...          more OpenCode models, same names with a number (OPENCODE2_API_KEY, OPENCODE2_MODEL...)
-  AI_DEFAULT_PROVIDER      id of the model selected by default (default qwen38, else qwen; "opencode" for OpenCode)
+  AI_DEFAULT_PROVIDER      id of the model selected by default (default qwen38, else qwen)
   QWEN37_*, QWEN38_* ...   more Qwen models, same five names with a number in the prefix (QWEN38_ENDPOINT,
                            QWEN38_API_KEY, QWEN38_MODEL, QWEN38_LABEL, QWEN38_REASONING_EFFORT); each one
                            is its own entry in the Model menu. QWEN_* (no number) is the default.
@@ -79,34 +70,10 @@ def qwen_groups():
     return out
 
 
-OPENCODE_ENDPOINT = "https://opencode.ai/inference/openai/v1"
-OPENCODE_MODEL = "glm-5.3-flash-free"
-
-
-def opencode_groups():
-    """{id: settings} for every OpenCode model set up: OPENCODE_* (id "opencode") and OPENCODE<n>_* ("opencode<n>").
-    Set up by a key (a Console service account key) or by a model alone: free chat models need no key."""
-    out = {}
-    for k in sorted(os.environ):
-        m = re.fullmatch(r"(OPENCODE(\d*))_(CONSOLE_TOKEN|API_KEY|KEY|MODEL)", k)
-        if not m:
-            continue
-        pre = m.group(1)
-        key = env(pre + "_CONSOLE_TOKEN") or env(pre + "_API_KEY") or env(pre + "_KEY")
-        model = env(pre + "_MODEL") or OPENCODE_MODEL
-        if pre.lower() in out or not (key or env(pre + "_MODEL")):
-            continue
-        out[pre.lower()] = {"endpoint": (env(pre + "_ENDPOINT") or OPENCODE_ENDPOINT).rstrip("/"), "key": key, "model": model,
-                            "label": env(pre + "_LABEL") or ("OpenCode GLM 5.3 Flash" if model == OPENCODE_MODEL else "OpenCode " + model),
-                            "effort": env(pre + "_REASONING_EFFORT"), "org": env(pre + "_ORG_ID") or env("OPENCODE_ORG_ID")}
-    return out
-
-
 def providers():
     """The configured providers for the dashboard's Model menu: the default first (Qwen 3.8 Omni Flash, id qwen38), other Qwen models, Azure last."""
     groups = qwen_groups()
     first = env("AI_DEFAULT_PROVIDER") or "qwen38"  # the default model: first in the menu (override with AI_DEFAULT_PROVIDER)
-    groups = {**groups, **opencode_groups()}
     out = [{"id": i, "label": groups[i]["label"]} for i in sorted(groups, key=lambda x: (x != first, x != "qwen", x))]
     if env("AZURE_OPENAI_ENDPOINT") and env("AZURE_OPENAI_KEY") and env("AZURE_OPENAI_DEPLOYMENT"):
         out.append({"id": "azure", "label": env("AZURE_OPENAI_LABEL") or "Azure OpenAI"})
@@ -114,8 +81,7 @@ def providers():
 
 
 def post(url, headers, body):
-    # a named User-Agent: some gateways behind Cloudflare refuse urllib's default one
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "User-Agent": "shwapno-ops-dashboard/1", **headers}, method="POST")
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers}, method="POST")
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -193,21 +159,6 @@ def chat(provider, messages, tools):
                 if e.code not in (404, 400):  # a different route will not help
                     raise
         raise last
-    g = opencode_groups().get(provider)
-    if g:
-        # free chat models need no key; paid ones need a Console service account key
-        url, head, base = g["endpoint"] + "/chat/completions", ({"Authorization": "Bearer " + g["key"]} if g["key"] else {}), {**body, "model": g["model"]}
-        if g["org"]:
-            head["x-opencode-org-id"] = g["org"]
-        try:
-            return post(url, head, base)
-        except urllib.error.HTTPError as e:
-            # a free model may not take tool calls: answer without the dashboard's lookups rather than fail
-            if e.code not in (400, 422) or not tools:
-                raise
-            plain = {k: v for k, v in base.items() if k not in ("tools", "tool_choice")}
-            plain["messages"] = [m for m in base["messages"] if m.get("role") != "tool" and not m.get("tool_calls")]
-            return post(url, head, plain)
     g = qwen_groups().get(provider)
     if g:
         url, head, base = g["endpoint"] + "/chat/completions", {"Authorization": "Bearer " + g["key"]}, {**body, "model": g["model"]}
