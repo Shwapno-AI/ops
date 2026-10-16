@@ -5522,6 +5522,8 @@
     d.O = d.outlets.map(([c, n, rl, zn], i) => ({ i, c, n, rl: rl || none, zn: zn || none }));
     d.dm = d.days.map((x) => d.months.indexOf(x.slice(0, 7)));
     d.dom = d.days.map((x) => +x.slice(8, 10));
+    d.hasSlotCh = !!(d.slotChange?.sources?.length && d.daily.slotch);
+    ["slotch", "slotchLate"].forEach((k) => { if (d.hasSlotCh && !EC_F.includes(k)) EC_F.push(k); });
     d.rls = [...new Set(d.O.map((o) => o.rl))].sort();
     d.cmonths = [...new Set(d.complaints.map((c) => c[0]))].sort();
   }
@@ -5707,6 +5709,9 @@
       { k: "late60", label: "More than an hour late", kind: "rate", up: 0, v: (t) => ecDiv(t.late60, t.deliv), fmt: (v) => ecPct(v), note: "Share of deliveries" },
       { k: "lateMin", label: "Average delay when late", kind: "avg", up: 0, v: (t) => ecDiv(t.lateMin, t.late), fmt: (v) => (isNum(v) ? `${int(v)} min` : "—"), note: "Mean minutes after the slot ended; a few deliveries recorded hours later raise it" },
       { k: "same", label: "Delivered the day it was ordered", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.l0, h.ln)), fmt: (v) => ecPct(v), note: "Slot on the day the order was placed" },
+      { k: "slotch", label: "Slot changed", kind: "rate", up: 0, v: (t) => (isNum(t.slotch) ? ecDiv(t.slotch, t.n) : null), fmt: (v) => ecPct(v), note: "Share of sub-orders moved from the slot the customer chose" },
+      { k: "hidden", label: "Late hidden by a slot change", kind: "rate", up: 0, v: (t) => (isNum(t.slotchLate) ? ecDiv(t.slotchLate, t.deliv) : null), fmt: (v) => ecPct(v), note: "On time for the moved slot, after the customer's slot ended; share of deliveries" },
+      { k: "custLate", label: "Late for the customer", kind: "rate", up: 0, v: (t) => (isNum(t.slotchLate) ? ecDiv(t.late + t.slotchLate, t.deliv) : null), fmt: (v) => ecPct(v), note: "Late against the slot the customer chose: late plus late hidden by a slot change" },
       { k: "next", label: "Delivered the next day", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.l1, h.ln)), fmt: (v) => ecPct(v) },
     ]],
     ["Cancellations and edits", [
@@ -5717,6 +5722,7 @@
       { k: "custed", label: "Customer changed the order", kind: "rate", up: 0, v: (t) => ecDiv(t.custed, t.n), fmt: (v) => ecPct(v) },
     ]],
   ];
+  const EC_SLOTK = ["slotch", "hidden", "custLate"];
   const EC_MK = Object.fromEntries(EC_MET.flatMap(([, ms]) => ms.map((m) => [m.k, m])));
   // change of measure m from b (compare) to a (current): {v, pts} or null
   function ecChg(m, a, b) {
@@ -5765,14 +5771,15 @@
       return `<span class="ec-mini-cols" ${ecTipAttr(tip)}>${vals.map((v, i) => `<i class="${i === mi ? "on" : ""}" style="height:${isNum(v) && max > min ? Math.max(8, ((v - min) / (max - min)) * 100) : 4}%"></i>`).join("")}</span>`;
     };
     const head = `<tr><th>Measure</th><th class="num ec-on">${esc(P.curLabel)}</th><th class="num">${esc(P.splmLabel || "Same period last month")}</th><th class="num">Change</th><th class="num">${esc(P.momLabel || "Last month")}</th><th class="num">Change<span class="cell-secondary">a day for totals; customers only over equal days</span></th><th>By month</th></tr>`;
-    const body = EC_MET.map(([g, ms]) => `<tr class="ec-grp"><th colspan="7">${esc(g)}</th></tr>${ms.map((m) => `<tr>
+    const shown = (ms) => ms.filter((m) => d.hasSlotCh || !EC_SLOTK.includes(m.k));
+    const body = EC_MET.map(([g, ms]) => `<tr class="ec-grp"><th colspan="7">${esc(g)}</th></tr>${shown(ms).map((m) => `<tr>
       <td><span class="cell-primary">${esc(m.label)}</span>${m.note ? `<span class="cell-secondary">${esc(m.note)}</span>` : ""}</td>
       <td class="num ec-on"><b>${m.fmt(m.v(T))}</b></td>
       <td class="num">${Ts && P.splm.length ? m.fmt(m.v(Ts)) : "—"}</td><td class="num">${ecChgHtml(m, ecChg(m, T, Ts))}</td>
       <td class="num">${Tm && P.mom.length ? m.fmt(m.v(Tm)) : "—"}</td><td class="num">${ecChgHtml(m, ecChg(m, T, Tm))}</td>
       <td>${minis(m)}</td></tr>`).join("")}`).join("");
     const csv = [["Group", "Measure", P.curLabel, P.splmLabel || "Same period last month", "Change vs same period", P.momLabel || "Last month", "Change vs last month"]];
-    EC_MET.forEach(([g, ms]) => ms.forEach((m) => {
+    EC_MET.forEach(([g, ms]) => shown(ms).forEach((m) => {
       const raw = (t) => (t ? m.v(t) : null), c1 = ecChg(m, T, Ts), c2 = ecChg(m, T, Tm), cv = (c) => (c ? (c.pts ? `${(c.v * 100).toFixed(2)} pts` : `${(c.v * 100).toFixed(2)}%`) : "");
       csv.push([g, m.label, raw(T), P.splm.length ? raw(Ts) : "", cv(c1), P.mom.length ? raw(Tm) : "", cv(c2)].map((x) => (isNum(x) ? +x.toFixed(4) : x ?? "")));
     }));
@@ -6018,6 +6025,10 @@
         if (w && w.g <= -0.1) add(w.g <= -0.25 ? 2 : 1, `${w.o.c} ${w.o.n}: net sales down ${Math.abs(w.g * 100).toFixed(0)}%`, `${bdt(-w.d)} a day less than ${P.cmpLabel}, the largest fall of any outlet in view. ${w.o.zn}.`, `data-ec-outlet="${w.o.i}"`);
       }
     }
+    if (d.hasSlotCh && C.T.slotch) {
+      const r = ecDiv(C.T.slotch, C.T.n), hid = C.T.slotchLate, rl = ecDiv(C.T.late, C.T.deliv), cl = ecDiv(C.T.late + hid, C.T.deliv);
+      add(r >= 0.1 || cl - rl >= 0.03 ? 2 : r >= 0.03 ? 1 : 0, `${ecPct(r)} of sub-orders had their slot changed`, `${int(C.T.slotch)} moved from the customer's slot; ${int(hid)} of them arrived after the customer's slot, so late for the customer is ${ecPct(cl)} against ${ecPct(rl)} reported.`, `data-ec-tab="slots"`);
+    }
     const cr = ecDiv(t.canc, t.n), pr = p ? ecDiv(p.canc, p.n) : null;
     if (isNum(cr) && t.canc) {
       const why = [...ecWhyBy(d, sc.on, mi).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1])[0];
@@ -6182,6 +6193,7 @@
         dNet: has ? (pd(c.net, c) - pd(p.net, p)) * (c.days || 0) : null,
         dCp: has ? ecDiv(c.canc, c.n) - ecDiv(p.canc, p.n) : null, dLp: has && p.deliv && c.deliv ? ecDiv(c.late, c.deliv) - ecDiv(p.late, p.deliv) : null,
         cper: a.cord ? (a.comp * 1000) / a.cord : null, openNow: a.openNow,
+        sch: d.hasSlotCh ? ecDiv(c.slotch, c.n) : null, clp: d.hasSlotCh ? ecDiv(c.late + c.slotchLate, c.deliv) : null,
         attr: by === "o" ? `data-ec-outlet="${a.ref.i}"` : by === "zn" ? `data-ec-zn="${esc(a.k)}"` : `data-ec-rl="${esc(a.k)}"` };
     });
     const maxNet = Math.max(...rows.map((r) => r.net), 1);
@@ -6209,6 +6221,7 @@
         { k: "dCp", label: "± pts", csvLabel: "Cancelled change in points", num: true, fmt: (r) => chgPts(r.dCp) },
         { k: "lp", label: "Late", num: true, fmt: (r) => `<span class="${flag(r.lp, avgL)}">${ecPct(r.lp)}</span>` },
         { k: "dLp", label: "± pts ", csvLabel: "Late change in points", num: true, fmt: (r) => chgPts(r.dLp) },
+        ...(d.hasSlotCh ? [{ k: "sch", label: "Slot changed", csvLabel: "Slot changed (share of sub-orders)", num: true, fmt: (r) => ecPct(r.sch) }, { k: "clp", label: "Late for customer", csvLabel: "Late for the customer (share of deliveries)", num: true, fmt: (r) => `<span class="${flag(r.clp, ecDiv(T.late + T.slotchLate, T.deliv))}">${ecPct(r.clp)}</span>` }] : []),
         { k: "cper", label: "Complaints /1k", csvLabel: "Complaints per 1,000 orders", num: true, fmt: (r) => (isNum(r.cper) ? int(r.cper) : "—") },
         { k: "openNow", label: "Open", num: true, fmt: (r) => int(r.openNow) },
         ...(by === "o" ? [{ k: "code", label: "Outlet code", hide: true }] : []),
@@ -6325,7 +6338,52 @@
         ${ecPanel("When customers order", `Sub-orders delivered in ${esc(ecMonthName(d, m))} by the hour and weekday the order was placed.`, ecPlacedHeat(C))}
         ${ecPanel("How far ahead customers book", `Days from placing the order to its delivery slot, sub-orders not cancelled${hp ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}.`, hc ? ecBars(leadRows) : `<p class="ec-note">Needs the customer history in the data file.</p>`)}
       </div>
-      ${ecPanel("Slot changes", "", `<p class="ec-note" style="margin:0">The exports keep only each order's final delivery slot, so a slot that was changed cannot be seen. The nearest signs are the cancellations: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery.</p>`)}`;
+      ${ecSlotChange(C, whyN)}`;
+  }
+
+  // ---- slot changes: sub-orders moved away from the slot the customer chose. Delivered inside the moved slot they
+  // count as on time, so the late figures miss them; "late for the customer" adds back the ones that came after
+  // the customer's own slot had ended.
+  const ecSlotShort = (label) => label.replace(/:00/g, "").replace(/ - /, "–");
+  function ecSlotChange(C, whyN) {
+    const { d, mi, sc, days, P, T } = C;
+    if (!d.hasSlotCh) {
+      return ecPanel("Slot changes", "Orders delivered in a different hour from the slot the customer chose.", `<p class="ec-note" style="margin:0">No slot change can be seen in these exports yet. The calculation needs one of these in the sub-order workbooks:
+        a column with the slot the customer chose (any name: it is recognised by values like "11:00 AM - 12:00 PM 10/5/2026"), a column that flags a rescheduled slot (a name with "reschedule" or "slot change"), or the same sub-order in two exports with different slots.
+        Once the data refresh finds one, this section shows how many orders were moved, which slots they moved from and to, and the late deliveries the moves hid.
+        Until then, the nearest signs are the cancellations: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery.</p>`);
+    }
+    const kpis = `<div class="ec-kpis">
+      ${ecKpiM(C, "slotch", (i) => ecDiv(days.slotch[i], days.n[i]))}
+      ${ecKpiM(C, "hidden", (i) => ecDiv(days.slotchLate[i], days.deliv[i]))}
+      ${ecKpiM(C, "custLate", (i) => ecDiv(days.late[i] + days.slotchLate[i], days.deliv[i]))}
+      ${ecKpi("Late as reported", ecPct(ecDiv(T.late, T.deliv)), "", `${int(T.late)} against the delivery slot; ${int(T.slotchLate)} more against the customer's slot`)}
+    </div>`;
+    const name = (k) => (k < 0 ? "Not recorded" : d.slots.list[k][0]);
+    const mv = new Map(), mp = new Map();
+    d.slotChange.r.forEach(([o, m, a, b, n, h]) => { if (!sc.on[o]) return; const g = m === mi ? mv : m === C.pmi ? mp : null; if (!g) return; const k = `${a}>${b}`, x = g.get(k) || { a, b, n: 0, h: 0 }; x.n += n; x.h += h; g.set(k, x); });
+    const tot = [...mv.values()].reduce((s2, x) => s2 + x.n, 0) || 1;
+    const shift = (x) => (x.a < 0 ? null : d.slots.list[x.b][1] - d.slots.list[x.a][1]);
+    const moves = ecBars([...mv.values()].sort((x, y) => y.n - x.n).slice(0, 15).map((x) => {
+      const h = shift(x), q = mp.get(`${x.a}>${x.b}`);
+      return { label: `${ecSlotShort(name(x.a))} → ${ecSlotShort(name(x.b))}`, sub: isNum(h) ? `${h > 0 ? "+" : h < 0 ? "−" : ""}${Math.abs(h)} h` : "", parts: [[x.n - x.h, "var(--ec-1)"], [x.h, "var(--ec-2)"]], val: `${int(x.n)} · ${ecPct(x.n / tot, 0)}`,
+        tip: `<strong>${esc(name(x.a))} → ${esc(name(x.b))}</strong><dl><dt>Sub-orders moved</dt><dd>${int(x.n)}</dd><dt>Delivered after the customer's slot</dt><dd>${int(x.h)}</dd>${q ? `<dt>${esc(fmonth(P.pm))}</dt><dd>${int(q.n)}</dd>` : ""}</dl>` };
+    }), { empty: "No slot changes for this selection." });
+    // later / earlier by hours moved
+    const dir = [0, 0, 0, 0]; mv.forEach((x) => { const h = shift(x); dir[h === null ? 3 : h > 0 ? 0 : h < 0 ? 1 : 2] += x.n; });
+    const dirBars = ecBars([["Moved later", 0], ["Moved earlier", 1], ["Same hour, another day", 2], ["Customer's slot not recorded", 3]].filter(([, k]) => dir[k]).map(([label, k]) => ({ label, parts: [[dir[k], k === 0 ? "var(--ec-2)" : "var(--ec-1)"]], val: `${int(dir[k])} · ${ecPct(dir[k] / tot, 0)}` })));
+    const cur = [...ecByOutletIdx(d, sc.on, P.cur).values()].filter((x) => x.slotch), prev = P.cmp.length ? ecByOutletIdx(d, sc.on, P.cmp) : null;
+    const outs = ecBars(cur.sort((a2, b2) => b2.slotch - a2.slotch).slice(0, 12).map((x) => { const q = prev?.get(x.o.i); return { label: `${x.o.c} ${x.o.n}`, sub: x.o.zn, parts: [[x.slotch - x.slotchLate, "var(--ec-1)"], [x.slotchLate, "var(--ec-2)"]], attr: `data-ec-outlet="${x.o.i}"`,
+      val: `${int(x.slotch)} · ${ecPct(x.slotch / x.n, 0)}${q && q.n ? ecPtsTxt(x.slotch / x.n, q.slotch / q.n, 0) : ""}`,
+      tip: `<strong>${esc(x.o.c)} ${esc(x.o.n)}</strong><dl><dt>Slot changed</dt><dd>${int(x.slotch)} of ${int(x.n)} (${ecPct(x.slotch / x.n)})</dd><dt>Late hidden by the change</dt><dd>${int(x.slotchLate)}</dd><dt>Late as reported</dt><dd>${int(x.late)}</dd><dt>Late for the customer</dt><dd>${ecPct(ecDiv(x.late + x.slotchLate, x.deliv))}</dd>${q ? `<dt>${esc(P.cmpLabel)}</dt><dd>${int(q.slotch)} changed (${ecPct(ecDiv(q.slotch, q.n))})</dd>` : ""}</dl>` }; }), { empty: "No slot changes for this selection." });
+    const legend = ecLegend([["Delivered within the customer's slot", "var(--ec-1)"], ["After the customer's slot ended (hidden late)", "var(--ec-2)"]]);
+    return `<section class="ec-sub"><h2 class="ec-sub-h">Slot changes</h2><p class="ec-note" style="margin:0 0 10px">Sub-orders delivered in a different slot from the one the customer chose. On time against the moved slot, they never count as late; the ones that arrived after the customer's own slot are added back in "Late for the customer". Found from: ${esc(d.slotChange.sources.map((x) => (x === "exports" ? "the same sub-order with different slots in two exports" : `the ${x} column`)).join("; "))}.</p>
+      ${kpis}
+      <div class="ec-row">
+        ${ecPanel("From the customer's slot to the delivery slot", `The most common moves in ${esc(ecMonthName(d, d.months[mi]))}, with the hours moved.`, `${legend}${moves}`)}
+        ${ecPanel("Outlets that change the most slots", `Share of their sub-orders moved${prev ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, `${legend}${outs}`)}
+      </div>
+      ${ecPanel("Which way slots move", `Sub-orders moved in ${esc(ecMonthName(d, d.months[mi]))}, by direction.`, dirBars)}</section>`;
   }
 
   // ---- Customers: cohorts (customers by the month of their first order, and how many came back)

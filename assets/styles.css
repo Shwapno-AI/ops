@@ -495,3 +495,5 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .ec-stat-d{display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-top:3px;color:var(--ink-3)}
 .panel-tools .seg+.seg{margin-left:6px}
 @media (max-width:640px){.ec-period .seg{width:100%}.ec-period .seg button{flex:1}}
+.ec-sub{display:flex;flex-direction:column;gap:14px}
+.ec-sub-h{font-size:16px;font-weight:650;margin:6px 0 0}

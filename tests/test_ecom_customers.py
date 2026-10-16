@@ -281,3 +281,59 @@ class ExtraColumnTests(unittest.TestCase):
         self.assertEqual(dict(zip(names, totals)), {"DeliveryCharge": 80, "Quantity": 4})
         self.assertEqual(sum(r[-1] for r in data["placed"]["r"]), 3)
         self.assertEqual({(r[2], r[3]) for r in data["placed"]["r"]}, {(3, 9)})  # 1 Oct 2026 is a Thursday, 9 AM
+
+
+class SlotChangeTests(unittest.TestCase):
+    """A slot moved from the customer's choice counts as a slot change; delivered after the customer's slot ended,
+    it is late for the customer even though it is on time against the moved slot."""
+    setUp = CustomerRankingTests.setUp
+    build = CustomerRankingTests.build
+
+    def row(self, parent, final, delivered, original=None, flag=None, day="10/5/2026"):
+        r = order(parent, "S" + parent, "Test Alpha", day=day)
+        r.update({"DeliveryTime": f"{final} {day}", "DeliveredOn": delivered,
+                  "RequestedSlot": f"{original} {day}" if original else None, "Rescheduled": flag})
+        return r
+
+    def totals(self, data):
+        return {k: sum(data["daily"][k]) for k in ("n", "late", "slotch", "slotchLate")}
+
+    def test_original_slot_column(self):
+        headers = HEADERS + ["DeliveredOn", "RequestedSlot"]
+        data = self.build({"orders.xlsx": [
+            # chose 11-12, moved to 3-4 PM, delivered 3:30 PM: on time for the moved slot, late for the customer
+            self.row("P1", "03:00 PM - 04:00 PM", "Oct 05, 2026, 3:30:00 PM", "11:00 AM - 12:00 PM"),
+            # chose 11-12, moved to 12-1 PM, delivered 11:45 AM: moved, but within the customer's slot
+            self.row("P2", "12:00 PM - 01:00 PM", "Oct 05, 2026, 11:45:00 AM", "11:00 AM - 12:00 PM"),
+            # not moved, delivered late against its slot
+            self.row("P3", "09:00 AM - 10:00 AM", "Oct 05, 2026, 10:30:00 AM", "09:00 AM - 10:00 AM"),
+        ]}, headers=headers)
+        cols = {c["name"]: c["use"] for c in data["source"]["files"][0]["columns"]}
+        self.assertEqual(cols["RequestedSlot"], "slot")
+        self.assertEqual(self.totals(data), {"n": 3, "late": 1, "slotch": 2, "slotchLate": 1})
+        self.assertEqual(data["slotChange"]["sources"], ["RequestedSlot"])
+        slots = [s[0] for s in data["slots"]["list"]]
+        moves = {(slots[r[2]], slots[r[3]]): r[4:] for r in data["slotChange"]["r"]}
+        self.assertEqual(moves[("11:00 AM - 12:00 PM", "03:00 PM - 04:00 PM")], [1, 1])
+        self.assertEqual(moves[("11:00 AM - 12:00 PM", "12:00 PM - 01:00 PM")], [1, 0])
+
+    def test_slot_differs_between_exports(self):
+        headers = HEADERS + ["DeliveredOn"]
+        data = self.build({
+            "a.xlsx": [self.row("P1", "11:00 AM - 12:00 PM", None)],
+            "b.xlsx": [self.row("P1", "03:00 PM - 04:00 PM", "Oct 05, 2026, 3:30:00 PM")],
+        }, headers=headers)
+        self.assertEqual(self.totals(data), {"n": 1, "late": 0, "slotch": 1, "slotchLate": 1})
+        self.assertEqual(data["slotChange"]["sources"], ["exports"])
+
+    def test_reschedule_flag_and_no_source(self):
+        headers = HEADERS + ["DeliveredOn", "Rescheduled"]
+        data = self.build({"orders.xlsx": [
+            self.row("P1", "03:00 PM - 04:00 PM", "Oct 05, 2026, 3:30:00 PM", flag="Yes"),
+            self.row("P2", "03:00 PM - 04:00 PM", "Oct 05, 2026, 3:30:00 PM", flag="No"),
+        ]}, headers=headers)
+        self.assertEqual(self.totals(data), {"n": 2, "late": 0, "slotch": 1, "slotchLate": 0})
+        self.assertEqual(data["slotChange"]["sources"], ["Rescheduled"])
+        plain = self.build({"orders.xlsx": [self.row("P1", "03:00 PM - 04:00 PM", "Oct 05, 2026, 3:30:00 PM")]}, headers=HEADERS + ["DeliveredOn"])
+        self.assertEqual(plain["slotChange"], {"sources": [], "r": []})
+        self.assertEqual(sum(plain["daily"]["slotch"]), 0)
