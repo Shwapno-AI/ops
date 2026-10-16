@@ -61,7 +61,7 @@ class CustomerRankingTests(unittest.TestCase):
                            order("P2", "S4", "Test Alpha", total=200, status="Cancelled"),
                            order("P3", "S5", "Test Beta", total=60)],
         })
-        self.assertEqual(data["schema"], 4)
+        self.assertEqual(data["schema"], refresh.SCHEMA)
         self.assertEqual(data["customers"]["kind"], "name")
         self.assertEqual(data["customers"]["list"], ["Test Alpha", "Test Beta"])
         self.assertEqual(data["months"], ["2026-10"])
@@ -254,7 +254,7 @@ class ExtraColumnTests(unittest.TestCase):
             row("P2", "S2", "South", 30, 1, day="10/6/2026"),
             row("P3", "S3", "South", 30, 4, status="Cancelled"),
         ]}, headers=headers)
-        self.assertEqual(data["schema"], 4)
+        self.assertEqual(data["schema"], refresh.SCHEMA)
         cols = {c["name"]: c["use"] for c in data["source"]["files"][0]["columns"]}
         self.assertEqual(cols["Zone"], "dim")
         self.assertEqual(cols["DeliveryCharge"], "num")

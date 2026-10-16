@@ -13,7 +13,7 @@ e-mail addresses inside customer names or complaint text are masked. Contact col
 Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
-Output data/ecom.json, schema 3. Every fact carries its outlet, so the page can narrow everything to a regional
+Output data/ecom.json (schema 5; the fields below are schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
 leader, a zonal or one outlet. Aggregate amounts are whole taka; customer history keeps two decimal
 places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   months, mdays  the months and how many slot days each has
@@ -45,7 +45,7 @@ places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   complaints     [[month, src, order, outlet, cat, sub, dbl, details, feedback, order status, order amount,
                  slot date, matched to a sub-order (1/0)]]
 
-Added in schema 4 (all additive, so the schema 3 fields above keep their meaning):
+Added in schemas 4 and 5 (all additive, so the schema 3 fields above keep their meaning):
   source.files[].columns  every column of the workbook: {name, kind (num, text, date, empty), filled (non-empty
                  rows), distinct (capped at 61), use}. use is "used" (read by a field above), "dim" (charted in
                  dims), "num" (summed in nums), "private" (contact or identity details: never exported),
@@ -93,7 +93,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 4
+SCHEMA = 5  # 5: slot changes (slotch, slotchLate, slotChange); bump to force a rebuild when fields are added
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",

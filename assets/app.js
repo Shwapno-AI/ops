@@ -5513,7 +5513,7 @@
     S.ecomLoading = true; S.ecomErr = null;
     fetch("data/ecom.json", { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { if (![2, 3, 4].includes(d.schema)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
+      .then((d) => { if (![2, 3, 4, 5].includes(d.schema)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
       .catch((e) => { S.ecomErr = e.message; })
       .finally(() => { S.ecomLoading = false; if (S.page === "ecom") render(); });
   }
@@ -6329,6 +6329,7 @@
     const hc = T.h, hp = (P.cmpKey === "mom" ? C.Tm : C.Ts)?.h;
     const leadRows = hc ? [["The same day", "l0"], ["The next day", "l1"], ["2 or more days later", "l2"]].map(([label, k]) => ({ label, parts: [[hc[k], "var(--ec-1)"]], val: `${int(hc[k])} · ${ecPct(ecDiv(hc[k], hc.ln))}${hp ? ecPtsTxt(ecDiv(hc[k], hc.ln), ecDiv(hp[k], hp.ln), k === "l0" ? 1 : k === "l2" ? 0 : 1) : ""}` })) : [];
     return `${kpis}
+      ${ecSlotChange(C, whyN)}
       ${ecPanel("Late deliveries by slot and weekday", `Share of deliveries that arrived after their slot ended, ${esc(ecMonthName(d, m))}. Darker is later; hover a cell for the counts.`, ecHeat(d, sc, mi))}
       <div class="ec-row">
         ${ecPanel("Orders by slot", `Sub-orders booked into each delivery slot, with the late share${slp ? ` and its change in points against ${esc(fmonth(P.pm))} (slots are by month)` : ""}.`, slotBars)}
@@ -6338,7 +6339,7 @@
         ${ecPanel("When customers order", `Sub-orders delivered in ${esc(ecMonthName(d, m))} by the hour and weekday the order was placed.`, ecPlacedHeat(C))}
         ${ecPanel("How far ahead customers book", `Days from placing the order to its delivery slot, sub-orders not cancelled${hp ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}.`, hc ? ecBars(leadRows) : `<p class="ec-note">Needs the customer history in the data file.</p>`)}
       </div>
-      ${ecSlotChange(C, whyN)}`;
+`;
   }
 
   // ---- slot changes: sub-orders moved away from the slot the customer chose. Delivered inside the moved slot they
@@ -6348,7 +6349,9 @@
   function ecSlotChange(C, whyN) {
     const { d, mi, sc, days, P, T } = C;
     if (!d.hasSlotCh) {
-      return ecPanel("Slot changes", "Orders delivered in a different hour from the slot the customer chose.", `<p class="ec-note" style="margin:0">No slot change can be seen in these exports yet. The calculation needs one of these in the sub-order workbooks:
+      const slotCols = [...new Set((d.source.files || []).flatMap((f) => (f.columns || []).map((c) => c.name)).filter((n) => /slot|deliverytime|resched/i.test(n)))];
+      return ecPanel("Slot changes", "Orders moved from the slot the customer chose to another one, and delivered in the new slot so they do not count as late.", `<p class="ec-banner" style="margin:0 0 10px"><b>Not measurable from the current exports.</b> The sub-order workbooks keep only the final delivery slot${slotCols.length ? ` (slot columns found: ${esc(slotCols.join(", "))})` : ""}; the slot the customer first chose is not in them, so a moved slot looks like an on-time delivery.</p>
+        <p class="ec-note" style="margin:0">To measure slot changes, the export needs one of these in the sub-order workbooks:
         a column with the slot the customer chose (any name: it is recognised by values like "11:00 AM - 12:00 PM 10/5/2026"), a column that flags a rescheduled slot (a name with "reschedule" or "slot change"), or the same sub-order in two exports with different slots.
         Once the data refresh finds one, this section shows how many orders were moved, which slots they moved from and to, and the late deliveries the moves hid.
         Until then, the nearest signs are the cancellations: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery.</p>`);
