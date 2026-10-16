@@ -5531,8 +5531,9 @@
     return `${fmonth(m)} (1–${+last.slice(8)} ${ecMon(m)})`;
   }
   function ecScope(d) {
-    const rl = S.ecomRho || "", zn = S.ecomZn || "";
-    return { rl, zn, on: d.O.map((o) => (!rl || o.rl === rl) && (!zn || o.zn === zn)), label: zn || rl || "All outlets" };
+    const rl = S.ecomRho || "", zn = S.ecomZn || "", outlet = S.ecomOutlet || "";
+    const selected = d.O.find((o) => o.c === outlet);
+    return { rl, zn, outlet, on: d.O.map((o) => (!rl || o.rl === rl) && (!zn || o.zn === zn) && (!outlet || o.c === outlet)), label: selected ? `${selected.c} ${selected.n}` : zn || rl || "All outlets" };
   }
   // per-day sums for the outlets in scope
   function ecDays(d, on) {
@@ -5715,10 +5716,14 @@
     });
     act("[data-ec-outlet]", (n) => ecOpenOutlet(+n.dataset.ecOutlet));
     act("[data-ec-comp]", (n) => ecOpenComplaint(+n.dataset.ecComp));
-    act("[data-ec-rl]", (n) => { closeDrawer(); S.ecomRho = n.dataset.ecRl; S.ecomZn = ""; S.ecomBy = "zn"; changed(); });
-    act("[data-ec-zn]", (n) => { closeDrawer(); const z = n.dataset.ecZn, o = S.ecom.O.find((x) => x.zn === z && (!S.ecomRho || x.rl === S.ecomRho)); S.ecomZn = z; if (o) S.ecomRho = o.rl; S.ecomBy = "o"; changed(); });
+    act("[data-ec-customer]", (n) => ecOpenCustomer(+n.dataset.ecCustomer));
+    act("[data-ec-rl]", (n) => { closeDrawer(); S.ecomRho = n.dataset.ecRl; S.ecomZn = ""; S.ecomOutlet = ""; S.ecomBy = "zn"; changed(); });
+    act("[data-ec-zn]", (n) => { closeDrawer(); const z = n.dataset.ecZn, o = S.ecom.O.find((x) => x.zn === z && (!S.ecomRho || x.rl === S.ecomRho)); S.ecomZn = z; S.ecomOutlet = ""; if (o) S.ecomRho = o.rl; S.ecomBy = "o"; changed(); });
     act("[data-ec-tab]", (n) => { closeDrawer(); S.ecomTab = n.dataset.ecTab; changed(); window.scrollTo(0, 0); });
-    act("[data-ec-clear]", () => { S.ecomRho = ""; S.ecomZn = ""; changed(); });
+    act("[data-ec-clear]", () => { S.ecomRho = ""; S.ecomZn = ""; S.ecomOutlet = ""; changed(); });
+    const rho = $('[data-sel="ecomRho"]', root), zonal = $('[data-sel="ecomZn"]', root);
+    if (rho) rho.onchange = () => { S.ecomRho = rho.value; S.ecomZn = ""; S.ecomOutlet = ""; changed(); };
+    if (zonal) zonal.onchange = () => { S.ecomZn = zonal.value; S.ecomOutlet = ""; changed(); };
   }
 
   // ---- the page's tabs
@@ -5726,13 +5731,15 @@
     const { d, m, sc } = C;
     const opt = (v, t, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`;
     const zns = [...new Set(d.O.filter((o) => !sc.rl || o.rl === sc.rl).map((o) => o.zn))].sort();
+    const outlets = d.O.filter((o) => (!sc.rl || o.rl === sc.rl) && (!sc.zn || o.zn === sc.zn)).sort((a, b) => a.c.localeCompare(b.c));
     const cm = d.cmonths.length ? `${fmonth(d.cmonths[0])} – ${fmonth(d.cmonths[d.cmonths.length - 1])}` : "none yet";
     return `<section class="panel ec-head"><div class="ec-head-l"><b>${esc(sc.label)}${sc.zn && sc.rl ? ` <span class="muted">· ${esc(sc.rl)}</span>` : ""}</b><p>Sub-orders to ${esc(fdate(d.source.asOf.slice(0, 10)))}, ${esc(d.source.asOf.slice(11))} · complaints ${esc(cm)}</p></div>
       <div class="ec-filters">
         <select class="sel" data-sel="ecomM" aria-label="Month">${d.months.slice().reverse().map((x) => opt(x, ecMonthName(d, x), m)).join("")}</select>
         <select class="sel" data-sel="ecomRho" aria-label="Regional leader">${opt("", "All RHOs", sc.rl)}${d.rls.map((x) => opt(x, x, sc.rl)).join("")}</select>
         <select class="sel" data-sel="ecomZn" aria-label="Zonal">${opt("", sc.rl ? "All their zonals" : "All zonals", sc.zn)}${zns.map((x) => opt(x, x, sc.zn)).join("")}</select>
-        ${sc.rl || sc.zn ? `<button class="btn" type="button" data-ec-clear>Clear</button>` : ""}<button class="btn" type="button" data-ec-lock>Lock</button>
+        <select class="sel" data-sel="ecomOutlet" aria-label="Outlet">${opt("", "All outlets in scope", sc.outlet)}${outlets.map((o) => opt(o.c, `${o.c} ${o.n}`, sc.outlet)).join("")}</select>
+        ${sc.rl || sc.zn || sc.outlet ? `<button class="btn" type="button" data-ec-clear>Clear</button>` : ""}<button class="btn" type="button" data-ec-lock>Lock</button>
       </div></section>
       <div class="ec-tabs">${seg("ecomTab", EC_TABS, "E-Commerce view")}</div>`;
   }
@@ -5943,7 +5950,14 @@
   }
 
   function ecCustomerTable(C) {
-    const { d, mi, m, sc } = C, ranking = ecCustomerRanks(d, sc.on, mi);
+    const { d, mi, m, sc, customerAnalysis: analysis } = C;
+    let ranking;
+    if (analysis) {
+      const rows = analysis.rows.filter((r) => r.periodOrders > 0).map((r) => ({ customer: r.customer, name: r.name, orders: r.periodOrders, suborders: r.periodSuborders, net: r.periodNet }))
+        .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name));
+      rows.forEach((r, i) => { r.rank = i && rows[i - 1].orders === r.orders ? rows[i - 1].rank : i + 1; });
+      ranking = { rows, missing: analysis.missing, conflicts: analysis.conflicts };
+    } else ranking = ecCustomerRanks(d, sc.on, mi);
     if (!ranking) return ecPanel("Customers by orders", "", '<p class="ec-note">Customer names are not available in this snapshot. Refresh the E-Commerce data to populate the customer ranking.</p>');
     const { rows, missing, conflicts } = ranking;
     const orderCount = (n) => `${int(n)} ${n === 1 ? "order" : "orders"}`;
@@ -5953,23 +5967,124 @@
       ? `${leaders[0].name} leads with ${orderCount(leaders[0].orders)}.`
       : leaders.length ? `${int(leaders.length)} customer names share the lead with ${orderCount(leaders[0].orders)} each.` : "";
     return mountTable("ec-customers", {
-      title: "Customers by orders", file: `ecommerce_customers_${m}`, stamp: d.source.asOf.slice(0, 10),
+      title: "Customers by orders", file: `ecommerce_customer_ranking_delivery_month_${m}`, stamp: analysis?.asOf || d.source.asOf.slice(0, 10),
       desc: (n) => `${int(n)} customer ${n === 1 ? "name" : "names"}, ${sc.label}, ${ecMonthName(d, m)}. ${lead}`,
-      banner: `<p class="ec-banner">Orders are counted once, including cancelled orders. Net sales exclude cancelled sub-orders. Identical names are grouped together.${coverage.length ? ` ${esc(coverage.join(" and "))} ${missing + conflicts === 1 ? "is" : "are"} left out.` : ""}</p>`,
+      banner: `<p class="ec-banner">Delivery month: ${esc(fmonth(m))}${analysis ? ` · placed on or before ${esc(fdate(analysis.asOf))}` : ""}. Orders are counted once, including cancelled orders. Net sales exclude cancelled sub-orders. Identical names are grouped and can represent different people.${coverage.length ? ` ${esc(coverage.join(" and "))} ${missing + conflicts === 1 ? "is" : "are"} excluded from ${analysis ? "dated customer history" : "this ranking"}.` : ""}${analysis ? " Undated placed orders are excluded." : " Refresh the E-Commerce data to enable churn and dated order history."}</p>`,
       rows, key: (r) => r.name, searchText: (r) => r.name, defaultSort: "orders", defaultDir: "desc", pageSize: 25,
+      wire: ecWire,
       empty: "No customers with a recorded name for this selection.",
       cols: [
         { k: "rank", label: "Rank", num: true, firstDir: "asc", fmt: (r) => int(r.rank) },
-        { k: "name", label: "Customer name", firstDir: "asc", fmt: (r) => `<span class="cell-primary">${esc(r.name)}</span>` },
-        { k: "orders", label: "Orders placed", num: true, fmt: (r) => int(r.orders) },
-        { k: "suborders", label: "Sub-orders", num: true, fmt: (r) => int(r.suborders) },
-        { k: "net", label: "Net sales", num: true, fmt: (r) => bdt(r.net) },
+        { k: "name", label: "Customer name", firstDir: "asc", fmt: (r) => ecCustomerButton(r.customer ?? d.customers.list.indexOf(r.name), r.name), csv: (r) => ecCustomerCsvText(r.name) },
+        { k: "orders", label: "Orders · delivery month", csvLabel: "Distinct orders in selected delivery month", num: true, fmt: (r) => int(r.orders) },
+        { k: "suborders", label: "Sub-orders", csvLabel: "Sub-orders in selected delivery month", num: true, fmt: (r) => int(r.suborders) },
+        { k: "net", label: "Net sales", csvLabel: "Net sales in selected delivery month (latest amounts)", num: true, fmt: (r) => bdt(r.net) },
+        { k: "asOf", label: "Placed-date cutoff", hide: true, csv: () => analysis?.asOf || "Unavailable" },
+        { k: "scope", label: "Selected scope", hide: true, csv: () => ecCustomerCsvText(sc.label) },
       ],
     });
   }
 
+  const ecCustomerCsvText = (value) => { const s = String(value ?? ""); return /^\s*[=+\-@]/.test(s) ? "'" + s : s; };
+  const ecCustomerButton = (customer, name) => `<button type="button" class="ec-customer-link" data-ec-customer="${customer}" aria-label="${esc(`View order history for ${name}`)}">${esc(name)}</button>`;
+  const ecCustomerStatus = (status) => ({ churned: "Churned", active: "Active", unknown: "Unknown" }[status] || "Unknown");
+  const ecCustomerChip = (status) => chip({ cls: { churned: "bad", active: "good", unknown: "idle" }[status] || "idle", label: ecCustomerStatus(status) });
+  const ecCustomerDate = (value) => value ? fdate(value) : "Unknown";
+  const ecCustomerAmount = (value) => isNum(value) ? `${value < 0 ? "−" : ""}৳${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Unavailable";
+
+  function ecCustomerHealth(C) {
+    const { d, m, sc, customerAnalysis: a } = C;
+    if (!a) return ecPanel("Customer health", "", '<p class="ec-note">Churn assessment needs placed-order history. Refresh the E-Commerce data to enable it. The selected-month ranking below remains available.</p>');
+    const health = ["all", "churned", "active", "unknown"].includes(S.ecomHealth) ? S.ecomHealth : "all";
+    const rows = a.rows.filter((r) => health === "all" || r.status === health);
+    const counts = Object.fromEntries(["churned", "active", "unknown"].map((status) => [status, a.rows.filter((r) => r.status === status).length]));
+    const omittedSourceRows = d.customers?.historyCoverage?.omittedSourceRows || 0;
+    const warnings = [a.unknownCustomers ? `${int(a.unknownCustomers)} name groups have unknown inactivity.` : "",
+      a.unknownDates ? `${int(a.unknownDates)} scoped sub-orders have no placed date; they cannot be assigned to the cutoff and are excluded from dated totals.` : "",
+      a.missing ? `${int(a.missing)} orders without names are excluded.` : "", a.conflicts ? `${int(a.conflicts)} orders with conflicting names are excluded.` : "",
+      omittedSourceRows ? `Across all source exports, ${int(omittedSourceRows)} source rows were omitted from customer history because order identifiers or required dates were missing or invalid. Rows may include repeated product lines; this is a row count, not distinct orders, and cannot be assigned to the selected scope.` : ""].filter(Boolean).join(" ");
+    const summary = ecPanel("Customer health & observed contribution", "", `<div class="ec-customer-context"><strong>As of ${esc(fdate(a.asOf))} · ${esc(sc.label)}</strong><p>Churned means 30 days or more without a placed order in selected scope; active means under 30 days. Any placed order counts, including cancelled orders. This view includes name groups with no orders in the selected delivery month.</p><p>Latest source date: ${esc(fdate(a.availableAsOf))}. ${a.coverageStart ? `Available dated history starts ${esc(fdate(a.coverageStart))}.` : "No dated history is available through this cutoff."} The cutoff is the earlier of the selected month-end and latest source date.</p></div>
+      <div class="ec-kpis ec-health-kpis">
+        ${ecKpi("Churned name groups", int(a.churned.customers), "", "Inactive in selected scope")}
+        ${ecKpi("Their observed orders", int(a.churned.orders), "", "Known history through cutoff")}
+        ${ecKpi("Their observed net sales", bdt(a.churned.net), "", "Historical contribution")}
+        ${ecKpi("Share of observed net sales", ecPct(a.churned.share), "", "Of named, dated scoped history")}
+      </div><p class="ec-note">These are observed orders and net sales, not predicted lost sales. Identical customer names are grouped and may represent different people. Statuses and amounts reflect the latest source exports; their earlier state cannot be reconstructed.</p>${warnings ? `<p class="ec-customer-warning">${esc(warnings)}</p>` : ""}`);
+    const tools = `<label class="ec-health-filter">Health in selected scope <select class="sel" data-ec-health aria-label="Customer health in selected scope">${[["all", `All (${int(a.rows.length)})`], ...["churned", "active", "unknown"].map((s) => [s, `${ecCustomerStatus(s)} (${int(counts[s])})`])].map(([value, label]) => `<option value="${value}" ${value === health ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
+    return summary + mountTable("ec-customer-health", {
+      title: "Customer health & history", file: `ecommerce_customer_health_as_of_${a.asOf}`, stamp: a.asOf,
+      desc: (n) => `${int(n)} name groups shown, ${sc.label}. Click a name for actual parent orders and sub-orders.`,
+      banner: `<p class="ec-banner">As of ${esc(fdate(a.asOf))} · inactivity in selected scope. Observed totals use all available dated history through the cutoff. Month columns use ${esc(fmonth(m))} delivery slots.</p>`,
+      rows, key: (r) => String(r.customer), searchText: (r) => `${r.name} ${ecCustomerStatus(r.status)}`, defaultSort: "orders", defaultDir: "desc", pageSize: 25, tools,
+      empty: "No customer name groups match this health filter and search.",
+      wire: (el) => { ecWire(el); const filter = $("[data-ec-health]", el); if (filter) filter.onchange = () => { S.ecomHealth = filter.value; changed(); $("[data-ec-health]")?.focus(); }; },
+      cols: [
+        { k: "name", label: "Customer name", firstDir: "asc", fmt: (r) => ecCustomerButton(r.customer, r.name), csv: (r) => ecCustomerCsvText(r.name) },
+        { k: "status", label: "Health in scope", firstDir: "asc", fmt: (r) => ecCustomerChip(r.status), csv: (r) => ecCustomerStatus(r.status) },
+        { k: "lastOrder", label: "Last known order", csvLabel: "Last known placed-order date", val: (r) => r.lastOrder || null, fmt: (r) => esc(ecCustomerDate(r.lastOrder)) },
+        { k: "daysInactive", label: "Days inactive in scope", num: true, val: (r) => r.status === "unknown" ? null : r.daysInactive, fmt: (r) => r.status === "unknown" ? '<span class="muted">Unknown</span>' : int(r.daysInactive), csv: (r) => r.status === "unknown" ? "Unknown" : r.daysInactive },
+        { k: "orders", label: "Observed orders", csvLabel: "Observed distinct parent orders through cutoff", num: true, fmt: (r) => int(r.orders) },
+        { k: "net", label: "Observed net sales", csvLabel: "Observed net sales through cutoff (latest amounts)", num: true, fmt: (r) => bdt(r.net) },
+        { k: "periodOrders", label: "Month orders", csvLabel: `Distinct orders with ${m} delivery slots and placed through cutoff`, num: true, fmt: (r) => int(r.periodOrders) },
+        { k: "periodNet", label: "Month net sales", csvLabel: `Net sales with ${m} delivery slots and placed through cutoff (latest amounts)`, num: true, fmt: (r) => bdt(r.periodNet) },
+        { k: "asOf", label: "Assessment cutoff", hide: true, csv: () => a.asOf },
+        { k: "scope", label: "Selected scope", hide: true, csv: () => ecCustomerCsvText(sc.label) },
+        { k: "coverageStart", label: "Available dated history starts", hide: true, csv: () => a.coverageStart },
+        { k: "identity", label: "Identity limitation", hide: true, csv: () => "Grouped by identical name; may represent different people" },
+      ],
+    });
+  }
+
+  function ecOpenCustomer(customer) {
+    if (!ecUnlocked() || !S.ecom || !Number.isInteger(customer) || customer < 0) return;
+    const d = S.ecom, name = d.customers?.list[customer]; if (!name) return;
+    const m = d.months.includes(S.ecomM) ? S.ecomM : d.months[d.months.length - 1], sc = ecScope(d);
+    const detail = globalThis.EcomCustomerAnalysis?.details(d, sc.on, m, customer, S.ecomCustomerAnalysis);
+    const analysis = detail || S.ecomCustomerAnalysis;
+    const historyAvailable = !!analysis;
+    let orders = detail?.orders || [];
+    if (!historyAvailable) {
+      const grouped = new Map(), mi = d.months.indexOf(m);
+      (d.customers.r || []).forEach(([outlet, month, ci, order, suborders, net]) => {
+        if (ci !== customer || month !== mi || !sc.on[outlet] || !order) return;
+        if (!grouped.has(order)) grouped.set(order, { order, placed: "", slotFrom: "", slotTo: "", statuses: [], gross: null, net: 0, suborders: 0, outlets: [], items: [] });
+        const row = grouped.get(order); row.net += net; row.suborders += suborders;
+        if (!row.outlets.includes(outlet)) row.outlets.push(outlet);
+      });
+      orders = [...grouped.values()].sort((a, b) => String(a.order).localeCompare(String(b.order)));
+    }
+    S.lastFocus = document.activeElement;
+    $("#drawerTitle").textContent = name;
+    const row = detail?.customer;
+    $("#drawerBody").innerHTML = `<div class="ec-customer-context"><strong>Order history · ${esc(sc.label)}</strong><p>${historyAvailable ? `Placed on or before ${esc(fdate(analysis.asOf))}; all available delivery months.` : `Selected delivery month: ${esc(fmonth(m))}.`}</p></div>
+      ${row ? `<div class="stat-grid three"><div class="stat"><small>Health in selected scope</small><strong>${ecCustomerChip(row.status)}</strong><span>${row.status === "unknown" ? "Inactivity cannot be assessed" : `${int(row.daysInactive)} days inactive`}</span></div><div class="stat"><small>Observed orders</small><strong>${int(row.orders)}</strong></div><div class="stat"><small>Observed net sales</small><strong class="ec-customer-amount">${ecCustomerAmount(row.net)}</strong></div></div>` : ""}
+      <p class="ec-banner">Identical names are grouped and may represent different people. ${historyAvailable ? "Statuses and amounts are from the latest source exports, not their historical state. Orders without placed dates are excluded from dated history and totals." : "Placed dates, delivery dates, statuses and gross amounts are unavailable in this snapshot. Refresh E-Commerce data to enable dated history and churn assessment."}</p>
+      <div class="ec-order-tools"><label for="ecOrderSearch">Search orders, sub-orders or outlet</label><input id="ecOrderSearch" class="search" type="search" placeholder="Search order history" autocomplete="off"></div>
+      <p id="ecOrderCount" class="ec-note" role="status" aria-live="polite"></p><div id="ecCustomerOrders" class="ec-order-list"></div><div id="ecOrderPager" class="pager"></div>`;
+    let page = 1;
+    const outletName = (i) => { const o = d.O[i]; return o ? `${o.c} ${o.n}` : "Outlet not recorded"; };
+    const dates = (from, to) => !from ? "Unknown" : from === to || !to ? ecCustomerDate(from) : `${ecCustomerDate(from)} – ${ecCustomerDate(to)}`;
+    const renderOrders = () => {
+      const q = $("#ecOrderSearch").value.trim().toLowerCase();
+      const selected = orders.filter((order) => !q || [order.order, ...order.statuses, ...order.outlets.map(outletName), ...order.items.map((item) => item.suborder)].join(" ").toLowerCase().includes(q));
+      const size = 20, pages = Math.max(1, Math.ceil(selected.length / size)); page = Math.min(page, pages);
+      const from = (page - 1) * size;
+      $("#ecOrderCount").textContent = selected.length ? `Showing ${int(from + 1)}–${int(Math.min(from + size, selected.length))} of ${int(selected.length)} distinct parent orders` : `No ${historyAvailable ? "dated " : ""}parent orders match this selection.`;
+      $("#ecCustomerOrders").innerHTML = selected.slice(from, from + size).map((order) => `<article class="ec-order-card"><h3>Order <bdi>${esc(order.order)}</bdi></h3><p class="ec-order-status">${esc(order.statuses.join(" · ") || "Status unavailable")}</p>
+        <dl class="ec-order-facts"><div><dt>Placed</dt><dd>${esc(ecCustomerDate(order.placed))}</dd></div><div><dt>Delivery slot date${order.slotFrom !== order.slotTo ? "s" : ""}</dt><dd>${esc(dates(order.slotFrom, order.slotTo))}${order.hasUndated ? " · some dates unknown" : ""}</dd></div><div><dt>Gross amount</dt><dd>${ecCustomerAmount(order.gross)}</dd></div><div><dt>Net amount</dt><dd>${ecCustomerAmount(order.net)}</dd></div><div><dt>Sub-orders</dt><dd>${int(order.suborders)}</dd></div><div><dt>Outlets in scope</dt><dd>${esc(order.outlets.map(outletName).join(" · "))}</dd></div></dl>
+        ${order.items.length ? `<details class="ec-order-parts"><summary>View ${int(order.items.length)} sub-order${order.items.length === 1 ? "" : "s"}</summary><ul>${order.items.map((item) => `<li><strong>Sub-order <bdi>${esc(item.suborder)}</bdi></strong><span>${esc(outletName(item.outlet))}</span><span>Placed ${esc(ecCustomerDate(item.placed))} · delivery ${esc(ecCustomerDate(item.slot))}</span><span>${esc(item.status)} · gross ${ecCustomerAmount(item.gross)} · net ${ecCustomerAmount(item.net)}</span></li>`).join("")}</ul></details>` : ""}</article>`).join("");
+      $("#ecOrderPager").innerHTML = pages > 1 ? `<span>Page ${int(page)} of ${int(pages)}</span><div><button class="btn" type="button" data-ec-order-page="-1" ${page === 1 ? "disabled" : ""}>Previous orders</button><button class="btn" type="button" data-ec-order-page="1" ${page === pages ? "disabled" : ""}>Next orders</button></div>` : "";
+      $$("[data-ec-order-page]", $("#ecOrderPager")).forEach((button) => (button.onclick = () => { const direction = +button.dataset.ecOrderPage; page += direction; renderOrders(); const next = $(`[data-ec-order-page="${direction}"]:not(:disabled)`, $("#ecOrderPager")); (next || $("#ecOrderSearch")).focus(); $("#ecCustomerOrders").scrollIntoView?.({ block: "nearest" }); }));
+    };
+    $("#ecOrderSearch").oninput = () => { page = 1; renderOrders(); };
+    renderOrders();
+    showDrawer();
+  }
+
   function ecCustomers(C) {
     const { d, mi, m, sc, days } = C;
+    C.customerAnalysis = globalThis.EcomCustomerAnalysis?.analyze(d, sc.on, m) || null;
+    S.ecomCustomerAnalysis = C.customerAnalysis;
     const tot = d.months.map((_, i) => ecMonth(d, days, i));
     const pays = d.months.map(() => [0, 0, 0, 0]);
     d.pays.r.forEach(([o, mm, k, n]) => { if (sc.on[o]) pays[mm][EC_PAYGRP[d.pays.list[k]] ?? 3] += n; });
@@ -5990,7 +6105,7 @@
         ${ecKpi("Cancelled by the customer", ecPct(ecDiv(C.cur.custc, C.cur.n)), "", `${int(C.cur.custc)} sub-orders`)}
         ${ecKpi("Changed the order", ecPct(ecDiv(C.cur.custed, C.cur.n)), "", `${int(C.cur.custed)} sub-orders`)}
       </div>
-      ${ecCustomerTable(C)}
+      ${ecCustomerHealth(C)}${ecCustomerTable(C)}
       <div class="ec-row wide">
         ${ecPanel("How customers pay, by month", "Primary payment method of each sub-order.", `${ecLegend(EC_PAYNAME.map((n, k) => [n, EC_COL[k]]))}${payBars}`)}
         ${ecPanel("Customer actions by month", "Shares of all sub-orders.", acts)}
@@ -6154,12 +6269,13 @@
     const mi = d.months.includes(S.ecomM) ? d.months.indexOf(S.ecomM) : d.months.length - 1, m = d.months[mi];
     if (S.ecomRho && !d.rls.includes(S.ecomRho)) S.ecomRho = "";
     if (S.ecomZn && !d.O.some((o) => o.zn === S.ecomZn && (!S.ecomRho || o.rl === S.ecomRho))) S.ecomZn = "";
+    if (S.ecomOutlet && !d.O.some((o) => o.c === S.ecomOutlet && (!S.ecomRho || o.rl === S.ecomRho) && (!S.ecomZn || o.zn === S.ecomZn))) S.ecomOutlet = "";
     const sc = ecScope(d), days = ecDays(d, sc.on), cur = ecMonth(d, days, mi), prev = mi > 0 ? ecMonth(d, days, mi - 1) : null;
     const C = { d, mi, m, sc, days, cur, prev };
     const body = { over: ecOverview, outlets: ecOutlets, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab }[S.ecomTab](C);
     AFTER.push(() => {
       ecWire($("#view"));
-      $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { ecSetLock(false); S.ecom = null; S.ecomBad = false; hideTip(); render(); }));
+      $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomBad = false; delete S.tables["ec-customers"]; delete S.tables["ec-customer-health"]; hideTip(); render(); }));
     });
     return `<div class="ec">${ecHead(C)}${body}</div>`;
   }
@@ -7891,6 +8007,14 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", () => { closeDrawer(); closeRail(); });
   $("#drawerClose").addEventListener("click", closeDrawer);
+  $("#drawer").addEventListener("keydown", (e) => {
+    if (e.key !== "Tab" || $("#drawer").hidden) return;
+    const focusable = $$('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex]:not([tabindex="-1"])', $("#drawer")).filter((el) => el.getClientRects().length && !el.closest("[hidden]"));
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (!first) { e.preventDefault(); $("#drawerClose").focus(); return; }
+    if (e.shiftKey && (document.activeElement === first || !$("#drawer").contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !$("#drawer").contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+  });
   document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (AI.open) { AI.open = false; aiRender(); return; } if (!closeReport()) { closeDrawer(); closeRail(); } });
   $("#reportClose").addEventListener("click", closeReport);
   $("#reportPrint").addEventListener("click", () => window.print());
