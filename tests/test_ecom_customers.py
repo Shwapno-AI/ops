@@ -142,6 +142,95 @@ class CustomerRankingTests(unittest.TestCase):
         self.assertEqual(data["customers"]["list"], [])
         self.assertEqual([r[2] for r in data["customers"]["r"]], [-1, -1])
 
+    def test_history_keeps_actual_suborders_dates_statuses_and_amounts(self):
+        data = self.build({
+            "a-old.xlsx": [order("P1", "S1", "Synthetic Alpha", total=999, day="7/1/2026")],
+            "b-new.xlsx": [order("P1", "S1", "Synthetic Alpha", total=125),
+                           order("P1", "S1", "Synthetic Alpha", total=125),
+                           order("P1", "S2", None, outlet="B", total=75, status="Cancelled"),
+                           order("P2", "S3", None, total=40),
+                           order("P3", "S4", "Synthetic Beta", total=25),
+                           order("P3", "S5", "Synthetic Gamma", total=35)],
+        })
+        customers = data["customers"]
+        self.assertEqual(customers["historyVersion"], 1)
+        self.assertEqual(customers["historyStatusBasis"], "latest-export")
+        self.assertEqual(customers["asOf"], "2026-10-01")
+        self.assertEqual(len(customers["history"]), 5)
+        self.assertEqual(customers["historyCoverage"]["records"], 5)
+        self.assertTrue(all(len(r) == 9 for r in customers["history"]))
+        history = {r[3]: r for r in customers["history"]}
+        self.assertEqual(history["S1"][1:6], [0, "P1", "S1", "2026-10-01", "2026-10-05"])
+        self.assertEqual(history["S1"][7:], [125, 125])
+        self.assertEqual(history["S2"][7:], [75, 0])
+        self.assertEqual(history["S2"][1], 0)
+        self.assertEqual(data["outlets"][history["S2"][0]][0], "B")
+        self.assertEqual(customers["statuses"][history["S2"][6]], "Cancelled")
+        self.assertEqual(history["S3"][1], -1)
+        self.assertEqual([history[s][1] for s in ("S4", "S5")], [-2, -2])
+        self.assertEqual(sum(r[8] for r in customers["history"]), sum(r[5] for r in customers["r"]))
+
+    def test_history_reference_date_uses_placement_not_future_slot_or_build_date(self):
+        early = order("P1", "S1", "Synthetic Alpha", day="11/3/2026")
+        late = order("P1", "S2", None, outlet="B", day="11/3/2026")
+        early["CreatedOn"] = "Oct 07, 2026, 9:00:00 AM"
+        late["CreatedOn"] = "Oct 08, 2026, 9:00:00 AM"
+        data = self.build({"orders.xlsx": [early, late]})
+        self.assertEqual(data["source"]["asOf"], "2026-10-08 09:00")
+        self.assertEqual(data["customers"]["asOf"], "2026-10-08")
+        self.assertEqual({r[4] for r in data["customers"]["history"]}, {"2026-10-07", "2026-10-08"})
+        self.assertTrue(all(r[5] == "2026-11-03" for r in data["customers"]["history"]))
+
+    def test_history_preserves_fractional_taka_before_aggregate_rounding(self):
+        data = self.build({"orders.xlsx": [
+            order("P1", "S1", "Synthetic Alpha", total=100.49),
+            order("P1", "S2", "Synthetic Alpha", total=100.49),
+            order("P1", "S3", "Synthetic Alpha", total=20.75, status="Cancelled"),
+        ]})
+        history = {r[3]: r for r in data["customers"]["history"]}
+        self.assertEqual(history["S1"][7:], [100.49, 100.49])
+        self.assertEqual(history["S2"][7:], [100.49, 100.49])
+        self.assertEqual(history["S3"][7:], [20.75, 0])
+        self.assertEqual(sum(r[8] for r in history.values()), 200.98)
+        self.assertEqual(data["customers"]["r"][0][5], 201)
+
+    def test_incomplete_source_dates_report_omitted_rows_without_changing_aggregates(self):
+        missing_placed = order("P2", "S2", "Synthetic Alpha")
+        missing_placed["CreatedOn"] = None
+        missing_slot = order("P3", "S3", "Synthetic Alpha")
+        missing_slot["DeliveryTime"] = "invalid slot"
+        missing_both = order("P4", "S4", "Synthetic Alpha")
+        missing_both["CreatedOn"] = "invalid date"
+        missing_both["DeliveryTime"] = None
+        missing_parent = order(None, "S5", "Synthetic Alpha")
+        data = self.build({"orders.xlsx": [order("P1", "S1", "Synthetic Alpha"),
+                                          missing_placed, missing_placed, missing_slot,
+                                          missing_both, missing_parent]})
+        self.assertEqual(sum(data["daily"]["n"]), 1)
+        self.assertEqual(len(data["customers"]["history"]), 1)
+        self.assertEqual(data["customers"]["historyCoverage"], {
+            "records": 1, "omittedSourceRows": 5, "omittedMissingOrderRows": 1,
+            "omittedMissingPlacedDateRows": 3, "omittedMissingSlotDateRows": 2,
+        })
+
+    def test_unchanged_source_is_rebuilt_once_to_add_history(self):
+        data = self.build({"orders.xlsx": [order("P1", "S1", "Synthetic Alpha")]})
+        output = self.root / "result.json"
+        del data["customers"]["historyVersion"]
+        output.write_text(json.dumps(data))
+        items, _ = refresh.list_items(self.root)
+        with mock.patch.object(refresh, "OUT", output), \
+                mock.patch.object(refresh, "MASTER", self.root / "missing-master.json"), \
+                mock.patch.object(refresh, "list_items", return_value=(items, None)), \
+                mock.patch.object(sys, "argv", [str(SOURCE)]), \
+                mock.patch.object(refresh, "first_sheet", wraps=refresh.first_sheet) as read, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(refresh.main(), 0)
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(json.loads(output.read_text())["customers"]["historyVersion"], 1)
+            self.assertEqual(refresh.main(), 0)
+            self.assertEqual(read.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,8 +14,8 @@ Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
 Output data/ecom.json, schema 3. Every fact carries its outlet, so the page can narrow everything to a regional
-leader, a zonal or one outlet. Amounts are whole taka; months are "YYYY-MM" and days "YYYY-MM-DD", both by
-delivery slot.
+leader, a zonal or one outlet. Aggregate amounts are whole taka; customer history keeps two decimal
+places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   months, mdays  the months and how many slot days each has
   days           the slot dates
   outlets        [[code, name, RHO, zonal], ...]; facts refer to outlets by their position here
@@ -34,6 +34,12 @@ delivery slot.
                  sub-orders, net amount]]}; customer -1 = missing name, -2 = conflicting names on the parent
                  order. Count distinct parent orders after filtering; counts include cancelled orders,
                  net amount excludes cancelled sub-orders. Names match by NFC, whitespace and casefold.
+                 Additive historyVersion 1: asOf is the source reference date, statuses is a dictionary,
+                 history is [[outlet, customer, parent order, sub-order, placed date, slot date, status,
+                 gross amount, net amount]]. Dates are ISO days; status indexes statuses and reflects
+                 the latest retained export, not the status at a past date. historyCoverage counts records
+                 and omitted source rows with missing order numbers or dates. Omitted counts are source
+                 rows, possibly repeated product lines, not distinct orders; missing-field reasons overlap.
   open           [[order, sub-order, outlet, status, placed, slot date, slot, payment, amount, days open]]
   lists          {src, cat, sub, dbl}: dictionaries for the complaint rows
   complaints     [[month, src, order, outlet, cat, sub, dbl, details, feedback, order status, order amount,
@@ -65,6 +71,7 @@ FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
 SCHEMA = 3
+CUSTOMER_HISTORY_VERSION = 1
 MONTH_OF = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
 SLOT_RE = re.compile(r"(\d{1,2}):(\d{2}) ([AP]M) - (\d{1,2}):(\d{2}) ([AP]M)\s+(\d{1,2})/(\d{1,2})/(\d{4})")
 PHONE_RE = re.compile(r"(?:\+?88)?\s?0?1[3-9]\d(?:[-\s]?\d){7}|\b\d{7,}\b")
@@ -186,11 +193,17 @@ def read_orders(ix, rows, stats):
     c = lambda name: ix.get(name)  # noqa: E731
     subs = {}
     prod = defaultdict(lambda: [0, 0.0, set()])
+    stats.update({"omittedSourceRows": 0, "omittedMissingOrderRows": 0,
+                  "omittedMissingPlacedDateRows": 0, "omittedMissingSlotDateRows": 0})
     price_ok = 0.0  # product line amounts of sub-orders not cancelled, for the reconciliation check
     for r in rows:
         o, s = order_no(cell(r, c("OrderNumber"))), txt(cell(r, c("SuborderNumber")))
         sl, cr = slot(cell(r, c("DeliveryTime"))), when(cell(r, c("CreatedOn")))
         if not o or not sl or not cr:
+            stats["omittedSourceRows"] += 1
+            stats["omittedMissingOrderRows"] += not bool(o)
+            stats["omittedMissingPlacedDateRows"] += not bool(cr)
+            stats["omittedMissingSlotDateRows"] += not bool(sl)
             continue
         label, sh, eh, day = sl
         end = dt.datetime.combine(day, dt.time(eh)) + (dt.timedelta(days=1) if eh <= sh else dt.timedelta(0))
@@ -281,7 +294,9 @@ def main():
     except (OSError, ValueError):
         old = {}
     fkey = "|".join(f"{i['id']}:{i.get('modified', '')}" for i in sorted(items, key=lambda i: i["id"]))
-    if not local_dir and (old.get("source") or {}).get("key") == fkey and old.get("schema") == SCHEMA:
+    if (not local_dir and (old.get("source") or {}).get("key") == fkey
+            and old.get("schema") == SCHEMA
+            and (old.get("customers") or {}).get("historyVersion") == CUSTOMER_HISTORY_VERSION):
         log("E-commerce files unchanged; ecom.json kept.")
         return 0
 
@@ -289,6 +304,8 @@ def main():
     prods = {}         # month -> product aggregates, only where the lines reconcile
     complaints = []
     used = []
+    history_coverage = {"omittedSourceRows": 0, "omittedMissingOrderRows": 0,
+                        "omittedMissingPlacedDateRows": 0, "omittedMissingSlotDateRows": 0}
     with tempfile.TemporaryDirectory(prefix="ecom-") as work:
         for item in items:
             local = Path(item["local"]) if item.get("local") else Path(work) / "book.xlsx"
@@ -306,6 +323,8 @@ def main():
                     if {"OrderNumber", "SuborderNumber", "DeliveryTime", "SubordeStatus"} <= set(ix):
                         stats = {}
                         subs = read_orders(ix, rows, stats)
+                        for field in history_coverage:
+                            history_coverage[field] += stats[field]
                         months = Counter(rec["m"] for rec in subs.values())
                         month = months.most_common(1)[0][0] if months else "?"
                         ratio = stats["prod_price"] / stats["prod_total"] if stats["prod_total"] else 0
@@ -439,6 +458,12 @@ def main():
 
     products = {m: [[name, p[0], len(p[2]), round(p[1])] for name, p in sorted(prod.items(), key=lambda kv: -kv[1][1])[:100]]
                 for m, prod in prods.items()}
+    history_statuses = Codes(sorted({rec["st"] for rec in recs}))
+    history = sorted(([outlet(rec["code"], rec["name"]), customer_of[rec["o"]], rec["o"], rec["s"],
+                       iso(rec["cr"].date()), iso(rec["day"]), history_statuses(rec["st"]),
+                       round(rec["tot"], 2), 0 if rec["st"] == "Cancelled" else round(rec["tot"], 2)]
+                      for rec in recs), key=lambda r: (r[0], r[1], r[2], r[3]))
+    history_coverage["records"] = len(history)
     opened = sorted(([rec["o"], rec["s"], outlet(rec["code"], rec["name"]), rec["st"], rec["cr"].strftime("%Y-%m-%d %H:%M"),
                       iso(rec["day"]), rec["sl"], rec["pay"], round(rec["tot"]), (asof.date() - rec["cr"].date()).days]
                      for rec in recs if rec["st"] in OPEN), key=lambda r: -r[-1])
@@ -462,7 +487,10 @@ def main():
         "dists": {"list": dist_codes.list, "r": [[*k, v[0], round(v[1])] for k, v in sorted(dists.items())]},
         "products": products,
         "customers": {"kind": "name", "list": customer_names,
-                      "r": [[*k, v[0], round(v[1])] for k, v in sorted(customers.items())]},
+                      "r": [[*k, v[0], round(v[1])] for k, v in sorted(customers.items())],
+                      "historyVersion": CUSTOMER_HISTORY_VERSION, "asOf": iso(asof.date()),
+                      "statuses": history_statuses.list, "history": history,
+                      "historyStatusBasis": "latest-export", "historyCoverage": history_coverage},
         "open": opened,
         "lists": {k: v.list for k, v in lists.items()},
         "complaints": complaint_rows,
