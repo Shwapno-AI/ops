@@ -5486,7 +5486,7 @@
   // outlet master. Every fact in the file carries its outlet, so the month, RHO and zonal filters at the top
   // narrow every chart on the page. The customer ranking groups orders by name; contact details are omitted.
   // Chart colours are the page's own validated set (--ec-1 to --ec-4 in styles.css), not the status colours.
-  const EC_TABS = [["over", "Overview"], ["outlets", "Outlets"], ["cancel", "Cancellations & edits"], ["slots", "Delivery & slots"], ["cust", "Customers"], ["comp", "Complaints"], ["open", "Open orders"], ["fields", "All fields"]];
+  const EC_TABS = [["over", "Overview"], ["outlets", "Outlets"], ["prod", "Products"], ["cancel", "Cancellations & edits"], ["slots", "Delivery & slots"], ["cust", "Customers"], ["comp", "Complaints"], ["open", "Open orders"], ["fields", "All fields"]];
   const EC_WHY = { OrderedByMistake: "Ordered by mistake", DelayedDelivery: "Delayed delivery", AdminOthers: "Other (back office)", CustomerOthers: "Other (customer)", DeliveryTimeNotSuitable: "Delivery time did not suit", ProductUnavailable: "Product unavailable", AdminProductUnavailable: "Product unavailable (back office)", BillingPaymentIssue: "Billing or payment issue", OutOfServiceArea: "Outside service area", QualityIssue: "Quality issue", FoundCheaper: "Found cheaper elsewhere", CustomerUnreachable: "Customer unreachable", FraudulentOrder: "Fraudulent order", TechnicalSystemError: "Technical or system error", WeatherEmergencyDisruption: "Weather or emergency", "(not given)": "Reason not given" };
   const EC_EDIT = { "Customer Requested Change": "Customer changed the order", "Out of Stock": "Item out of stock", "Quality Issue": "Quality issue", Damaged: "Damaged item" };
   const EC_PAYGRP = { CashOnDelivery: 0, Bkash: 1, SslCommerz: 2, EasternBank: 2, CityBank: 2 };
@@ -5513,7 +5513,7 @@
     S.ecomLoading = true; S.ecomErr = null;
     fetch("data/ecom.json", { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { if (![2, 3, 4, 5].includes(d.schema)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
+      .then((d) => { if (!(d.schema >= 2)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
       .catch((e) => { S.ecomErr = e.message; })
       .finally(() => { S.ecomLoading = false; if (S.page === "ecom") render(); });
   }
@@ -5970,6 +5970,7 @@
     act("[data-ec-outlet]", (n) => ecOpenOutlet(+n.dataset.ecOutlet));
     act("[data-ec-comp]", (n) => ecOpenComplaint(+n.dataset.ecComp));
     act("[data-ec-customer]", (n) => ecOpenCustomer(+n.dataset.ecCustomer));
+    act("[data-ec-prod]", (n) => ecOpenProduct(+n.dataset.ecProd));
     act("[data-ec-rl]", (n) => { closeDrawer(); S.ecomRho = n.dataset.ecRl; S.ecomZn = ""; S.ecomOutlet = ""; S.ecomBy = "zn"; changed(); });
     act("[data-ec-zn]", (n) => { closeDrawer(); const z = n.dataset.ecZn, o = S.ecom.O.find((x) => x.zn === z && (!S.ecomRho || x.rl === S.ecomRho)); S.ecomZn = z; S.ecomOutlet = ""; if (o) S.ecomRho = o.rl; S.ecomBy = "o"; changed(); });
     act("[data-ec-tab]", (n) => { closeDrawer(); S.ecomTab = n.dataset.ecTab; changed(); window.scrollTo(0, 0); });
@@ -6188,7 +6189,7 @@
       const c = a.cur, p = a.cmp, has = P.cmp.length && p.n > 0;
       return { k: a.k, ref: a.ref, name: by === "o" ? `${a.ref.c} ${a.ref.n}` : a.k, sub: by === "o" ? `${a.ref.zn} · ${a.ref.rl}` : by === "zn" ? `${a.ref.rl} · ${int(a.outs.size)} outlets` : `${int(a.outs.size)} outlets`,
         code: by === "o" ? a.ref.c : "", rl: a.ref.rl, zn: by === "rl" ? "" : a.ref.zn,
-        n: c.n, net: c.net, aov: ecDiv(c.net, c.n - c.canc), cp: ecDiv(c.canc, c.n), lp: ecDiv(c.late, c.deliv),
+        n: c.n, npd: c.days ? c.n / c.days : null, net: c.net, aov: ecDiv(c.net, c.n - c.canc), cp: ecDiv(c.canc, c.n), lp: ecDiv(c.late, c.deliv),
         netC: has ? p.net : null, gNet: has && pd(p.net, p) ? pd(c.net, c) / pd(p.net, p) - 1 : null, gN: has && p.n ? pd(c.n, c) / pd(p.n, p) - 1 : null,
         dNet: has ? (pd(c.net, c) - pd(p.net, p)) * (c.days || 0) : null,
         dCp: has ? ecDiv(c.canc, c.n) - ecDiv(p.canc, p.n) : null, dLp: has && p.deliv && c.deliv ? ecDiv(c.late, c.deliv) - ecDiv(p.late, p.deliv) : null,
@@ -6215,6 +6216,7 @@
         { k: "gNet", label: "Net sales change", csvLabel: "Net sales change a day", num: true, fmt: (r) => chgPct(r.gNet) },
         { k: "dNet", label: "Change, taka", csvLabel: "Net sales change in taka at the same number of days", num: true, fmt: (r) => (isNum(r.dNet) ? `<span class="${r.dNet >= 0 ? "ec-up" : "ec-down"}">${r.dNet >= 0 ? "+" : "−"}${bdt(Math.abs(r.dNet))}</span>` : "—") },
         { k: "n", label: "Sub-orders", num: true, fmt: (r) => int(r.n) },
+        { k: "npd", label: "Orders a day", csvLabel: "Average sub-orders a day", num: true, fmt: (r) => (isNum(r.npd) ? r.npd.toFixed(1) : "—") },
         { k: "gN", label: "Sub-orders change", csvLabel: "Sub-orders change a day", num: true, fmt: (r) => chgPct(r.gN) },
         { k: "aov", label: "Average sub-order", num: true, fmt: (r) => bdt(r.aov) },
         { k: "cp", label: "Cancelled", num: true, fmt: (r) => `<span class="${flag(r.cp, avgC)}">${ecPct(r.cp)}</span>` },
@@ -6244,13 +6246,127 @@
     const pts = cur.filter((x) => x.n >= 30 && (ym !== "late" || x.deliv >= 20)).map((x) => ({ o: x.o, x: x.n / (P.cur.length || 1), y: ym === "late" ? x.late / x.deliv : x.canc / x.n }));
     AFTER.push(() => ecScatter($("#ecScatter"), pts, ym));
     const pr = d.products[m] || [], pp = (P.pm && d.products[P.pm]) || [], ppAt = new Map(pp.map((x) => [x[0], x]));
-    const prod = pr.length ? ecBars(pr.slice(0, 30).map(([name, lines, orders, amount]) => { const q = ppAt.get(name); return { label: name, parts: [[amount, "var(--ec-1)"]], val: `${bdt(amount)}${q ? ecPctTxt(amount / d.mdays[m], q[3] / d.mdays[P.pm]) : ""}`, tip: `<strong>${esc(name)}</strong><dl><dt>Amount</dt><dd>${bdt(amount)}</dd><dt>Product lines</dt><dd>${int(lines)}</dd><dt>Sub-orders</dt><dd>${int(orders)}</dd>${q ? `<dt>${esc(fmonth(P.pm))}</dt><dd>${bdt(q[3])}</dd>` : ""}</dl>` }; }))
+    const itemsTop = d.items?.months?.includes(m) ? [...ecItemsFor(C, P.cur).entries()].sort((a2, b2) => b2[1].amt - a2[1].amt).slice(0, 10) : null;
+    const prod = itemsTop ? `${ecBars(itemsTop.map(([k, x]) => ({ label: d.items.list[k][0], parts: [[x.amt, "var(--ec-1)"]], val: bdt(x.amt), attr: `data-ec-prod="${k}"` })))}<p style="margin:12px 0 0"><button class="btn" type="button" data-ec-tab="prod">See all products</button></p>`
+      : pr.length ? ecBars(pr.slice(0, 30).map(([name, lines, orders, amount]) => { const q = ppAt.get(name); return { label: name, parts: [[amount, "var(--ec-1)"]], val: `${bdt(amount)}${q ? ecPctTxt(amount / d.mdays[m], q[3] / d.mdays[P.pm]) : ""}`, tip: `<strong>${esc(name)}</strong><dl><dt>Amount</dt><dd>${bdt(amount)}</dd><dt>Product lines</dt><dd>${int(lines)}</dd><dt>Sub-orders</dt><dd>${int(orders)}</dd>${q ? `<dt>${esc(fmonth(P.pm))}</dt><dd>${bdt(q[3])}</dd>` : ""}</dl>` }; }))
       : `<p class="ec-note">Product detail is not in the ${esc(fmonth(m))} export. Products are read only from exports with one row per product whose amounts add up to the sub-order totals (so far, ${esc(Object.keys(d.products).map(fmonth).join(", ") || "none")}).</p>`;
     return `${lead}${movers}
       <div class="ec-row wide">
         ${ecPanel(`Volume against ${ym === "late" ? "late delivery" : "cancellation"}`, `Each dot is an outlet with 30 or more sub-orders in ${esc(P.curLabel)}: busier to the right, worse higher up. Click a dot for the outlet.`, `<div class="ec-chart" id="ecScatter"></div>`, seg("ecomY", [["late", "Late %"], ["canc", "Cancelled %"]], "Vertical measure"))}
-        ${ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled, all outlets (the export does not split products by outlet).${pp.length ? ` The change is a day against ${esc(fmonth(P.pm))}.` : " No product detail for last month, so there is no change to show."}` : "", prod)}
+        ${itemsTop ? ecPanel("Top 10 products", `By amount, ${esc(P.curLabel)}, ${esc(sc.label)}. Every product, with quantities, discounts and stock-outs, is on the Products tab.`, prod) : ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled, all outlets (the export does not split products by outlet).${pp.length ? ` The change is a day against ${esc(fmonth(P.pm))}.` : " No product detail for last month, so there is no change to show."}` : "", prod)}
       </div>`;
+  }
+
+  // ---- Products: every product line of the exports that list products (one row per product), by outlet and day
+  function ecItemsFor(C, idx) {
+    const { d, sc } = C, g = new Map();
+    if (!d.items) return g;
+    const mask = ecMask(d, idx);
+    d.items.r.forEach(([k, o, dd, lines, subs, qty, amt, disc, oos, short, cl, ca]) => {
+      if (!mask[dd] || !sc.on[o]) return;
+      let x = g.get(k);
+      if (!x) { x = { lines: 0, subs: 0, qty: 0, amt: 0, disc: 0, oos: 0, short: 0, cl: 0, ca: 0, outs: new Set(), days: new Set() }; g.set(k, x); }
+      x.lines += lines; x.subs += subs; x.qty += qty; x.amt += amt; x.disc += disc; x.oos += oos; x.short += short; x.cl += cl; x.ca += ca;
+      if (lines) { x.outs.add(o); x.days.add(dd); }
+    });
+    return g;
+  }
+  function ecProducts(C) {
+    const { d, m, sc, P, T } = C;
+    if (!d.items || !d.items.months.includes(m)) {
+      const have = d.items?.months?.length ? d.items.months.map(fmonth).join(", ") : Object.keys(d.products || {}).map(fmonth).join(", ");
+      return ecPanel("Products", "", `<p class="ec-note" style="margin:0">${d.items ? `The ${esc(fmonth(m))} export has one row per sub-order, not one per product, so its products cannot be listed.` : "Product detail is added by the next data refresh."} Products are listed for the months whose export has one row per product${have ? ` (so far: ${esc(have)})` : ""}. Pick that month above.</p>`);
+    }
+    const cur = ecItemsFor(C, P.cur), canCmp = P.cmp.length && P.pm && d.items.months.includes(P.pm), prev = canCmp ? ecItemsFor(C, P.cmp) : null;
+    const total = [...cur.values()].reduce((a, x) => a + x.amt, 0) || 1, lines = [...cur.values()].reduce((a, x) => a + x.lines, 0);
+    const units = [...cur.values()].reduce((a, x) => a + x.qty, 0), disc = [...cur.values()].reduce((a, x) => a + x.disc, 0), oos = [...cur.values()].reduce((a, x) => a + x.oos, 0);
+    const cdays = P.cur.length || 1, pdays = P.cmp.length || 1, subsAll = T.n - T.canc || 1;
+    const rows = [...cur.entries()].filter(([, x]) => x.lines || x.cl).map(([k, x]) => {
+      const q = prev?.get(k), [name, sku] = d.items.list[k];
+      return { k, name, sku: sku || "", amt: x.amt, share: x.amt / total, qty: x.qty, lines: x.lines, subs: x.subs, reach: x.subs / subsAll, outs: x.outs.size,
+        perDay: x.amt / cdays, price: ecDiv(x.amt, x.qty), disc: x.disc, discP: ecDiv(x.disc, x.amt + x.disc), oos: x.oos, oosP: ecDiv(x.oos, x.lines + x.cl), short: x.short, cl: x.cl, ca: x.ca,
+        chg: q && q.amt ? x.amt / cdays / (q.amt / pdays) - 1 : canCmp ? (q ? null : "new") : null, amtC: q ? q.amt : canCmp ? 0 : null };
+    });
+    rows.sort((a, b) => b.amt - a.amt).forEach((r, i) => (r.rank = i + 1));
+    const top10 = rows.slice(0, 10).reduce((a, r) => a + r.amt, 0), maxAmt = Math.max(...rows.map((r) => r.amt), 1);
+    const kpis = `<div class="ec-kpis">
+      ${ecKpi("Products sold", int(rows.filter((r) => r.lines).length), "", `${int(lines)} product lines`)}
+      ${ecKpi("Product sales", bdt(total), "", `${bdt(total / cdays)} a day`)}
+      ${ecKpi("Units", units >= 1e4 ? int(units) : units.toFixed(0), "", `${(units / subsAll).toFixed(1)} per sub-order`)}
+      ${ecKpi("Top 10 products", ecPct(top10 / total), "", "Share of product sales")}
+      ${ecKpi("Discount given", bdt(disc), "", `${ecPct(ecDiv(disc, total + disc))} of list price`)}
+      ${ecKpi("Out-of-stock lines", int(oos), "", `${ecPct(ecDiv(oos, lines))} of product lines`)}
+    </div>`;
+    const pct = (v) => (isNum(v) ? ecPct(v) : "—");
+    const chg = (r) => (r.chg === "new" ? '<span class="ec-up">New</span>' : isNum(r.chg) ? `<span class="${Math.abs(r.chg) < 0.0005 ? "ec-flat" : r.chg > 0 ? "ec-up" : "ec-down"}">${r.chg > 0 ? "▲" : r.chg < 0 ? "▼" : "■"} ${Math.abs(r.chg * 100) >= 100 ? int(Math.abs(r.chg * 100)) : Math.abs(r.chg * 100).toFixed(1)}%</span>` : '<span class="muted">—</span>');
+    const table = mountTable("ec-products", {
+      title: `All products, ${P.curLabel}`, file: `ecommerce_products_${m}`, stamp: m,
+      desc: (n) => `${int(n)} products for ${esc(sc.label)}, largest sales first. Amounts are line prices after discount on sub-orders not cancelled. Click a product for its outlets and days.${canCmp ? ` Change is a day against ${esc(P.cmpLabel)}.` : ` ${esc(P.pm ? fmonth(P.pm) : "Last month")} has no product lines, so there is no change to show yet.`}`,
+      rows, key: (r) => String(r.k), searchText: (r) => `${r.name} ${r.sku}`, defaultSort: "amt", defaultDir: "desc", pageSize: 50,
+      rowAttr: (r) => `data-ec-prod="${r.k}" class="k-click" tabindex="0" role="button"`, wire: (el) => ecWire(el),
+      cols: [
+        { k: "rank", label: "#", num: true, firstDir: "asc", fmt: (r) => int(r.rank) },
+        { k: "name", label: "Product", firstDir: "asc", fmt: (r) => `<span class="cell-primary">${esc(r.name)}</span>${r.sku ? `<span class="cell-secondary">SKU ${esc(r.sku)}</span>` : ""}` },
+        { k: "amt", label: "Sales", num: true, fmt: (r) => `${ecCellBar(r.amt, maxAmt)}${bdt(r.amt)}` },
+        { k: "share", label: "Share", csvLabel: "Share of product sales", num: true, fmt: (r) => pct(r.share) },
+        ...(canCmp ? [{ k: "amtC", label: `Sales, ${P.cmpLabel}`, num: true, fmt: (r) => (isNum(r.amtC) ? bdt(r.amtC) : "—") }, { k: "chg", label: "Change", csvLabel: "Change in sales a day", num: true, fmt: chg }] : []),
+        { k: "perDay", label: "Sales a day", num: true, fmt: (r) => bdt(r.perDay) },
+        { k: "qty", label: "Quantity", num: true, fmt: (r) => (r.qty >= 100 ? int(r.qty) : r.qty.toFixed(1)) },
+        { k: "price", label: "Avg price", csvLabel: "Average price per unit", num: true, fmt: (r) => bdt(r.price) },
+        { k: "subs", label: "Sub-orders", num: true, fmt: (r) => int(r.subs) },
+        { k: "reach", label: "In % of orders", csvLabel: "Share of sub-orders containing the product", num: true, fmt: (r) => pct(r.reach) },
+        { k: "outs", label: "Outlets", csvLabel: "Outlets that sold it", num: true, fmt: (r) => int(r.outs) },
+        { k: "disc", label: "Discount", num: true, fmt: (r) => (r.disc ? `${bdt(r.disc)}<span class="cell-secondary">${pct(r.discP)}</span>` : "—") },
+        { k: "oos", label: "Out of stock", csvLabel: "Lines edited for out of stock", num: true, fmt: (r) => (r.oos ? `<span class="${r.oosP >= 0.1 ? "ec-down" : ""}">${int(r.oos)}</span><span class="cell-secondary">${pct(r.oosP)} of lines</span>` : "—") },
+        { k: "short", label: "Qty short", csvLabel: "Quantity cut from the order", num: true, fmt: (r) => (r.short ? (r.short >= 100 ? int(r.short) : r.short.toFixed(1)) : "—") },
+        { k: "ca", label: "Cancelled", csvLabel: "Cancelled amount", num: true, fmt: (r) => (r.cl ? `${bdt(r.ca)}<span class="cell-secondary">${int(r.cl)} lines</span>` : "—") },
+        { k: "sku", label: "SKU", hide: true },
+      ],
+    });
+    // most out of stock
+    const oosRows = rows.filter((r) => r.oos).sort((a, b) => b.oos - a.oos).slice(0, 12);
+    const oosBars = ecBars(oosRows.map((r) => ({ label: r.name, parts: [[r.oos, "var(--ec-2)"]], val: `${int(r.oos)} · ${pct(r.oosP)}`, attr: `data-ec-prod="${r.k}"`,
+      tip: `<strong>${esc(r.name)}</strong><dl><dt>Out-of-stock lines</dt><dd>${int(r.oos)} (${pct(r.oosP)} of its lines)</dd><dt>Quantity short</dt><dd>${r.short.toFixed(1)}</dd><dt>Sales</dt><dd>${bdt(r.amt)}</dd></dl>` })), { empty: "No out-of-stock edits for this selection." });
+    const movers = canCmp ? (() => {
+      const mv = rows.filter((r) => isNum(r.amtC)).map((r) => ({ ...r, d: (r.amt / cdays - r.amtC / pdays) * cdays })).sort((a, b) => a.d - b.d), mx = Math.max(...mv.map((r) => Math.abs(r.d)), 1);
+      const bars = (arr, col) => ecBars(arr.map((r) => ({ label: r.name, parts: [[Math.abs(r.d), col]], val: `${r.d >= 0 ? "+" : "−"}${bdt(Math.abs(r.d))}`, attr: `data-ec-prod="${r.k}"` })), { max: mx, empty: "Nothing to show." });
+      return ecPanel("Biggest movers", `Change in sales at the same number of days against ${esc(P.cmpLabel)}.`, `<div class="ec-row">${`<div>${bars(mv.slice().reverse().filter((r) => r.d > 0).slice(0, 8), "var(--ec-3)")}</div><div>${bars(mv.filter((r) => r.d < 0).slice(0, 8), "var(--ec-2)")}</div>`}</div>`);
+    })() : "";
+    return `${kpis}${table}
+      <div class="ec-row">
+        ${ecPanel("Most often out of stock", "Product lines edited because the item was out of stock; click one for the outlets.", oosBars)}
+        ${movers || ecPanel("Sales concentration", "How much of product sales the best sellers take.", ecBars([10, 50, 100, 500].filter((n) => n < rows.length).map((n) => { const v = rows.slice(0, n).reduce((a, r) => a + r.amt, 0); return { label: `Top ${n} products`, parts: [[v / total, "var(--ec-1)"]], val: ecPct(v / total) }; }), { max: 1 }))}
+      </div>`;
+  }
+  function ecOpenProduct(k) {
+    const d = S.ecom, C = S.ecomC;
+    if (!d?.items || !C) return;
+    const [name, sku] = d.items.list[k], P = C.P, sc = C.sc, mask = ecMask(d, P.cur), byO = new Map(), byDay = new Array(d.days.length).fill(null);
+    let t = { lines: 0, subs: 0, qty: 0, amt: 0, disc: 0, oos: 0, short: 0, cl: 0, ca: 0 };
+    d.items.r.forEach(([p, o, dd, lines, subs, qty, amt, disc, oos, short, cl, ca]) => {
+      if (p !== k || !sc.on[o]) return;
+      byDay[dd] = (byDay[dd] || 0) + amt;
+      if (!mask[dd]) return;
+      const x = byO.get(o) || { o: d.O[o], lines: 0, qty: 0, amt: 0, oos: 0, short: 0 };
+      x.lines += lines; x.qty += qty; x.amt += amt; x.oos += oos; x.short += short; byO.set(o, x);
+      t.lines += lines; t.subs += subs; t.qty += qty; t.amt += amt; t.disc += disc; t.oos += oos; t.short += short; t.cl += cl; t.ca += ca;
+    });
+    const itemDays = new Set(d.days.map((x, i) => (d.items.months.includes(x.slice(0, 7)) ? i : -1)).filter((i) => i >= 0));
+    const series = byDay.map((v, i) => (itemDays.has(i) ? v || 0 : null));
+    const stat = (label, value) => `<div class="stat"><small>${label}</small><strong>${value}</strong></div>`;
+    const outs = [...byO.values()].sort((a, b) => b.amt - a.amt);
+    S.lastFocus = document.activeElement;
+    $("#drawerTitle").textContent = name;
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${sku ? `SKU ${esc(sku)} · ` : ""}${esc(P.curLabel)} · ${esc(sc.label)}</p>
+      <div class="stat-grid three">${stat("Sales", bdt(t.amt))}${stat("Quantity", t.qty.toFixed(t.qty >= 100 ? 0 : 1))}${stat("Average price", bdt(ecDiv(t.amt, t.qty)))}${stat("Sub-orders", int(t.subs))}${stat("Outlets", int(outs.length))}${stat("Discount", bdt(t.disc))}${stat("Out of stock", `${int(t.oos)} lines`)}${stat("Quantity short", t.short.toFixed(1))}${stat("Cancelled", bdt(t.ca))}</div>
+      <h3 class="ec-dh">Sales a day</h3><div class="ec-chart" id="ecProdTrend"></div>
+      <h3 class="ec-dh">By outlet <span class="muted">(${int(outs.length)})</span></h3>
+      ${outs.length ? `<div class="table-wrap" style="max-height:420px"><table class="compact"><thead><tr><th>Outlet</th><th class="num">Sales</th><th class="num">Quantity</th><th class="num">Out of stock</th><th class="num">Qty short</th></tr></thead><tbody>${outs.map((x) => `<tr class="k-click" data-ec-outlet="${x.o.i}" tabindex="0" role="button"><td><span class="cell-primary">${esc(x.o.c)} ${esc(x.o.n)}</span><span class="cell-secondary">${esc(x.o.zn)}</span></td><td class="num">${bdt(x.amt)}</td><td class="num">${x.qty.toFixed(x.qty >= 100 ? 0 : 1)}</td><td class="num">${x.oos ? int(x.oos) : "—"}</td><td class="num">${x.short ? x.short.toFixed(1) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="ec-note">Not sold in this selection.</p>`}`;
+    showDrawer();
+    // only the days of months that list products
+    const keep = [...itemDays].sort((a, b) => a - b), d2 = { dm: keep.map((i) => d.dm[i]), months: d.months }, s2 = keep.map((i) => series[i] || 0);
+    requestAnimationFrame(() => ecTrend($("#ecProdTrend"), d2, s2, C.mi, bdt, `Daily sales of ${name}`, (j) => `<strong>${esc(fdate(d.days[keep[j]]))}</strong>${bdt(s2[j])}`));
+    ecWire($("#drawerBody"));
   }
 
   // ---- Cancellations and edits
@@ -6853,7 +6969,7 @@
     const mt = new Map();
     C.monthTotals = (i) => { if (!mt.has(i)) mt.set(i, ecTotals(C, d.days.map((_, k) => k).filter((k) => d.dm[k] === i))); return mt.get(i); };
     S.ecomC = C;
-    const body = { over: ecOverview, outlets: ecOutlets, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
+    const body = { over: ecOverview, outlets: ecOutlets, prod: ecProducts, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
     AFTER.push(() => {
       ecWire($("#view"));
       $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomBad = false; delete S.tables["ec-customers"]; delete S.tables["ec-customer-health"]; hideTip(); render(); }));
