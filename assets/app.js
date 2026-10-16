@@ -320,18 +320,38 @@
 
   // ------------------------------------------------------------------ shell
   // Sidebar groups collapse and expand from their heading; the choice is remembered per browser.
+  // Sidebar icons: simple 24px stroke drawings, one per top-level page and per group.
+  const NAV_ICON = {
+    gm: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',
+    on: '<path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/><path d="M3 9h18"/>',
+    ar: '<path d="M9 11l3 3 9-9"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+    sg: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+    ecom: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.5L22 7H6"/>',
+    "Sales": '<path d="M6 20v-5"/><path d="M12 20V10"/><path d="M18 20V4"/>',
+    "Store assessment": '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 14l2 2 4-4"/>',
+    "Performance": '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    "Availability": '<path d="M12 2l10 5-10 5L2 7z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+    "Consumable and wastage": '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/>',
+    "Store level report (SKU)": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+    "Receiving": '<path d="M1 4h14v12H1z"/><path d="M15 9h4l4 4v3h-8z"/><circle cx="5.5" cy="18.5" r="1.8"/><circle cx="18.5" cy="18.5" r="1.8"/>',
+    "Connected dashboards": '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+    "System": '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/>',
+  };
+  const navSvg = (paths, cls = "nav-ic") => `<svg class="${cls}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
   function renderNav() {
     const pick = UI.navOpen || {};
     $("#nav").innerHTML = NAV.map((g, gi) => {
       const items = g.items.map(([k, t, soon]) =>
-        `<button data-page="${k}" ${S.page === k ? 'aria-current="page"' : ""}>${esc(t)}${soon ? '<span class="soon">Phase 2</span>' : ""}</button>`).join("");
-      if (!g.group) return items;
-      const open = pick[g.group] ?? g.items.some(([k]) => k === S.page);
-      return `<button class="nav-group" data-navgroup="${esc(g.group)}" aria-expanded="${open}" aria-controls="navg${gi}"><span>${esc(g.group)}</span><span class="nav-caret" aria-hidden="true">${open ? "▾" : "▸"}</span></button>
+        `<button data-page="${k}" ${S.page === k ? 'aria-current="page"' : ""} title="${esc(t)}">${!g.group ? navSvg(NAV_ICON[k] || "") : ""}<span class="nav-t">${esc(t)}</span>${soon ? '<span class="soon">Phase 2</span>' : ""}</button>`).join("");
+      if (!g.group) return `<div class="nav-top">${items}</div>`;
+      const open = pick[g.group] ?? g.items.some(([k]) => k === S.page), here = g.items.some(([k]) => k === S.page);
+      return `<button class="nav-group${here ? " here" : ""}" data-navgroup="${esc(g.group)}" aria-expanded="${open}" aria-controls="navg${gi}" title="${esc(g.group)}">${navSvg(NAV_ICON[g.group] || "")}<span class="nav-t">${esc(g.group)}</span>${navSvg('<path d="M9 6l6 6-6 6"/>', "nav-caret")}</button>
         <div class="nav-items" id="navg${gi}"${open ? "" : " hidden"}>${items}</div>`;
     }).join("");
     $$("#nav [data-page]").forEach((b) => b.addEventListener("click", () => { location.hash = b.dataset.page; closeRail(); }));
     $$("#nav [data-navgroup]").forEach((b) => b.addEventListener("click", () => {
+      // collapsed to icons: a group icon opens the sidebar on that group
+      if (UI.railHidden && window.innerWidth > 1080) { UI.railHidden = false; UI.navOpen = { ...(UI.navOpen || {}), [b.dataset.navgroup]: true }; saveUI(); applyRail(); renderNav(); return; }
       UI.navOpen = { ...(UI.navOpen || {}), [b.dataset.navgroup]: b.getAttribute("aria-expanded") !== "true" };
       saveUI(); renderNav();
     }));
@@ -348,6 +368,8 @@
     b.setAttribute("aria-label", UI.railHidden ? "Show sidebar" : "Hide sidebar");
     b.title = UI.railHidden ? "Show sidebar" : "Hide sidebar";
     b.setAttribute("aria-expanded", String(!UI.railHidden));
+    const t = $("#sbToggle");
+    if (t) { const lab = UI.railHidden ? "Expand sidebar" : "Collapse sidebar"; t.setAttribute("aria-label", lab); t.title = lab; t.setAttribute("aria-expanded", String(!UI.railHidden)); }
   }
   function renderFilters() {
     const base = baseList();
@@ -8701,6 +8723,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.dsv = { ...S.dsv, rl: null, zn: null }; S.pkv = { ...S.pkv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
+  $("#sbToggle")?.addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", () => { closeDrawer(); closeRail(); });
   $("#drawerClose").addEventListener("click", closeDrawer);
