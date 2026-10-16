@@ -64,6 +64,7 @@
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
     gm: { quad: "regionalHead", mover: "regionalHead", dir: "gain", league: "regionalHead" } };
   DIMS.concat(NET_DIMS, CW_DIMS).forEach(([k]) => (S.filters[k] = new Set()));
+  S.filters.oc = new Set(); // one outlet, chosen from the search; not offered as a sidebar filter
   // KPI performance is scored per leader, and the SKUs page is summed per regional leader, so they offer
   // only the filters their data has.
   const dims = () => (S.page === "performance" ? DIMS.slice(0, 2) : S.page === "ips" ? DIMS.slice(0, 1) : NET_PAGES.has(S.page) ? DIMS.concat(NET_DIMS) : CW_PAGES.has(S.page) ? DIMS.concat(CW_DIMS) : AV_PAGES.has(S.page) ? DIMS.concat([["area", "Area"]]) : DIMS);
@@ -162,7 +163,8 @@
     return ageMap.get(code) || AGE_NA;
   }
   const dimVal = (o, k) => (k !== "age" ? o.dim[k] : S.data?.master ? (o.dim.age ||= outletAgeBand(o.c)) : AGE_NA);
-  const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)));
+  const matches = (o, skip) => dims().every(([k]) => k === skip || !S.filters[k].size || S.filters[k].has(dimVal(o, k)))
+    && (skip === "oc" || !S.filters.oc.size || S.page === "performance" || S.page === "ips" || S.filters.oc.has(o.c));
   const baseList = () => (S.page === "performance" ? kpiPeople() : S.page === "sapk" ? pkRows() : SA_PAGES.has(S.page) ? (S.sa ? saRows() : []) :NET_PAGES.has(S.page) ? netRows() :CW_PAGES.has(S.page) ? S.cw?.outlets || [] : AV_PAGES.has(S.page) ? S.av?.outlets || [] : RC_PAGES.has(S.page) ? S.rcv?.outlets || [] : IP_PAGES.has(S.page) ? S.sku?.outlets || [] : PNL_PAGES.has(S.page) ? pnlList() : rep()?.outlets || []);
   // Sales pages also follow the Stores switch (same store = the report's list vs last year, or vs last month
   // on pages compared with last month).
@@ -422,6 +424,7 @@
   }
   function renderPills() {
     const pills = [];
+    S.filters.oc.forEach((v) => { const m = S.data?.master?.outlets?.find((o) => o.c === v); pills.push(`<span class="filter-pill">Outlet: ${esc(v)}${m ? " " + esc(m.n) : ""}<button aria-label="Remove outlet ${esc(v)}" data-k="oc" data-v="${esc(v)}">×</button></span>`); });
     dims().forEach(([k, label]) => S.filters[k].forEach((v) => pills.push(`<span class="filter-pill">${esc(label)}: ${esc(v)}<button aria-label="Remove ${esc(v)}" data-k="${k}" data-v="${esc(v)}">×</button></span>`)));
     $("#pills").innerHTML = pills.join("");
     $$("#pills button").forEach((b) => b.addEventListener("click", () => { S.filters[b.dataset.k].delete(b.dataset.v); changed(); }));
@@ -8713,6 +8716,216 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     window.scrollTo(0, 0);
   }
 
+  // ------------------------------------------------------------------ universal search (sidebar, Ctrl+K or /)
+  // Searches pages, outlets, people (regional leaders and zonals), places, SKUs and a few actions, in the browser,
+  // from data the dashboard already has. E-Commerce products and orders appear only once that page is unlocked.
+  const GS = { open: false, q: "", sel: 0, items: [], idx: null, recent: [] };
+  try { GS.recent = JSON.parse(localStorage.getItem("opsdash-search-recent") || "[]").slice(0, 8); } catch (e) {}
+  const gsNorm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9ঀ-৿]+/g, " ").trim();
+  const GS_KIND = { page: "Pages", outlet: "Outlets", person: "People", place: "Places", sku: "SKUs", product: "E-Commerce products", order: "E-Commerce orders", action: "Actions" };
+  const GS_WEIGHT = { action: 90, page: 70, outlet: 60, person: 55, place: 35, order: 20, sku: 10, product: 10 };
+  // extra words a page answers to
+  const GS_WORDS = {
+    gm: "growth momentum trend", on: "outlet network stores map opening", ar: "priority tasks action list", sg: "stock inventory gap shortage", ecom: "ecommerce online home delivery orders",
+    overview: "sales achievement target summary", achievement: "target achievement", growth: "sales growth ly last year", gp: "gross profit margin", footfall: "footfall customers basket bill",
+    ranking: "degrowth growth ranking", category: "category division sales", dos: "days of stock inventory", performance: "kpi score", loss: "loss making p&l pnl", profit: "profit making p&l pnl",
+    dq: "data quality upload files drive", "Availability": "availability stock out oos", "Consumable and wastage": "wastage consumable", "Receiving": "receiving grn po purchase order",
+    "Store assessment": "audit compliance", "Store level report (SKU)": "sku item performance", "Connected dashboards": "external",
+    "ecom:over": "summary kpi sales orders scorecard", "ecom:outlets": "outlet store league movers", "ecom:prod": "products sku items out of stock", "ecom:cancel": "cancellation cancelled edits edited",
+    "ecom:slots": "late delivery slot on time slot change hidden late", "ecom:cust": "customers churn repeat cohort payment district", "ecom:comp": "complaints", "ecom:open": "open orders pending processing", "ecom:fields": "columns fields data excel",
+  };
+  const GS_LIMIT = { page: 6, outlet: 8, person: 5, place: 5, sku: 6, product: 5, order: 5, action: 4 };
+  const GS_ICON = {
+    page: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+    outlet: '<path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/>',
+    person: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    place: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    sku: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/>',
+    product: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.5L22 7H6"/>',
+    order: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    action: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  };
+  function gsIndex() {
+    // hay: what is searched (the subtitle only where it describes the thing itself); name: the words that rank first
+    const out = [], add = (kind, key, label, sub, text, extra) => out.push({ ...extra, kind, key, label, sub, hay: gsNorm(`${label} ${text || ""}`), name: gsNorm(extra?.name || label), code: gsNorm(extra?.code || "") });
+    NAV.forEach((g) => g.items.forEach(([k, t]) => add("page", k, g.group ? `${g.group}: ${t}` : t, g.group ? `Page in ${g.group}` : "Page", `${TITLES[k]} ${GS_WORDS[k] || ""} ${GS_WORDS[g.group] || ""}`, { name: t })));
+    EC_TABS.forEach(([k, t]) => add("page", `ecom:${k}`, `E-Commerce: ${t}`, "E-Commerce tab", `ecommerce e-com online ${GS_WORDS["ecom:" + k] || ""}`, { name: t }));
+    const master = S.data?.master?.outlets || [], seen = { rl: new Map(), zn: new Map(), div: new Set(), dis: new Set(), area: new Set() };
+    master.forEach((o) => {
+      add("outlet", o.c, `${o.c} ${o.n}`, [o.zn, o.rl, o.fmt].filter(Boolean).join(" · "), `${o.area || ""} ${o.dis || ""} ${o.div || ""} ${o.zn || ""} ${o.rl || ""} ${o.fmt || ""} ${o.own || ""}`, { code: o.c, name: o.n });
+      if (o.rl && !seen.rl.has(o.rl)) seen.rl.set(o.rl, o.rh || "");
+      if (o.zn && !seen.zn.has(o.zn)) seen.zn.set(o.zn, { full: o.zh || "", rl: o.rl || "" });
+      if (o.div) seen.div.add(o.div); if (o.dis) seen.dis.add(o.dis); if (o.area) seen.area.add(o.area);
+    });
+    const count = (k, v) => master.filter((o) => o[k] === v).length;
+    seen.rl.forEach((full, v) => add("person", `rl|${v}`, v, `Regional leader${full ? " · " + full : ""} · ${int(count("rl", v))} outlets`, `${full} regional leader rho`, { name: v.replace(/^(mr|ms|mrs|md)\.?\s+/i, "") }));
+    seen.zn.forEach((x, v) => add("person", `zn|${v}`, v, `Zonal${x.full ? " · " + x.full : ""}${x.rl ? " · under " + x.rl : ""}`, `${x.full} zonal`, { name: v.replace(/^(mr|ms|mrs|md)\.?\s+/i, "") }));
+    const nOut = (n) => `${int(n)} outlet${n === 1 ? "" : "s"}`;
+    seen.div.forEach((v) => add("place", `div|${v}`, v, `Division · ${nOut(count("div", v))}`, "division"));
+    seen.dis.forEach((v) => add("place", `dis|${v}`, v, `District · ${nOut(count("dis", v))}`, "district"));
+    seen.area.forEach((v) => add("place", `area|${v}`, v, `Area · ${nOut(count("area", v))}`, "area"));
+    [["theme", "Switch light / dark theme", "theme dark light mode"], ["reset", "Clear all filters", "reset filters"], ["rail", "Collapse or expand the sidebar", "sidebar hide show"], ["si", "Ask Shwapno Intelligence (SI)", "ai assistant question"]]
+      .forEach(([k, t, w]) => add("action", k, t, "Action", w));
+    return out;
+  }
+  // SKUs, E-Commerce products and orders join the index once their data has loaded
+  function gsExtra() {
+    const out = [];
+    const skus = S.sku?.skus, seen = new Set();
+    if (skus) for (const r of skus) { const code = String(r[0]); if (seen.has(code)) continue; seen.add(code); out.push({ kind: "sku", key: code, label: `${code} ${r[1]}`, sub: "SKU · Store level report", hay: gsNorm(`${code} ${r[1]}`), code: gsNorm(code) }); }
+    (S.av?.skus || []).forEach((s) => { if (seen.has(s.c)) return; seen.add(s.c); out.push({ kind: "sku", key: s.c, label: `${s.c} ${s.n}`, sub: `SKU · ${s.cat3 || s.nd || "Availability"}`, hay: gsNorm(`${s.c} ${s.n} ${s.cat3} ${s.nd}`), code: gsNorm(s.c), av: true }); });
+    if (S.ecom && ecUnlocked()) {
+      (S.ecom.items?.list || []).forEach(([n, sku], k) => out.push({ kind: "product", key: k, label: n, sub: `E-Commerce product${sku ? " · SKU " + sku : ""}`, hay: gsNorm(`${n} ${sku}`), code: gsNorm(sku) }));
+      const orders = new Map(); (S.ecom.open || []).forEach((r) => orders.set(r[0], `Open order · ${r[3]} · ${S.ecom.O[r[2]]?.c || ""}`));
+      (S.ecom.complaints || []).forEach((c, i) => { if (c[2] && !orders.has(c[2])) orders.set(c[2], `Complaint · ${S.ecom.lists.cat[c[4]]}`); });
+      orders.forEach((sub, o) => out.push({ kind: "order", key: o, label: `Order ${o}`, sub, hay: gsNorm(`order ${o}`), code: gsNorm(o) }));
+    }
+    return out;
+  }
+  function gsSearch(q) {
+    const n = gsNorm(q);
+    if (!n) return [];
+    if (!GS.idx) GS.idx = gsIndex();
+    const words = n.split(" "), all = GS.idx.concat(gsExtra()), hits = [];
+    // a word matches inside the text, or loosely as the letters of a word in order ("blk" for "block")
+    const loose = (w, hay) => w.length >= 3 && /^[a-z]+$/.test(w) && hay.split(" ").some((x) => { if (x[0] !== w[0]) return false; let i = 0; for (const ch of x) if (ch === w[i]) i++; return i === w.length; });
+    for (const it of all) {
+      let fuzzy = 0;
+      if (!words.every((w) => it.hay.includes(w) || (loose(w, it.hay) && ++fuzzy))) continue;
+      let s = (GS_WEIGHT[it.kind] || 0) - fuzzy * 60;
+      if (it.code && it.code === n) s += 1000;
+      else if (it.code && it.code.startsWith(n)) s += 400;
+      const nm = it.name || gsNorm(it.label), nmw = nm.split(" ");
+      if (nm === n || gsNorm(it.label) === n) s += 600; else if (nm.startsWith(n)) s += 300;
+      words.forEach((w) => { if (nmw.some((x) => x.startsWith(w))) s += 120; else if (it.hay.split(" ").some((x) => x.startsWith(w))) s += 40; });
+      s -= Math.min(40, nm.length / 4);
+      hits.push({ ...it, s });
+    }
+    hits.sort((a, b) => b.s - a.s);
+    const per = {}, out = [];
+    for (const h of hits) { per[h.kind] = (per[h.kind] || 0) + 1; if (per[h.kind] <= GS_LIMIT[h.kind]) out.push(h); }
+    const order = ["action", "page", "outlet", "person", "place", "sku", "product", "order"];
+    // the best match's kind leads; the rest keep a fixed order
+    const lead = out[0]?.kind;
+    return out.sort((a, b) => (a.kind === lead ? -1 : 0) - (b.kind === lead ? -1 : 0) || order.indexOf(a.kind) - order.indexOf(b.kind) || b.s - a.s);
+  }
+  const gsHi = (text, q) => {
+    let h = esc(text);
+    gsNorm(q).split(" ").filter((w) => w.length > 1).forEach((w) => { h = h.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "ig"), "<mark>$1</mark>"); });
+    return h;
+  };
+  function gsRender() {
+    const box = $("#gs");
+    if (!box) return;
+    box.hidden = !GS.open;
+    $("#gsScrim").hidden = !GS.open;
+    if (!GS.open) return;
+    const q = GS.q, list = $("#gsList");
+    if (gsNorm(q).length >= 3 && !S.sku && !S.skuLoading && !S.skuErr) { loadSku(); gsWaitSku(); }
+    GS.items = q.trim() ? gsSearch(q) : GS.recent.map((r) => ({ ...r, recent: true }));
+    if (GS.sel >= GS.items.length) GS.sel = Math.max(0, GS.items.length - 1);
+    let last = "", html = "";
+    GS.items.forEach((it, i) => {
+      const head = it.recent ? "Recent" : GS_KIND[it.kind];
+      if (head !== last) { html += `<li class="gs-h" role="presentation">${head}</li>`; last = head; }
+      const sec = it.kind === "outlet" ? `<button type="button" class="gs-alt" data-gs-alt="${i}" tabindex="-1" title="Open the outlet's profile">Profile</button>` : "";
+      html += `<li class="gs-it${i === GS.sel ? " on" : ""}" role="option" id="gs-o${i}" aria-selected="${i === GS.sel}" data-gs="${i}">${navSvg(GS_ICON[it.kind] || "", "gs-ic")}<span class="gs-t"><b>${gsHi(it.label, q)}</b><small>${gsHi(it.sub || "", q)}</small></span>${sec}</li>`;
+    });
+    if (!GS.items.length) html = q.trim() ? `<li class="gs-none">No match for “${esc(q)}”.${S.skuLoading ? " SKUs are still loading…" : ""} Try an outlet code (D109), a name, a person, a district or a page.</li>`
+      : `<li class="gs-none">Search pages, outlets, people, districts, SKUs and actions. Try “D109”, “Qarin”, “Chattogram” or “late delivery”.</li>`;
+    else if (S.skuLoading && q.trim()) html += `<li class="gs-none">Loading SKUs…</li>`;
+    list.innerHTML = html;
+    $("#gsInput").setAttribute("aria-activedescendant", GS.items.length ? `gs-o${GS.sel}` : "");
+    $$("[data-gs]", list).forEach((n) => { n.onmousemove = () => { if (GS.sel !== +n.dataset.gs) { GS.sel = +n.dataset.gs; gsMark(); } }; n.onclick = (e) => { if (!e.target.closest("[data-gs-alt]")) gsPick(GS.items[+n.dataset.gs], false); }; });
+    $$("[data-gs-alt]", list).forEach((b) => (b.onclick = () => gsPick(GS.items[+b.dataset.gsAlt], true)));
+  }
+  function gsMark() {
+    $$("#gsList [data-gs]").forEach((n) => { const on = +n.dataset.gs === GS.sel; n.classList.toggle("on", on); n.setAttribute("aria-selected", on); if (on) n.scrollIntoView({ block: "nearest" }); });
+    $("#gsInput").setAttribute("aria-activedescendant", `gs-o${GS.sel}`);
+  }
+  function gsWaitSku() { const t = setInterval(() => { if (!S.skuLoading) { clearInterval(t); if (GS.open) gsRender(); } }, 400); }
+  function gsOpen() {
+    GS.open = true; GS.q = ""; GS.sel = 0; GS.idx = null; S.lastFocus = document.activeElement;
+    closeRail();
+    gsRender();
+    const inp = $("#gsInput"); inp.value = ""; inp.focus();
+  }
+  function gsClose() { GS.open = false; gsRender(); S.lastFocus?.focus?.(); }
+  function gsRemember(it) {
+    const r = { kind: it.kind, key: it.key, label: it.label, sub: it.sub, code: it.code, av: it.av };
+    GS.recent = [r, ...GS.recent.filter((x) => !(x.kind === r.kind && x.key === r.key))].slice(0, 8);
+    try { localStorage.setItem("opsdash-search-recent", JSON.stringify(GS.recent)); } catch (e) {}
+  }
+  const OC_SKIP = new Set(["performance", "ips"]);
+  const gsGo = (page, then) => { if (S.page === page) { then?.(); render(); } else { location.hash = page; setTimeout(() => { then?.(); render(); }, 0); } };
+  function gsClearScope() { ["rl", "zn", "div", "dis", "area"].forEach((k) => S.filters[k].clear()); S.filters.oc.clear(); }
+  // an outlet's profile on the current page when that page has one, else on Sales
+  function gsProfile(code) {
+    const p = S.page, run = (fn) => setTimeout(() => fn(code), 60);
+    if (p === "ecom" && S.ecom) { const o = S.ecom.O.find((x) => x.c === code); if (o) return run(() => ecOpenOutlet(o.i)); }
+    if (NET_PAGES.has(p)) return run(openNetOutlet);
+    if (CW_PAGES.has(p) && S.cw) return run(openCwOutlet);
+    if (AV_PAGES.has(p) && S.av) return run((c) => openAvOutlet(c));
+    if (SA_PAGES.has(p) && S.sa) return run(openSaOutlet);
+    if (IP_PAGES.has(p) && S.sku) return run(openIpOutlet);
+    if (SALES_PAGES.has(p) || ["category", "dos", "loss", "profit"].includes(p)) return run(openOutlet);
+    location.hash = "overview"; setTimeout(() => openOutlet(code), 300);
+  }
+  function gsPick(it, alt) {
+    if (!it) return;
+    gsRemember(it);
+    GS.open = false; gsRender();
+    const [a, b] = String(it.key).split("|");
+    if (it.kind === "page") {
+      if (String(it.key).startsWith("ecom:")) { S.ecomTab = it.key.slice(5); gsGo("ecom"); } else location.hash = it.key;
+    } else if (it.kind === "outlet") {
+      if (alt) return gsProfile(it.key);
+      if (S.page === "ecom") { S.ecomRho = ""; S.ecomZn = ""; S.ecomOutlet = it.key; return changed(); }
+      const page = FILTER_PAGES.has(S.page) && !OC_SKIP.has(S.page) ? S.page : "overview";
+      gsGo(page, () => { gsClearScope(); S.filters.oc.add(it.key); Object.values(S.tables).forEach((t) => (t.page = 1)); });
+    } else if (it.kind === "person" || it.kind === "place") {
+      if (S.page === "ecom" && (a === "rl" || a === "zn")) { if (a === "rl") { S.ecomRho = b; S.ecomZn = ""; } else { S.ecomZn = b; S.ecomRho = ""; } S.ecomOutlet = ""; return changed(); }
+      const ok = FILTER_PAGES.has(S.page) && dims().some(([k]) => k === a);
+      gsGo(ok ? S.page : a === "area" ? "on" : "overview", () => { gsClearScope(); S.filters[a].add(b); Object.values(S.tables).forEach((t) => (t.page = 1)); });
+    } else if (it.kind === "sku") {
+      const page = it.av && !S.sku?.skus?.some((r) => String(r[0]) === it.key) ? "avk" : "ips";
+      const id = page === "ips" ? "ip-sku" : null;
+      gsGo(page, () => { if (id) S.tables[id] = { ...(S.tables[id] || { sort: "diff", dir: "asc" }), page: 1, q: it.key }; });
+    } else if (it.kind === "product") {
+      S.ecomTab = "prod"; gsGo("ecom", () => setTimeout(() => ecOpenProduct(+it.key), 80));
+    } else if (it.kind === "order") {
+      S.ecomTab = "open";
+      gsGo("ecom", () => { const ci = S.ecom?.complaints?.findIndex((c) => c[2] === it.key); if (S.tables["ec-open"]) S.tables["ec-open"].q = it.key; else S.tables["ec-open"] = { sort: "age", dir: "desc", page: 1, q: it.key }; if (ci >= 0 && !S.ecom.open.some((r) => r[0] === it.key)) setTimeout(() => ecOpenComplaint(ci), 80); });
+    } else if (it.kind === "action") {
+      ({ theme: () => $("#themeBtn").click(), reset: () => $("#resetBtn").click(), rail: () => (window.innerWidth > 1080 ? $("#sbToggle")?.click() : $("#menuBtn").click()), si: () => $("#aiFab").click() })[it.key]?.();
+    }
+  }
+  function gsInit() {
+    document.body.insertAdjacentHTML("beforeend", `<div class="gs-scrim" id="gsScrim" hidden></div>
+      <div class="gs" id="gs" role="dialog" aria-modal="true" aria-label="Search the dashboard" hidden>
+        <div class="gs-bar">${navSvg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>', "gs-ic")}<input id="gsInput" type="text" role="combobox" aria-expanded="true" aria-controls="gsList" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Search outlets, people, places, pages, SKUs…"><kbd>Esc</kbd></div>
+        <ul class="gs-list" id="gsList" role="listbox" aria-label="Results"></ul>
+        <div class="gs-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Shift</kbd>+<kbd>Enter</kbd> outlet profile</span><span><kbd>Ctrl</kbd>+<kbd>K</kbd> or <kbd>/</kbd> anywhere</span></div>
+      </div>`);
+    const inp = $("#gsInput");
+    if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) { const k = $("#sbSearch kbd"); if (k) k.textContent = "⌘K"; $("#sbSearch")?.setAttribute("title", "Search (⌘K)"); }
+    inp.addEventListener("input", () => { GS.q = inp.value; GS.sel = 0; gsRender(); });
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); GS.sel = Math.min(GS.items.length - 1, GS.sel + 1); gsMark(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); GS.sel = Math.max(0, GS.sel - 1); gsMark(); }
+      else if (e.key === "Enter") { e.preventDefault(); gsPick(GS.items[GS.sel], e.shiftKey); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); gsClose(); }
+      else if (e.key === "Tab") e.preventDefault();
+    });
+    $("#gsScrim").addEventListener("click", gsClose);
+    $("#sbSearch")?.addEventListener("click", gsOpen);
+    document.addEventListener("keydown", (e) => {
+      const typing = /^(input|textarea|select)$/i.test(e.target.tagName) || e.target.isContentEditable;
+      if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) { e.preventDefault(); GS.open ? gsClose() : gsOpen(); }
+      else if (e.key === "/" && !typing && !GS.open) { e.preventDefault(); gsOpen(); }
+    });
+  }
+
   // ------------------------------------------------------------------ boot
   $("#themeBtn").addEventListener("click", () => {
     const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -8720,8 +8933,9 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     try { localStorage.setItem("opsdash-theme", t); } catch (e) {}
     if (NET_PAGES.has(S.page)) render(); // charts resolve colour tokens when drawn
   });
-  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.dsv = { ...S.dsv, rl: null, zn: null }; S.pkv = { ...S.pkv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
+  $("#resetBtn").addEventListener("click", () => { DIMS.concat(NET_DIMS).forEach(([k]) => S.filters[k].clear()); S.filters.oc.clear(); S.bands.clear(); S.on.drill = null; S.lossPick = null; S.gdrill = {}; S.ov = { ...S.ov, rl: null, zn: null }; S.lv = { ...S.lv, rl: null, zn: null }; S.pv = { ...S.pv, rl: null, zn: null }; S.dsv = { ...S.dsv, rl: null, zn: null }; S.pkv = { ...S.pkv, rl: null, zn: null }; S.ipd = { ...S.ipd, rl: null, zn: null }; S.sad = { ...S.sad, rl: null, zn: null }; S.sas = { ...S.sas, rl: null, zn: null }; S.savd = { ...S.savd, rl: null, zn: null }; S.cwh = { ...S.cwh, rl: null, zn: null }; changed(); });
   applyRail();
+  gsInit();
   $("#railBtn").addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#sbToggle")?.addEventListener("click", () => { UI.railHidden = !UI.railHidden; saveUI(); applyRail(); });
   $("#menuBtn").addEventListener("click", () => { $("#rail").classList.add("open"); $("#scrim").hidden = false; });
