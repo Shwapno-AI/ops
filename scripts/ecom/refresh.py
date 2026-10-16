@@ -45,6 +45,21 @@ places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   complaints     [[month, src, order, outlet, cat, sub, dbl, details, feedback, order status, order amount,
                  slot date, matched to a sub-order (1/0)]]
 
+Added in schema 4 (all additive, so the schema 3 fields above keep their meaning):
+  source.files[].columns  every column of the workbook: {name, kind (num, text, date, empty), filled (non-empty
+                 rows), distinct (capped at 61), use}. use is "used" (read by a field above), "dim" (charted in
+                 dims), "num" (summed in nums), "private" (contact or identity details: never exported),
+                 "id" (identifiers), "date", "text" (free text: listed only) or "empty".
+  dims           {column: {list: [value], r: [[outlet, day, value, sub-orders, net]]}} by slot day: the payment
+                 method, sub-order status and district, plus every other categorical column of the sub-order
+                 exports with at most 60 values (for example Zone, OrderStatus, PaymentStatus).
+  nums           {cols: [{name, level ("line": summed over product rows, "sub": once per sub-order)}],
+                 r: [[outlet, day, value per column...]]}: every other numeric column, summed over sub-orders
+                 that were not cancelled.
+  placed         {r: [[outlet, month, weekday placed (0 = Monday), hour placed, sub-orders]]}, by delivery month.
+  whyD, editsD   why and edits by slot day instead of month: {r: [[outlet, day, reason, who, n]]} and
+                 {r: [[outlet, day, reason, sub-orders]]}; reasons index why.list and edits.list.
+
 Environment:
   ECOM_FOLDER_ID  Drive folder to search (default: the E-commerce folder)
   ECOM_OUT        output file (default: data/ecom.json)
@@ -70,7 +85,17 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 3
+SCHEMA = 4
+# columns read by the fields above; everything else in an export is classified for dims / nums
+KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
+         "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
+         "CancellationSource", "Edit Status", "Edit Reason", "CustomerName", "ProductName", "Price"}
+KNOWN_COMPLAINTS = {"Month", "Source", "Order Id", "Outlet Code", "Outlet Name", "Complaint Details", "Our feedback"}
+# contact or identity details are never exported, whatever their values look like
+PRIVATE_RE = re.compile(r"name|phone|mobile|contact|e-?mail|address|house|road|landmark|note|comment|remark|"
+                        r"instruction|latitude|longitude|\blat\b|\blng\b|\bip\b|device|token|password|otp|\bnid\b|card", re.I)
+ID_RE = re.compile(r"(^|[\s_])(id|no|number|code|sku|barcode|invoice|transaction|ref|reference)$|id$|number$", re.I)
+MAX_DIM = 60
 CUSTOMER_HISTORY_VERSION = 1
 MONTH_OF = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
 SLOT_RE = re.compile(r"(\d{1,2}):(\d{2}) ([AP]M) - (\d{1,2}):(\d{2}) ([AP]M)\s+(\d{1,2})/(\d{1,2})/(\d{4})")
@@ -188,7 +213,49 @@ def cell(r, i):
     return r[i] if i is not None and i < len(r) else None
 
 
-def read_orders(ix, rows, stats):
+def is_number(v):
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float)):
+        return True
+    return bool(re.fullmatch(r"-?[\d,]*\.?\d+", txt(v)))
+
+
+def is_date(v):
+    return isinstance(v, (dt.datetime, dt.date)) or bool(when(v)) or bool(SLOT_RE.search(txt(v)))
+
+
+def profile(head, rows, known, sample=5000):
+    """Kind, fill and distinct count of every column, from the first `sample` rows of the sheet."""
+    out = []
+    for i, h in enumerate(head):
+        vals = [r[i] for r in rows[:sample] if i < len(r) and txt(r[i])]
+        distinct = len({txt(v) for v in vals[:20000]} if vals else set())
+        nums = sum(map(is_number, vals))
+        kind = ("empty" if not vals else "num" if nums >= 0.9 * len(vals)
+                else "date" if sum(map(is_date, vals[:200])) >= 0.9 * min(len(vals), 200) else "text")
+        if h in known:
+            use = "used"
+        elif not vals:
+            use = "empty"
+        elif PRIVATE_RE.search(h):
+            use = "private"
+        elif ID_RE.search(h):
+            use = "id"
+        elif kind == "date":
+            use = "date"
+        elif kind == "num":
+            use = "num"
+        elif distinct <= MAX_DIM:
+            use = "dim"
+        else:
+            use = "text"
+        filled = sum(1 for r in rows if i < len(r) and txt(r[i]))
+        out.append({"name": h or f"(column {i + 1})", "kind": kind, "filled": filled, "distinct": min(distinct, MAX_DIM + 1), "use": use, "i": i})
+    return out
+
+
+def read_orders(ix, rows, stats, extra=()):
     """Sub-orders of one export, keyed by (order, sub-order). Product lines are folded into their sub-order."""
     c = lambda name: ix.get(name)  # noqa: E731
     subs = {}
@@ -219,11 +286,19 @@ def read_orders(ix, rows, stats):
                 "st": st, "pay": pay(cell(r, c("PaymentMethod"))), "tot": num(cell(r, c("SubOrderTotal"))),
                 "dl": when(cell(r, c("DeliveredOn"))), "why": txt(cell(r, c("CancellationReason"))),
                 "src": txt(cell(r, c("CancellationSource"))), "edited": False, "ered": set(),
-                "customers": {},
+                "customers": {}, "xn": defaultdict(list), "xd": Counter(),
             }
         name, name_key = customer_name(cell(r, c("CustomerName")))
         if name_key:
             rec["customers"].setdefault(name_key, name)
+        for col in extra:
+            v = cell(r, col["i"])
+            if not txt(v):
+                continue
+            if col["use"] == "num":
+                rec["xn"][col["name"]].append(num(v))
+            else:
+                rec["xd"][(col["name"], txt(v)[:80])] += 1
         if txt(cell(r, c("Edit Status"))) == "Edited":
             rec["edited"] = True
         er = txt(cell(r, c("Edit Reason"))) if c("Edit Reason") is not None else ""
@@ -319,10 +394,14 @@ def main():
                 with first_sheet(local) as ws:
                     rows = ws.iter_rows(values_only=True)
                     head = [txt(h) for h in (next(rows, None) or [])]
+                    rows = list(rows)
                     ix = columns(head)
                     if {"OrderNumber", "SuborderNumber", "DeliveryTime", "SubordeStatus"} <= set(ix):
                         stats = {}
-                        subs = read_orders(ix, rows, stats)
+                        cols = profile(head, rows, KNOWN)
+                        first = set(ix.values())  # a repeated header name is read from its first column only
+                        extra = [col for col in cols if col["use"] in ("num", "dim") and col["i"] in first]
+                        subs = read_orders(ix, rows, stats, extra)
                         for field in history_coverage:
                             history_coverage[field] += stats[field]
                         months = Counter(rec["m"] for rec in subs.values())
@@ -335,12 +414,15 @@ def main():
                         for key, rec in subs.items():
                             if key not in best or rec["m"] >= best[key]["m"]:
                                 best[key] = rec
-                        used.append({"path": item["path"], "kind": "orders", "rows": len(subs), "month": month})
+                        used.append({"path": item["path"], "kind": "orders", "rows": len(subs), "month": month,
+                                     "sourceRows": len(rows), "columns": cols})
                         log(f"  orders  {item['path']}: {len(subs)} sub-orders for {month}")
                     elif "Order Id" in ix and any("categ" in h.lower() for h in ix):
                         got = read_complaints(ix, rows)
                         complaints.extend(got)
-                        used.append({"path": item["path"], "kind": "complaints", "rows": len(got)})
+                        cat_cols = {h for h in ix if "categ" in h.lower()}
+                        used.append({"path": item["path"], "kind": "complaints", "rows": len(got), "sourceRows": len(rows),
+                                     "columns": profile(head, rows, KNOWN_COMPLAINTS | cat_cols)})
                         log(f"  complaints  {item['path']}: {len(got)} rows")
             except Exception as err:  # noqa: BLE001 - not a readable workbook
                 log(f"  skip  {item['path']} ({err})")
@@ -399,6 +481,7 @@ def main():
 
     daily = defaultdict(lambda: [0] * len(DAILY))
     why, edits, pays = Counter(), Counter(), Counter()
+    why_d, edits_d = Counter(), Counter()
     slots = defaultdict(lambda: [0, 0, 0, 0])
     dists = defaultdict(lambda: [0, 0.0])
     customers = defaultdict(lambda: [0, 0.0])
@@ -413,6 +496,7 @@ def main():
             f[2] += 1
             f[3] += rec["src"] == "Customer"
             why[(o, m, why_codes(rec["why"] or "(not given)"), WHO.get(rec["src"], 2))] += 1
+            why_d[(o, day_ix[rec["day"]], why_codes(rec["why"] or "(not given)"), WHO.get(rec["src"], 2))] += 1
         else:
             f[1] += rec["tot"]
         if delivered:
@@ -427,6 +511,7 @@ def main():
         f[10] += rec["st"] in OPEN
         for e in rec["ered"]:
             edits[(o, m, edit_codes(e))] += 1
+            edits_d[(o, day_ix[rec["day"]], edit_codes(e))] += 1
         s = slots[(o, m, slot_ix[rec["sl"]], rec["day"].weekday())]
         s[0] += 1
         s[1] += cancelled
@@ -464,6 +549,53 @@ def main():
                        round(rec["tot"], 2), 0 if rec["st"] == "Cancelled" else round(rec["tot"], 2)]
                       for rec in recs), key=lambda r: (r[0], r[1], r[2], r[3]))
     history_coverage["records"] = len(history)
+    # schema 4: categorical and numeric columns by outlet and slot day, and when orders were placed
+    dim_vals = defaultdict(Codes)
+    dim_rows = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
+    num_cols = {}
+    for f in used:
+        for col in f.get("columns", []):
+            if f["kind"] == "orders" and col["use"] == "num":
+                num_cols.setdefault(col["name"], "sub")
+    num_rows = defaultdict(lambda: defaultdict(float))
+    placed = Counter()
+    for rec in recs:
+        o, d_ix = outlet(rec["code"], rec["name"]), day_ix[rec["day"]]
+        cancelled = rec["st"] == "Cancelled"
+        net = 0 if cancelled else rec["tot"]
+        values = {"Payment method": rec["pay"], "Sub-order status": rec["st"] or "(not recorded)",
+                  "Delivery district": rec["dist"] or "(not recorded)"}
+        best_of = {}
+        for (name, value), n in rec["xd"].items():
+            if n > best_of.get(name, ("", 0))[1]:
+                best_of[name] = (value, n)
+        values.update({name: v for name, (v, _) in best_of.items()})
+        for name, value in values.items():
+            a = dim_rows[name][(o, d_ix, dim_vals[name](value))]
+            a[0] += 1
+            a[1] += net
+        if not cancelled:
+            for name, vals in rec["xn"].items():
+                if len(set(vals)) > 1:
+                    num_cols[name] = "line"
+        placed[(o, month_ix[rec["m"]], rec["cr"].weekday(), rec["cr"].hour)] += 1
+    for rec in recs:
+        if rec["st"] == "Cancelled":
+            continue
+        o, d_ix = outlet(rec["code"], rec["name"]), day_ix[rec["day"]]
+        for name, vals in rec["xn"].items():
+            num_rows[(o, d_ix)][name] += sum(vals) if num_cols.get(name) == "line" else vals[0]
+    for f in used:  # a column with too many values across all exports is free text after all
+        for col in f.get("columns", []):
+            if col["use"] == "dim" and len(dim_vals[col["name"]].list) > MAX_DIM:
+                col["use"] = "text"
+            col.pop("i", None)
+    dims = {name: {"list": dim_vals[name].list, "r": [[*k, v[0], round(v[1])] for k, v in sorted(rows.items())]}
+            for name, rows in dim_rows.items() if len(dim_vals[name].list) <= MAX_DIM or name == "Delivery district"}
+    num_names = sorted(num_cols)
+    nums = {"cols": [{"name": n, "level": num_cols[n]} for n in num_names],
+            "r": [[*k, *[round(v.get(n, 0), 2) for n in num_names]] for k, v in sorted(num_rows.items())]}
+
     opened = sorted(([rec["o"], rec["s"], outlet(rec["code"], rec["name"]), rec["st"], rec["cr"].strftime("%Y-%m-%d %H:%M"),
                       iso(rec["day"]), rec["sl"], rec["pay"], round(rec["tot"]), (asof.date() - rec["cr"].date()).days]
                      for rec in recs if rec["st"] in OPEN), key=lambda r: -r[-1])
@@ -494,6 +626,11 @@ def main():
         "open": opened,
         "lists": {k: v.list for k, v in lists.items()},
         "complaints": complaint_rows,
+        "dims": dims,
+        "nums": nums,
+        "placed": {"r": [[*k, v] for k, v in sorted(placed.items())]},
+        "whyD": {"r": [[*k, v] for k, v in sorted(why_d.items())]},
+        "editsD": {"r": [[*k, v] for k, v in sorted(edits_d.items())]},
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_suffix(".tmp")

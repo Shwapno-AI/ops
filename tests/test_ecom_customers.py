@@ -61,7 +61,7 @@ class CustomerRankingTests(unittest.TestCase):
                            order("P2", "S4", "Test Alpha", total=200, status="Cancelled"),
                            order("P3", "S5", "Test Beta", total=60)],
         })
-        self.assertEqual(data["schema"], 3)
+        self.assertEqual(data["schema"], 4)
         self.assertEqual(data["customers"]["kind"], "name")
         self.assertEqual(data["customers"]["list"], ["Test Alpha", "Test Beta"])
         self.assertEqual(data["months"], ["2026-10"])
@@ -234,3 +234,50 @@ class CustomerRankingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtraColumnTests(unittest.TestCase):
+    """Schema 4: every column is listed; safe categorical and numeric columns are charted, private ones never exported."""
+    setUp = CustomerRankingTests.setUp
+    build = CustomerRankingTests.build
+
+    def test_columns_dims_nums_and_placed(self):
+        headers = HEADERS + ["Zone", "DeliveryCharge", "Quantity", "CustomerPhone", "Shipping Address", "TransactionId"]
+        def row(parent, sub, zone, charge, qty, status="Delivered", day="10/5/2026"):
+            r = order(parent, sub, "Test Alpha", total=100, status=status, day=day)
+            r.update({"Zone": zone, "DeliveryCharge": charge, "Quantity": qty, "CustomerPhone": "01711000000",
+                      "Shipping Address": "Synthetic road 1", "TransactionId": "TX-" + parent})
+            return r
+        data = self.build({"orders.xlsx": [
+            # one sub-order with two product lines: the charge repeats (sub-order level), the quantity differs (line level)
+            row("P1", "S1", "North", 50, 1), row("P1", "S1", "North", 50, 2),
+            row("P2", "S2", "South", 30, 1, day="10/6/2026"),
+            row("P3", "S3", "South", 30, 4, status="Cancelled"),
+        ]}, headers=headers)
+        self.assertEqual(data["schema"], 4)
+        cols = {c["name"]: c["use"] for c in data["source"]["files"][0]["columns"]}
+        self.assertEqual(cols["Zone"], "dim")
+        self.assertEqual(cols["DeliveryCharge"], "num")
+        self.assertEqual(cols["CustomerPhone"], "private")
+        self.assertEqual(cols["Shipping Address"], "private")
+        self.assertEqual(cols["TransactionId"], "id")
+        self.assertEqual(cols["OrderNumber"], "used")
+        text = json.dumps(data)
+        self.assertNotIn("01711000000", text)
+        self.assertNotIn("Synthetic road", text)
+        zone = data["dims"]["Zone"]
+        by = {}
+        for o, d, k, n, net in zone["r"]:
+            by[zone["list"][k]] = by.get(zone["list"][k], 0) + n
+        self.assertEqual(by, {"North": 1, "South": 2})
+        self.assertIn("Payment method", data["dims"])
+        self.assertIn("Sub-order status", data["dims"])
+        nums = data["nums"]
+        level = {c["name"]: c["level"] for c in nums["cols"]}
+        self.assertEqual(level, {"DeliveryCharge": "sub", "Quantity": "line"})
+        names = [c["name"] for c in nums["cols"]]
+        totals = [sum(r[2 + i] for r in nums["r"]) for i in range(len(names))]
+        # the cancelled sub-order is left out; the repeated charge counts once, the quantities add up
+        self.assertEqual(dict(zip(names, totals)), {"DeliveryCharge": 80, "Quantity": 4})
+        self.assertEqual(sum(r[-1] for r in data["placed"]["r"]), 3)
+        self.assertEqual({(r[2], r[3]) for r in data["placed"]["r"]}, {(3, 9)})  # 1 Oct 2026 is a Thursday, 9 AM
