@@ -57,6 +57,14 @@ Added in schema 4 (all additive, so the schema 3 fields above keep their meaning
                  r: [[outlet, day, value per column...]]}: every other numeric column, summed over sub-orders
                  that were not cancelled.
   placed         {r: [[outlet, month, weekday placed (0 = Monday), hour placed, sub-orders]]}, by delivery month.
+  daily.slotch   sub-orders whose delivery slot was moved from the one the customer chose (see slotChange)
+  daily.slotchLate  of those, delivered within the new slot but after the customer's slot had ended: late for the
+                 customer, but not counted as late against the moved slot
+  slotChange     {sources: [how changes were found], r: [[outlet, month, customer's slot, final slot, sub-orders,
+                 delivered after the customer's slot]]}; slots index slots.list. Changes are found from any other
+                 column holding a delivery slot (the customer's original slot), from a column flagging a reschedule,
+                 and from a sub-order whose slot differs between two exports (the earlier export's slot counts as
+                 the customer's). With none of these, sources is empty and nothing is counted.
   whyD, editsD   why and edits by slot day instead of month: {r: [[outlet, day, reason, who, n]]} and
                  {r: [[outlet, day, reason, sub-orders]]}; reasons index why.list and edits.list.
 
@@ -104,7 +112,9 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 OPEN = ("Pending", "Processing")
 WHO = {"Customer": 0, "BackOffice": 1}
 CUSTOMER_EDIT = "Customer Requested Change"
-DAILY = ("n", "net", "canc", "custc", "deliv", "late", "late60", "lateMin", "edited", "custed", "open")
+DAILY = ("n", "net", "canc", "custc", "deliv", "late", "late60", "lateMin", "edited", "custed", "open", "slotch", "slotchLate")
+# a column that says the delivery slot was moved (a yes/no flag or a count), whatever else it is called
+SLOTFLAG_RE = re.compile(r"reschedul|slot\s*_?chang|chang\w*\s*_?slot|time\s*_?chang|slot\s*_?updat|slot\s*_?moved", re.I)
 
 
 def log(msg):
@@ -145,6 +155,14 @@ def slot(v):
     hour = lambda h, ap: int(h) % 12 + (12 if ap == "PM" else 0)  # noqa: E731
     label = f"{m[1]}:{m[2]} {m[3]} - {m[4]}:{m[5]} {m[6]}"
     return label, hour(m[1], m[3]), hour(m[4], m[6]), dt.date(int(m[9]), int(m[7]), int(m[8]))
+
+
+def orig_end(sl):
+    """End of a slot (label, start hour, end hour, day); a slot ending at or before its start ends the next day."""
+    label, sh, eh, day = sl
+    if eh is None:
+        eh = slot(f"{label} {day.month}/{day.day}/{day.year}")[2]
+    return dt.datetime.combine(day, dt.time(eh)) + (dt.timedelta(days=1) if eh <= sh else dt.timedelta(0))
 
 
 def pay(v):
@@ -242,6 +260,10 @@ def profile(head, rows, known, sample=5000):
             use = "private"
         elif ID_RE.search(h):
             use = "id"
+        elif h != "DeliveryTime" and sum(1 for v in vals[:200] if SLOT_RE.search(txt(v))) >= 0.9 * min(len(vals), 200):
+            use = "slot"   # another delivery slot: the one the customer chose before it was moved
+        elif SLOTFLAG_RE.search(h):
+            use = "slotflag"
         elif kind == "date":
             use = "date"
         elif kind == "num":
@@ -294,6 +316,14 @@ def read_orders(ix, rows, stats, extra=()):
         for col in extra:
             v = cell(r, col["i"])
             if not txt(v):
+                continue
+            if col["use"] == "slot":
+                rec["orig"] = rec.get("orig") or slot(v)
+                rec["origCol"] = rec.get("origCol") or col["name"]
+                continue
+            if col["use"] == "slotflag":
+                if txt(v).lower() not in ("0", "0.0", "no", "n", "false", "none", "not changed", "unchanged"):
+                    rec["flag"] = col["name"]
                 continue
             if col["use"] == "num":
                 rec["xn"][col["name"]].append(num(v))
@@ -400,7 +430,7 @@ def main():
                         stats = {}
                         cols = profile(head, rows, KNOWN)
                         first = set(ix.values())  # a repeated header name is read from its first column only
-                        extra = [col for col in cols if col["use"] in ("num", "dim") and col["i"] in first]
+                        extra = [col for col in cols if col["use"] in ("num", "dim", "slot", "slotflag") and col["i"] in first]
                         subs = read_orders(ix, rows, stats, extra)
                         for field in history_coverage:
                             history_coverage[field] += stats[field]
@@ -412,8 +442,13 @@ def main():
                         elif stats["prod_lines"]:
                             log(f"  note  {item['path']}: product lines do not add up to the sub-order totals ({ratio:.2f}); products not used")
                         for key, rec in subs.items():
-                            if key not in best or rec["m"] >= best[key]["m"]:
+                            old = best.get(key)
+                            if old is None or rec["m"] >= old["m"]:
                                 best[key] = rec
+                            if old is not None and (old["sl"], old["day"]) != (rec["sl"], rec["day"]):
+                                win, lose = (rec, old) if best[key] is rec else (old, rec)
+                                if not win.get("orig"):
+                                    win["orig"], win["origCol"] = (lose["sl"], lose["sh"], None, lose["day"]), "exports"
                         used.append({"path": item["path"], "kind": "orders", "rows": len(subs), "month": month,
                                      "sourceRows": len(rows), "columns": cols})
                         log(f"  orders  {item['path']}: {len(subs)} sub-orders for {month}")
@@ -475,6 +510,8 @@ def main():
     slot_start = {}
     for rec in recs:
         slot_start.setdefault(rec["sl"], rec["sh"])
+        if rec.get("orig"):
+            slot_start.setdefault(rec["orig"][0], rec["orig"][1])
     slot_list = sorted(slot_start, key=lambda s: (slot_start[s], s))
     slot_ix = {s: i for i, s in enumerate(slot_list)}
     why_codes, edit_codes, pay_codes, dist_codes = Codes(), Codes(), Codes(), Codes()
@@ -482,6 +519,7 @@ def main():
     daily = defaultdict(lambda: [0] * len(DAILY))
     why, edits, pays = Counter(), Counter(), Counter()
     why_d, edits_d = Counter(), Counter()
+    moves, sources = defaultdict(lambda: [0, 0]), set()
     slots = defaultdict(lambda: [0, 0, 0, 0])
     dists = defaultdict(lambda: [0, 0.0])
     customers = defaultdict(lambda: [0, 0.0])
@@ -509,6 +547,16 @@ def main():
         f[8] += rec["edited"]
         f[9] += CUSTOMER_EDIT in rec["ered"]
         f[10] += rec["st"] in OPEN
+        orig = rec.get("orig")
+        moved = bool(orig) and (orig[0], orig[3]) != (rec["sl"], rec["day"])
+        if moved or rec.get("flag"):
+            sources.add(rec.get("origCol") if moved else rec["flag"])
+            hidden = bool(moved and delivered and not late and rec["dl"] > orig_end(orig))
+            f[11] += 1
+            f[12] += hidden
+            mv = moves[(o, m, slot_ix[orig[0]] if moved else -1, slot_ix[rec["sl"]])]
+            mv[0] += 1
+            mv[1] += hidden
         for e in rec["ered"]:
             edits[(o, m, edit_codes(e))] += 1
             edits_d[(o, day_ix[rec["day"]], edit_codes(e))] += 1
@@ -630,6 +678,7 @@ def main():
         "nums": nums,
         "placed": {"r": [[*k, v] for k, v in sorted(placed.items())]},
         "whyD": {"r": [[*k, v] for k, v in sorted(why_d.items())]},
+        "slotChange": {"sources": sorted(sources), "r": [[*k, *v] for k, v in sorted(moves.items())]},
         "editsD": {"r": [[*k, v] for k, v in sorted(edits_d.items())]},
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
