@@ -21,9 +21,12 @@ Environment:
   QWEN_KEY or QWEN_API_KEY, QWEN_MODEL     its key and model
   QWEN_LABEL               name shown in the menu (default "Alibaba Qwen")
   QWEN_REASONING_EFFORT    optional; sent to the model as reasoning_effort (dropped if the model rejects it)
-  OPENCODE_API_KEY         OpenCode (opencode.ai Zen) key; with it the OpenCode model appears in the menu (id "opencode")
-  OPENCODE_MODEL           its model (default glm-5.3-flash-free)
-  OPENCODE_ENDPOINT        OpenAI-compatible base URL (default https://opencode.ai/zen/v1)
+  OPENCODE_CONSOLE_TOKEN   OpenCode console token (or OPENCODE_API_KEY); with it the OpenCode model appears in the menu
+                           (id "opencode")
+  OPENCODE_ORG_ID          the organisation (org_...), sent as the x-opencode-org-id header the console inference API needs
+  OPENCODE_MODEL           its model (default glm-5.3-flash-free); only models served over the OpenAI-compatible route
+                           (GLM, DeepSeek, Kimi, MiniMax, GPT...), not the Claude, Gemini or Qwen ones on other routes
+  OPENCODE_ENDPOINT        OpenAI-compatible base URL (default https://opencode.ai/inference/openai/v1)
   OPENCODE_LABEL           name shown in the menu (default "OpenCode GLM 5.3 Flash")
   OPENCODE2_* ...          more OpenCode models, same names with a number (OPENCODE2_API_KEY, OPENCODE2_MODEL...)
   AI_DEFAULT_PROVIDER      id of the model selected by default (default qwen38, else qwen; "opencode" for OpenCode)
@@ -75,7 +78,7 @@ def qwen_groups():
     return out
 
 
-OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1"
+OPENCODE_ENDPOINT = "https://opencode.ai/inference/openai/v1"
 OPENCODE_MODEL = "glm-5.3-flash-free"
 
 
@@ -84,17 +87,17 @@ def opencode_groups():
     Only the key is required; the endpoint and model have defaults."""
     out = {}
     for k in sorted(os.environ):
-        m = re.fullmatch(r"(OPENCODE(\d*))_(API_KEY|KEY)", k)
+        m = re.fullmatch(r"(OPENCODE(\d*))_(CONSOLE_TOKEN|API_KEY|KEY)", k)
         if not m:
             continue
         pre = m.group(1)
-        key = env(pre + "_API_KEY") or env(pre + "_KEY")
+        key = env(pre + "_CONSOLE_TOKEN") or env(pre + "_API_KEY") or env(pre + "_KEY")
         if not key or pre.lower() in out:
             continue
         model = env(pre + "_MODEL") or OPENCODE_MODEL
         out[pre.lower()] = {"endpoint": (env(pre + "_ENDPOINT") or OPENCODE_ENDPOINT).rstrip("/"), "key": key, "model": model,
                             "label": env(pre + "_LABEL") or ("OpenCode GLM 5.3 Flash" if model == OPENCODE_MODEL else "OpenCode " + model),
-                            "effort": env(pre + "_REASONING_EFFORT")}
+                            "effort": env(pre + "_REASONING_EFFORT"), "org": env(pre + "_ORG_ID") or env("OPENCODE_ORG_ID")}
     return out
 
 
@@ -192,6 +195,8 @@ def chat(provider, messages, tools):
     g = opencode_groups().get(provider)
     if g:
         url, head, base = g["endpoint"] + "/chat/completions", {"Authorization": "Bearer " + g["key"]}, {**body, "model": g["model"]}
+        if g["org"]:
+            head["x-opencode-org-id"] = g["org"]
         try:
             return post(url, head, base)
         except urllib.error.HTTPError as e:
