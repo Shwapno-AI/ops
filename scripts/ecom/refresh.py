@@ -65,6 +65,11 @@ Added in schemas 4 and 5 (all additive, so the schema 3 fields above keep their 
                  column holding a delivery slot (the customer's original slot), from a column flagging a reschedule,
                  and from a sub-order whose slot differs between two exports (the earlier export's slot counts as
                  the customer's). With none of these, sources is empty and nothing is counted.
+  items          every product of the months whose exports have one row per product that adds up (see products):
+                 {months: [month], list: [[product, SKU]], r: [[product, outlet, day, lines, sub-orders, quantity,
+                 amount, discount, out-of-stock lines, quantity short, cancelled lines, cancelled amount]]}. Lines,
+                 sub-orders, quantity, amount and discount are for sub-orders not cancelled; quantity short is the
+                 ordered quantity less "Updated Qty" where it was cut; out-of-stock lines carry that edit reason.
   whyD, editsD   why and edits by slot day instead of month: {r: [[outlet, day, reason, who, n]]} and
                  {r: [[outlet, day, reason, sub-orders]]}; reasons index why.list and edits.list.
 
@@ -93,7 +98,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 5  # 5: slot changes (slotch, slotchLate, slotChange); bump to force a rebuild when fields are added
+SCHEMA = 6  # 5: slot changes; 6: items (every product by outlet and day). Bump to force a rebuild when fields are added
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
@@ -308,7 +313,7 @@ def read_orders(ix, rows, stats, extra=()):
                 "st": st, "pay": pay(cell(r, c("PaymentMethod"))), "tot": num(cell(r, c("SubOrderTotal"))),
                 "dl": when(cell(r, c("DeliveredOn"))), "why": txt(cell(r, c("CancellationReason"))),
                 "src": txt(cell(r, c("CancellationSource"))), "edited": False, "ered": set(),
-                "customers": {}, "xn": defaultdict(list), "xd": Counter(),
+                "customers": {}, "xn": defaultdict(list), "xd": Counter(), "items": [],
             }
         name, name_key = customer_name(cell(r, c("CustomerName")))
         if name_key:
@@ -334,6 +339,11 @@ def read_orders(ix, rows, stats, extra=()):
         er = txt(cell(r, c("Edit Reason"))) if c("Edit Reason") is not None else ""
         if er:
             rec["ered"].add(er)
+        if c("ProductName") is not None and txt(cell(r, c("ProductName"))):
+            upd = cell(r, c("Updated Qty"))
+            rec["items"].append((txt(cell(r, c("ProductName"))), order_no(cell(r, c("SKU"))), num(cell(r, c("Quantity"))),
+                                 num(cell(r, c("Price"))), num(cell(r, c("Discount"))), txt(cell(r, c("Edit Reason"))),
+                                 num(upd) if txt(upd) else None))
         if c("ProductName") is not None and st != "Cancelled":
             price = num(cell(r, c("Price")))
             price_ok += price
@@ -597,6 +607,35 @@ def main():
                        round(rec["tot"], 2), 0 if rec["st"] == "Cancelled" else round(rec["tot"], 2)]
                       for rec in recs), key=lambda r: (r[0], r[1], r[2], r[3]))
     history_coverage["records"] = len(history)
+    # schema 6: every product of the months whose product lines add up, by outlet and slot day
+    item_codes, item_at, item_rows = [], {}, defaultdict(lambda: [0, set(), 0.0, 0.0, 0.0, 0, 0.0, 0, 0.0])
+    item_months = sorted(prods)
+    for rec in recs:
+        if rec["m"] not in prods or not rec["items"]:
+            continue
+        o, d_ix, cancelled = outlet(rec["code"], rec["name"]), day_ix[rec["day"]], rec["st"] == "Cancelled"
+        for name, sku, qty, price, disc, reason, upd in rec["items"]:
+            k = sku or name
+            if k not in item_at:
+                item_at[k] = len(item_codes)
+                item_codes.append([name, sku])
+            a = item_rows[(item_at[k], o, d_ix)]
+            if cancelled:
+                a[7] += 1
+                a[8] += price
+                continue
+            a[0] += 1
+            a[1].add((rec["o"], rec["s"]))
+            a[2] += qty
+            a[3] += price
+            a[4] += disc
+            a[5] += reason == "Out of Stock"
+            if upd is not None and upd < qty:
+                a[6] += qty - upd
+    items = {"months": item_months, "list": item_codes,
+             "r": [[*k, a[0], len(a[1]), round(a[2], 2), round(a[3]), round(a[4]), a[5], round(a[6], 2), a[7], round(a[8])]
+                   for k, a in sorted(item_rows.items())]}
+
     # schema 4: categorical and numeric columns by outlet and slot day, and when orders were placed
     dim_vals = defaultdict(Codes)
     dim_rows = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
@@ -666,6 +705,7 @@ def main():
         "pays": {"list": pay_codes.list, "r": [[*k, v] for k, v in sorted(pays.items())]},
         "dists": {"list": dist_codes.list, "r": [[*k, v[0], round(v[1])] for k, v in sorted(dists.items())]},
         "products": products,
+        "items": items,
         "customers": {"kind": "name", "list": customer_names,
                       "r": [[*k, v[0], round(v[1])] for k, v in sorted(customers.items())],
                       "historyVersion": CUSTOMER_HISTORY_VERSION, "asOf": iso(asof.date()),

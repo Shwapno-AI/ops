@@ -337,3 +337,32 @@ class SlotChangeTests(unittest.TestCase):
         plain = self.build({"orders.xlsx": [self.row("P1", "03:00 PM - 04:00 PM", "Oct 05, 2026, 3:30:00 PM")]}, headers=HEADERS + ["DeliveredOn"])
         self.assertEqual(plain["slotChange"], {"sources": [], "r": []})
         self.assertEqual(sum(plain["daily"]["slotch"]), 0)
+
+
+class ItemTests(unittest.TestCase):
+    """Schema 6: every product line, by outlet and day; cancelled sub-orders apart."""
+    setUp = CustomerRankingTests.setUp
+    build = CustomerRankingTests.build
+
+    def test_items(self):
+        headers = HEADERS + ["SKU", "Quantity", "Discount", "Edit Reason", "Updated Qty"]
+        def line(parent, name, sku, qty, price, total, status="Delivered", reason=None, upd=None, outlet="A"):
+            r = order(parent, "1", "Test Alpha", outlet=outlet, total=total, status=status)
+            r.update({"ProductName": name, "SKU": sku, "Quantity": qty, "Price": price, "Discount": 5, "Edit Reason": reason, "Updated Qty": upd})
+            return r
+        data = self.build({"orders.xlsx": [
+            line("P1", "Rice", 101, 2, 200, 300), line("P1", "Oil", 202, 1, 100, 300, reason="Out of Stock", upd=0),
+            line("P2", "Rice", 101, 3, 300, 300, outlet="B"),
+            line("P3", "Rice", 101, 1, 100, 100, status="Cancelled"),
+        ]}, headers=headers)
+        it = data["items"]
+        self.assertEqual(it["months"], ["2026-10"])
+        names = {i: n for i, (n, sku) in enumerate(it["list"])}
+        tot = {}
+        for p, o, d, lines, subs, qty, amount, disc, oos, short, cl, ca in it["r"]:
+            t = tot.setdefault(names[p], [0, 0, 0, 0, 0, 0, 0, 0, 0])
+            for j, v in enumerate([lines, subs, qty, amount, disc, oos, short, cl, ca]):
+                t[j] += v
+        self.assertEqual(tot["Rice"], [2, 2, 5, 500, 10, 0, 0, 1, 100])
+        self.assertEqual(tot["Oil"], [1, 1, 1, 100, 5, 1, 1, 0, 0])
+        self.assertEqual(it["list"][[n for n, _ in it["list"]].index("Rice")][1], "101")
