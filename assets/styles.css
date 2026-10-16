@@ -497,3 +497,7 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 @media (max-width:640px){.ec-period .seg{width:100%}.ec-period .seg button{flex:1}}
 .ec-sub{display:flex;flex-direction:column;gap:14px}
 .ec-sub-h{font-size:16px;font-weight:650;margin:6px 0 0}
+/* E-Commerce header: the scope title with the view tabs beside it; filters and comparison below */
+.ec-head .ec-head-l{flex:1 1 100%;display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;min-width:0}
+.ec-head .ec-head-l>b{flex:none}
+.ec-head .ec-tabs{margin:0;min-width:0;max-width:100%;flex:0 1 auto}

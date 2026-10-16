@@ -5989,7 +5989,8 @@
     const zns = [...new Set(d.O.filter((o) => !sc.rl || o.rl === sc.rl).map((o) => o.zn))].sort();
     const outlets = d.O.filter((o) => (!sc.rl || o.rl === sc.rl) && (!sc.zn || o.zn === sc.zn)).sort((a, b) => a.c.localeCompare(b.c));
     const cm = d.cmonths.length ? `${fmonth(d.cmonths[0])} – ${fmonth(d.cmonths[d.cmonths.length - 1])}` : "none yet";
-    return `<section class="panel ec-head"><div class="ec-head-l"><b>${esc(sc.label)}${sc.zn && sc.rl ? ` <span class="muted">· ${esc(sc.rl)}</span>` : ""}</b><p>Sub-orders to ${esc(fdate(d.source.asOf.slice(0, 10)))}, ${esc(d.source.asOf.slice(11))} · complaints ${esc(cm)}</p></div>
+    return `<section class="panel ec-head"><div class="ec-head-l"><b title="${esc(`Sub-orders to ${fdate(d.source.asOf.slice(0, 10))}, ${d.source.asOf.slice(11)} · complaints ${cm}`)}">${esc(sc.label)}${sc.zn && sc.rl ? ` <span class="muted">· ${esc(sc.rl)}</span>` : ""}</b>
+        <div class="ec-tabs">${seg("ecomTab", EC_TABS, "E-Commerce view")}</div></div>
       <div class="ec-filters">
         <select class="sel" data-sel="ecomM" aria-label="Month">${d.months.slice().reverse().map((x) => opt(x, ecMonthName(d, x), m)).join("")}</select>
         <select class="sel" data-sel="ecomRho" aria-label="Regional leader">${opt("", "All RHOs", sc.rl)}${d.rls.map((x) => opt(x, x, sc.rl)).join("")}</select>
@@ -5998,8 +5999,7 @@
         ${sc.rl || sc.zn || sc.outlet ? `<button class="btn" type="button" data-ec-clear>Clear</button>` : ""}<button class="btn" type="button" data-ec-lock>Lock</button>
       </div>
       <div class="ec-period">${seg("ecomCmp", [["splm", "vs same period last month"], ["mom", "vs last month"]], "Compare with")}
-        <p><b>${esc(C.P.curLabel)}</b>${C.P.pm ? ` compared with <b>${esc(C.P.cmpLabel)}</b> (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}</p></div></section>
-      <div class="ec-tabs">${seg("ecomTab", EC_TABS, "E-Commerce view")}</div>`;
+        <p><b>${esc(C.P.curLabel)}</b>${C.P.pm ? ` compared with <b>${esc(C.P.cmpLabel)}</b> (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}</p></div></section>`;
   }
 
   function ecProblems(C) {
