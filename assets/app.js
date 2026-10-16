@@ -7,7 +7,7 @@
 
   // ------------------------------------------------------------------ config
   const NAV = [
-    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet network"], ["ar", "Priority Tasks"], ["sg", "Stock / Inventory Gap"], ["ecom", "E-Commerce"]] },
+    { group: "", items: [["gm", "Growth & momentum"], ["on", "Outlet Network"], ["ar", "Priority Tasks"], ["sg", "Stock / Inventory Gap"], ["ecom", "E-Commerce"]] },
     { group: "Sales", items: [["overview", "Overview"], ["achievement", "Sales achievement"], ["growth", "Sales growth"], ["gp", "Gross profit"], ["footfall", "Footfall and basket"], ["ranking", "Growth and degrowth"], ["category", "Category performance"], ["dos", "Days of Stock (DOS)"]] },
     { group: "Store assessment", items: [["sao", "Overview"], ["sav", "Since last visit"], ["sas", "Scorecard"], ["saq", "Questions"], ["sac", "Coverage and auditors"], ["sapk", "PAKHAQS survey"]] },
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
@@ -2193,8 +2193,8 @@
     if (S.net) return "";
     loadNet();
     return S.netErr
-      ? `<p class="empty">The outlet network data could not be loaded (${esc(S.netErr)}). Run the "Refresh data" workflow on GitHub, then reload this page.</p>`
-      : '<p class="empty">Loading outlet network data…</p>';
+      ? `<p class="empty">The Outlet Network data could not be loaded (${esc(S.netErr)}). Run the "Refresh data" workflow on GitHub, then reload this page.</p>`
+      : '<p class="empty">Loading Outlet Network data…</p>';
   }
   function driveNote() {
     const at = S.net?.source?.drive?.syncedAt;
@@ -2555,7 +2555,7 @@
       <div class="grid-h net-eq">${oversight}${mix}</div>
       <div class="grid-h net-eq">${shareBars("Location type", "Where outlets trade.", "locationType", "Location type")}${shareBars("Coverage by division", "Outlet count and share of the outlets in view.", "division", "Division")}</div>
       ${launch}${register}
-      <p class="muted" style="margin:0;font-size:11.5px">Outlet network data from the mother Google Drive folder${driveNote() ? `, synced ${esc(driveNote())}` : ""}. ${d.source?.lastMonth?.matchedOutlets ? `${esc(lm)} baseline on ${int(d.source.lastMonth.matchedOutlets)} outlets.` : ""}</p>`;
+      <p class="muted" style="margin:0;font-size:11.5px">Outlet Network data from the mother Google Drive folder${driveNote() ? `, synced ${esc(driveNote())}` : ""}. ${d.source?.lastMonth?.matchedOutlets ? `${esc(lm)} baseline on ${int(d.source.lastMonth.matchedOutlets)} outlets.` : ""}</p>`;
   }
 
   // ---- Growth & momentum page
@@ -3024,7 +3024,7 @@
     const filterText = active.length ? active.join(" · ") : "None, full network";
     // Page numbers are stamped at the end, once the page count is known.
     const foot = () => { const f = el("div", "rp-foot"); f.append(el("span", null, `Operations Dashboard · Growth & momentum · Generated ${generated}`), el("span", "rp-pageno")); return f; };
-    const topline = (right) => { const t = el("div", "rp-topline"), l = el("span"); l.append(el("b", null, "OUTLET NETWORK"), document.createTextNode("  ·  Growth & momentum")); t.append(l, el("span", null, right)); return t; };
+    const topline = (right) => { const t = el("div", "rp-topline"), l = el("span"); l.append(el("b", null, "Outlet Network"), document.createTextNode("  ·  Growth & momentum")); t.append(l, el("span", null, right)); return t; };
     const oname = (r) => outletLabel(r);
 
     const p1 = el("section", "report-page"), hero = el("div", "rp-hero"), meta = el("div", "meta");
@@ -3152,7 +3152,7 @@
   }
 
   function netFilesPanel() {
-    const head = `<div class="panel-head"><div><h2>Outlet network files</h2><p>Feed the Outlet network and Growth & momentum pages. Recognised by their layout, so filenames can change.</p></div>`;
+    const head = `<div class="panel-head"><div><h2>Outlet Network files</h2><p>Feed the Outlet Network and Growth & momentum pages. Recognised by their layout, so filenames can change.</p></div>`;
     if (!S.net) {
       loadNet();
       return `<section class="panel">${head}</div><div class="panel-body"><p class="muted" style="margin:0">${S.netErr ? `network.json could not be loaded (${esc(S.netErr)}).` : "Loading…"}</p></div></section>`;
@@ -3700,7 +3700,7 @@
 
   // ---- data quality (shown on the Data quality page)
   function cwQualityPanel() {
-    const head = `<div class="panel-head"><div><h2>Consumable and wastage files</h2><p>All five files come from the mother Drive folder, from any sub-folder. Each is recognised by its columns, so filenames and folders don't matter; sales is the same till-date file the Outlet network uses.</p></div></div>`;
+    const head = `<div class="panel-head"><div><h2>Consumable and wastage files</h2><p>All five files come from the mother Drive folder, from any sub-folder. Each is recognised by its columns, so filenames and folders don't matter; sales is the same till-date file the Outlet Network uses.</p></div></div>`;
     if (!S.cw) { loadCw(); return `<section class="panel">${head}<div class="panel-body"><p class="muted" style="margin:0">${S.cwErr ? `cw.json could not be loaded (${esc(S.cwErr)}).` : "Loading…"}</p></div></section>`; }
     const q = S.cw.dataQuality, w = q.consumableWindow || {}, un = q.unmappedActiveOutlets || [], rc = q.sales?.reconciliation || {}, al = q.periodAlignment || {};
     const rev = [...new Set([...(q.negativeNetConsumableOutlets || []), ...(q.negativeNetWastageOutlets || [])])], dup = q.zone?.duplicateCodes || [];
