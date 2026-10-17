@@ -501,3 +501,11 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .ec-head .ec-head-l{flex:1 1 100%;display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;min-width:0}
 .ec-head .ec-head-l>b{flex:none}
 .ec-head .ec-tabs{margin:0;min-width:0;max-width:100%;flex:0 1 auto}
+/* E-Commerce: the compare switch sits in the top bar, beside the page title */
+.top-ec{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;min-width:0;flex:1}
+.top-ec[hidden]{display:none}
+.top-ec p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.35;white-space:nowrap}
+@media (max-width:640px){.top-ec p{white-space:normal}}
+.top-ec p b{color:var(--ink);font-weight:650}
+.topbar.has-ec .title-block{flex:0 1 auto;min-width:0}
+@media (max-width:640px){.top-ec{flex-basis:100%}.top-ec .seg{width:100%}.top-ec .seg button{flex:1}}
