@@ -6023,8 +6023,7 @@
         <select class="sel" data-sel="ecomOutlet" aria-label="Outlet">${opt("", "All outlets in scope", sc.outlet)}${outlets.map((o) => opt(o.c, `${o.c} ${o.n}`, sc.outlet)).join("")}</select>
         ${sc.rl || sc.zn || sc.outlet ? `<button class="btn" type="button" data-ec-clear>Clear</button>` : ""}<button class="btn" type="button" data-ec-lock>Lock</button>
       </div>
-      <div class="ec-period">${seg("ecomCmp", [["splm", "vs same period last month"], ["mom", "vs last month"]], "Compare with")}
-        <p><b>${esc(C.P.curLabel)}</b>${C.P.pm ? ` compared with <b>${esc(C.P.cmpLabel)}</b> (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}</p></div></section>`;
+</section>`;
   }
 
   function ecProblems(C) {
@@ -6999,6 +6998,16 @@
     AFTER.push(() => {
       ecWire($("#view"));
       $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomBad = false; delete S.tables["ec-customers"]; delete S.tables["ec-customer-health"]; hideTip(); render(); }));
+    });
+    // the period compared, behind a "!" next to the switch
+    const cmpTxt = `${C.P.curLabel}${C.P.pm ? ` compared with ${C.P.cmpLabel} (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}`;
+    const cmp = `${seg("ecomCmp", [["splm", "vs same period last month"], ["mom", "vs last month"]], "Compare with")}
+      <button type="button" class="top-ec-i" aria-label="${esc(cmpTxt)}">!</button>`;
+    AFTER.push(() => {
+      const t = $("#topEc"); if (!t) return;
+      t.innerHTML = cmp; t.hidden = false; $(".topbar").classList.add("has-ec"); wireDyn(t);
+      const i = $(".top-ec-i", t), tip = () => `<strong>${esc(C.P.curLabel)}</strong>${esc(cmpTxt.replace(C.P.curLabel, ""))}`;
+      attachTip(i, tip); i.onclick = (e) => showTip(e, tip()); i.onfocus = () => { const r = i.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.bottom }, tip()); }; i.onblur = hideTip;
     });
     return `<div class="ec">${ecHead(C)}${body}</div>`;
   }
@@ -8690,6 +8699,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   // ------------------------------------------------------------------ render
   function render() {
     renderNav(); renderTop(); renderPills();
+    { const t = $("#topEc"); if (t) { t.hidden = true; t.innerHTML = ""; } $(".topbar")?.classList.remove("has-ec"); } // E-Commerce puts its compare switch here
     $("#filters").hidden = !FILTER_PAGES.has(S.page);
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
