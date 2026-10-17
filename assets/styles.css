@@ -509,3 +509,6 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .top-ec p b{color:var(--ink);font-weight:650}
 .topbar.has-ec .title-block{flex:0 1 auto;min-width:0}
 @media (max-width:640px){.top-ec{flex-basis:100%}.top-ec .seg{width:100%}.top-ec .seg button{flex:1}}
+.top-ec-i{all:unset;box-sizing:border-box;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ink-3);color:var(--ink-2);font-size:12px;font-weight:700;line-height:1;cursor:help;flex:none}
+.top-ec-i:hover{border-color:var(--ink-2);color:var(--ink)}
+.top-ec-i:focus-visible{outline:2px solid var(--brand);outline-offset:2px}

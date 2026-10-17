@@ -6999,9 +6999,16 @@
       ecWire($("#view"));
       $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomBad = false; delete S.tables["ec-customers"]; delete S.tables["ec-customer-health"]; hideTip(); render(); }));
     });
+    // the period compared, behind a "!" next to the switch
+    const cmpTxt = `${C.P.curLabel}${C.P.pm ? ` compared with ${C.P.cmpLabel} (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}`;
     const cmp = `${seg("ecomCmp", [["splm", "vs same period last month"], ["mom", "vs last month"]], "Compare with")}
-      <p title="KPI cards show both comparisons."><b>${esc(C.P.curLabel)}</b>${C.P.pm ? ` vs <b>${esc(C.P.cmpLabel)}</b> · ${C.P.cmpKey === "mom" ? "whole month, a day" : "same days"}` : " · no earlier month to compare"}</p>`;
-    AFTER.push(() => { const t = $("#topEc"); if (!t) return; t.innerHTML = cmp; t.hidden = false; $(".topbar").classList.add("has-ec"); wireDyn(t); });
+      <button type="button" class="top-ec-i" aria-label="${esc(cmpTxt)}">!</button>`;
+    AFTER.push(() => {
+      const t = $("#topEc"); if (!t) return;
+      t.innerHTML = cmp; t.hidden = false; $(".topbar").classList.add("has-ec"); wireDyn(t);
+      const i = $(".top-ec-i", t), tip = () => `<strong>${esc(C.P.curLabel)}</strong>${esc(cmpTxt.replace(C.P.curLabel, ""))}`;
+      attachTip(i, tip); i.onclick = (e) => showTip(e, tip()); i.onfocus = () => { const r = i.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.bottom }, tip()); }; i.onblur = hideTip;
+    });
     return `<div class="ec">${ecHead(C)}${body}</div>`;
   }
 
