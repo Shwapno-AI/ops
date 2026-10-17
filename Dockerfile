@@ -23,6 +23,7 @@ ENV TZ=Asia/Dhaka \
     CCV_OUT=/usr/share/nginx/html/data/ccv.json \
     SG_OUT=/usr/share/nginx/html/data/stockgap.json \
     PK_OUT=/usr/share/nginx/html/data/pakhaqs.json \
+    ZR_OUT=/usr/share/nginx/html/data/zr.json \
     ECOM_OUT=/usr/share/nginx/html/data/ecom.json
 
 COPY index.html /usr/share/nginx/html/

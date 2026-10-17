@@ -13,12 +13,12 @@
     { group: "Performance", items: [["performance", "KPI performance"], ["loss", "Loss-making outlets"], ["profit", "Profit-making outlets"]] },
     { group: "Availability", items: [["avs", "Summary"], ["avk", "SKU wise"], ["avc", "Core"], ["avp", "Promo"], ["avv", "KVI"], ["ave", "E-Commerce"], ["avb", "By division, zonal and outlet"]] },
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
-    { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"]] },
+    { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"], ["zr", "Z - REPORT"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
-  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
+  const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" || t === "Z - REPORT" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
   const SALES_PAGES = new Set(["overview", "achievement", "growth", "gp", "footfall", "ranking"]);
   const PERIOD_PAGES = new Set([...SALES_PAGES, "category"]);
   const NET_PAGES = new Set(["gm", "on"]);
@@ -8107,6 +8107,200 @@
     const d = S.sku;
     return `<p class="muted" style="margin:0">${d.period ? `<strong>${esc(ipPeriod(d))}</strong> vs the same days last year` : "This year vs the same period last year"}, from ${int(d.source.files.length)} item-performance workbooks (${int(d.source.rows)} outlet × SKU rows). Sales is POS NSI; GP is POS GP value.</p>`;
   }
+  // ---- Z - REPORT (data/zr.json + data/zr/<outlet>.json, from the Z-Report workbook): category-wise Sales, FF and
+  // Basket by month for one outlet (or the workbook's all-outlet month rows), and the workbook's projection:
+  // next month = last month × (1 + the network's seasonal change a year earlier), split by last month's category mix.
+  function loadZr() {
+    if (S.zrd || S.zrLoading || S.zrErr) return; // a failed load is not retried until the page is reloaded
+    S.zrLoading = true;
+    fetch("data/zr.json", { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((d) => { S.zrd = d; })
+      .catch((e) => { S.zrErr = e.message; })
+      .finally(() => { S.zrLoading = false; if (S.page === "zr" || S.page === "dq") render(); });
+  }
+  function zrLoadOutlet(code) {
+    const d = S.zrd, o = d?.outlets.find((x) => x[0] === code);
+    S.zrO = S.zrO || {};
+    if (!o || S.zrO[code] || S.zrO[code] === null) return;
+    S.zrO[code] = null; // loading
+    fetch("data/" + o[2], { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((x) => { S.zrO[code] = x; })
+      .catch((e) => { delete S.zrO[code]; S.zrOErr = `${code}: ${e.message}`; })
+      .finally(() => { if (S.page === "zr") render(); });
+  }
+  const zrMon = (k) => { const [y, m] = k.split("-").map(Number); return `${MON[m - 1]}-${String(y).slice(2)}`; };
+  const zrShift = (k, n) => { const [y, m] = k.split("-").map(Number), t = y * 12 + m - 1 + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; };
+  const zrNorm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  // row values from the category values: groups and totals add up the rows their formula names
+  function zrRows(defs, s = [], f = []) {
+    const S2 = [], F = [];
+    defs.forEach(([, di, deps], i) => {
+      if (di !== null) { S2[i] = +s[di] || 0; F[i] = +f[di] || 0; }
+      else { S2[i] = deps.reduce((a, j) => a + (S2[j] || 0), 0); F[i] = deps.reduce((a, j) => a + (F[j] || 0), 0); }
+    });
+    return { sales: S2, ff: F, basket: S2.map((v, i) => (F[i] ? v / F[i] : null)) };
+  }
+  function zrView() {
+    const d = S.zrd, v = (S.zrv = S.zrv || {}), act = d.actual, last = act[act.length - 1];
+    if (!d.outlets.some((o) => o[0] === v.code)) v.code = (d.outlets.find((o) => o[0] === "D109") || d.outlets[0])[0];
+    if (!act.includes(v.end)) v.end = last;
+    if (!act.includes(v.start)) v.start = act[Math.max(0, act.indexOf(v.end) - 11)];
+    if (v.start > v.end) v.start = v.end;
+    if (v.sum && !d.summaries.some((x) => x.month === v.sum)) v.sum = "";
+    if (v.cat && !d.rows.some((r) => zrNorm(r[0]) === zrNorm(v.cat))) v.cat = "";
+    v.metric = ["sales", "ff", "basket"].includes(v.metric) ? v.metric : "sales";
+    v.scope = v.scope === "all" && d.summaries.length ? "all" : "outlet";
+    if (!act.includes(v.pm)) v.pm = v.end;
+    v.sa = v.sa || { k: "cat", dir: 1 }; v.sp = v.sp || { k: "cat", dir: 1 };
+    return v;
+  }
+  function zrProject(d, v, outRows) {
+    const end = v.pm, ly = zrShift(end, -12), ply = zrShift(ly, -1), target = zrShift(end, 1);
+    const sum = (m) => d.summaries.find((x) => x.month === m);
+    const at = (m) => (v.scope === "all" ? (sum(m) ? zrRows(d.rows, sum(m).sales, sum(m).ff) : zrRows(d.rows)) : outRows(m));
+    const LY = at(ly), LM = at(end), gi = d.grand;
+    const nLY = d.network[ly] || [0, 0], nP = d.network[ply] || [0, 0];
+    const fS = nP[0] ? nLY[0] / nP[0] - 1 : null, fF = nP[1] ? nLY[1] / nP[1] - 1 : null;
+    const gS = LM.sales[gi] || 0, gF = LM.ff[gi] || 0, pGS = fS === null ? 0 : gS * (1 + fS), pGF = fF === null ? 0 : gF * (1 + fF);
+    const byLabel = new Map(d.rows.map((r, i) => [zrNorm(r[0]), i]));
+    const out = [];
+    d.projRows.forEach(([label, di, deps]) => {
+      let x;
+      if (di !== null) {
+        const i = byLabel.get(zrNorm(label));
+        const g = (o, k) => (i === undefined ? 0 : o[k][i] || 0);
+        x = { lyS: g(LY, "sales"), lyF: g(LY, "ff"), lmS: g(LM, "sales"), lmF: g(LM, "ff") };
+        x.pS = gS ? (x.lmS / gS) * pGS : 0; x.pF = gF ? (x.lmF / gF) * pGF : 0;
+      } else {
+        const ds = deps.map((j) => out[j]).filter(Boolean), t = (k) => ds.reduce((a, r) => a + r[k], 0);
+        x = { lyS: t("lyS"), lyF: t("lyF"), lmS: t("lmS"), lmF: t("lmF"), pS: t("pS"), pF: t("pF") };
+      }
+      const b = (s, f) => (f ? s / f : null);
+      x.lyB = b(x.lyS, x.lyF); x.lmB = b(x.lmS, x.lmF); x.pB = b(x.pS, x.pF);
+      x.dS = x.pS - x.lyS; x.dF = x.pF - x.lyF; x.dB = x.pB === null || x.lyB === null ? null : x.pB - x.lyB;
+      x.con = gS ? x.lmS / gS : 0;
+      out.push({ label, total: di === null, ...x });
+    });
+    const grand = out.find((r) => zrNorm(r.label) === "grand total") || out[out.length - 1];
+    return { rows: out, grand, ly, ply, end, target, fS, fF };
+  }
+  const zrSortHead = (st, key, label, attr, extra = "") => `<button class="sort-button${st.k === key ? " active" : ""}" ${attr}="${esc(key)}">${esc(label)}<span>${st.k === key ? (st.dir === 1 ? "▲" : "▼") : "↕"}</span></button>${extra}`;
+  const zrCmp = (a, b) => (typeof a === "number" && typeof b === "number" ? a - b : a === null || a === undefined ? -1 : b === null || b === undefined ? 1 : String(a).localeCompare(String(b), undefined, { numeric: true }));
+  // keep the grand total at the bottom whatever the sort
+  const zrSort = (rows, st, get) => { const g = rows.filter((r) => zrNorm(r.label) === "grand total"), o = rows.filter((r) => zrNorm(r.label) !== "grand total"); o.sort((a, b) => zrCmp(get(a, st.k), get(b, st.k)) * st.dir); return o.concat(g); };
+  function zrTrend(host, months, vals, fmt, title) {
+    if (!host) return;
+    if (!months.length) { host.innerHTML = '<p class="empty">No months in the range.</p>'; return; }
+    const W = Math.max(320, host.clientWidth || 900), H = 220, l = 64, r = 16, t = 14, b = 30;
+    const nums = vals.map((x) => x || 0), lo = Math.min(0, ...nums), hi = Math.max(...nums, 1);
+    const X = (i) => l + (W - l - r) * (months.length === 1 ? 0.5 : i / (months.length - 1)), Y = (v) => t + (H - t - b) * (1 - (v - lo) / (hi - lo || 1));
+    let g = "";
+    for (let k = 0; k <= 4; k++) { const v = lo + ((hi - lo) * k) / 4; g += `<line x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}" style="stroke:var(--grid)"/><text x="${l - 6}" y="${Y(v) + 3.5}" text-anchor="end" class="cw-axis">${esc(fmt(v))}</text>`; }
+    const step = Math.max(1, Math.ceil(months.length / 12));
+    months.forEach((m, i) => { if (i % step === 0 || i === months.length - 1) g += `<text x="${X(i)}" y="${H - 9}" text-anchor="middle" class="cw-axis">${esc(zrMon(m))}</text>`; });
+    const pts = nums.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(title)}">${g}<polygon points="${X(0)},${Y(lo)} ${pts} ${X(nums.length - 1)},${Y(lo)}" style="fill:var(--info);opacity:.12"/><polyline points="${pts}" fill="none" style="stroke:var(--info)" stroke-width="2.2"/>
+      ${nums.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3.5" style="fill:var(--info);stroke:var(--surface)" stroke-width="1.5"/><rect x="${(X(i) - (W - l - r) / Math.max(1, months.length - 1) / 2).toFixed(1)}" y="${t}" width="${((W - l - r) / Math.max(1, months.length - 1)).toFixed(1)}" height="${H - t - b}" fill="transparent" data-zrtip="${esc(`<strong>${esc(fmonth(months[i]))}</strong><dl><dt>${esc(title)}</dt><dd>${esc(fmt(vals[i]))}</dd></dl>`)}"/>`).join("")}</svg>`;
+    $$("[data-zrtip]", host).forEach((n) => attachTip(n, () => n.dataset.zrtip));
+  }
+  function pageZR() {
+    if (!S.zrd) { loadZr(); return `<p class="empty">${S.zrErr ? `The Z-Report data could not be loaded (${esc(S.zrErr)}). Upload the Z-Report workbook (sheets MAIN, All Year and AUTOMATED PROJECTED ZREPORT) to the Z-Report Drive folder.` : "Loading the Z-Report…"}</p>`; }
+    const d = S.zrd, v = zrView(), act = d.actual;
+    const oMeta = d.outlets.find((o) => o[0] === v.code), out = S.zrO?.[v.code];
+    if (!out) zrLoadOutlet(v.code);
+    const master = new Map((S.data?.master?.outlets || []).map((o) => [o.c, o]));
+    const mo = master.get(v.code);
+    const outRows = (m) => { const rec = out?.months?.[m]; return zrRows(d.rows, rec?.[0], rec?.[1]); };
+    const sumRec = v.sum ? d.summaries.find((x) => x.month === v.sum) : null;
+    const months = sumRec ? [sumRec.month] : act.filter((m) => m >= v.start && m <= v.end);
+    const MR = Object.fromEntries(months.map((m) => [m, sumRec ? zrRows(d.rows, sumRec.sales, sumRec.ff) : outRows(m)]));
+    const fi = v.cat ? d.rows.findIndex((r) => zrNorm(r[0]) === zrNorm(v.cat)) : d.grand, focus = v.cat ? d.rows[fi][0] : "Grand Total";
+    const metricName = { sales: "Sales", ff: "FF", basket: "Basket" }[v.metric];
+    const fmtM = (x) => (v.metric === "basket" ? (isNum(x) ? x.toFixed(1) : "—") : v.metric === "ff" ? int(x) : bdt(x));
+    const who = sumRec ? `All outlets, ${fmonth(sumRec.month)} (${int(sumRec.outlets)} outlets)` : `${v.code} ${oMeta?.[1] || ""}`;
+    // controls
+    const outOpts = d.outlets.map((o) => { const m2 = master.get(o[0]); return `<option value="${esc(o[0])}">${esc(o[0])} ${esc(o[1])}${m2?.zn ? ` · ${esc(m2.zn)}` : ""}</option>`; }).join("");
+    const monOpts = (sel) => act.map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${esc(fmonth(m))}</option>`).join("");
+    const controls = `<section class="panel"><div class="panel-body zr-ctl">
+      <label><span>Outlet</span><select class="sel" data-zr="code">${outOpts.replace(`value="${esc(v.code)}"`, `value="${esc(v.code)}" selected`)}</select></label>
+      <label><span>Category</span><select class="sel" data-zr="cat"><option value="">All categories (Grand Total)</option>${d.rows.filter((r) => zrNorm(r[0]) !== "grand total").map((r) => `<option value="${esc(r[0])}" ${zrNorm(r[0]) === zrNorm(v.cat) ? "selected" : ""}>${r[1] === null ? "▸ " : ""}${esc(r[0])}</option>`).join("")}</select></label>
+      <label><span>All-outlet month summary</span><select class="sel" data-zr="sum"><option value="">Selected outlet and date range</option>${d.summaries.slice().reverse().map((x) => `<option value="${x.month}" ${x.month === v.sum ? "selected" : ""}>${esc(fmonth(x.month))} · ${int(x.outlets)} outlets</option>`).join("")}</select></label>
+      <label><span>From</span><select class="sel" data-zr="start" ${sumRec ? "disabled" : ""}>${monOpts(v.start)}</select></label>
+      <label><span>To</span><select class="sel" data-zr="end" ${sumRec ? "disabled" : ""}>${monOpts(v.end)}</select></label>
+      <div><span>Quick range</span><div class="seg" role="group" aria-label="Quick range">${[["6", "6M"], ["12", "12M"], ["24", "24M"], ["all", "All"]].map(([k, t]) => `<button type="button" data-zrq="${k}" ${sumRec ? "disabled" : ""}>${t}</button>`).join("")}</div></div>
+      <div><span>&nbsp;</span><button class="btn" type="button" data-zrreset>Reset</button></div>
+    </div></section>`;
+    if (!out && !sumRec) return `${controls}<p class="empty">${S.zrOErr ? `Could not load ${esc(S.zrOErr)}.` : `Loading ${esc(v.code)}…`}</p>`;
+    // Dashboard 1: All Year
+    const tot = (k) => months.reduce((a, m) => a + (MR[m][k][fi] || 0), 0);
+    const sales = tot("sales"), ff = tot("ff"), lastM = months[months.length - 1], prevM = months.length > 1 ? months[months.length - 2] : null;
+    const lS = lastM ? MR[lastM].sales[fi] || 0 : 0, pS = prevM ? MR[prevM].sales[fi] || 0 : 0, mom = pS ? lS / pS - 1 : null;
+    const kp1 = `<div class="kpis">
+      ${kpi({ label: "Period sales", value: bdt(sales), sub: `${esc(focus)} · ${int(months.length)} month${months.length === 1 ? "" : "s"}` })}
+      ${kpi({ label: "Period FF", value: int(ff), sub: esc(focus) })}
+      ${kpi({ label: "Period basket", value: ff ? (sales / ff).toFixed(1) : "—", sub: "Sales ÷ FF" })}
+      ${kpi({ label: "Average monthly sales", value: bdt(months.length ? sales / months.length : null), sub: esc(focus) })}
+      ${kpi({ label: "Latest month sales", value: bdt(lS), sub: lastM ? esc(fmonth(lastM)) : "" })}
+      ${kpi({ label: "Latest MoM growth", value: delta(mom), sub: prevM ? `vs ${esc(fmonth(prevM))}` : "", accent: isNum(mom) && mom < 0 ? "var(--bad)" : "var(--good)" })}
+    </div>`;
+    AFTER.push(() => zrTrend($("#zrTrend"), months, months.map((m) => MR[m][v.metric][fi]), fmtM, `${metricName}, ${focus}`));
+    const getA = (r, k) => (k === "cat" ? r.label : MR[k]?.[v.metric][r.i]);
+    const aRows = zrSort(d.rows.map((r, i) => ({ label: r[0], total: r[1] === null, i })).filter((r) => !v.cat || zrNorm(r.label) === zrNorm(v.cat)), v.sa, getA);
+    const rowCls = (r) => (zrNorm(r.label) === "grand total" ? "zr-grand" : r.total ? "zr-total" : "");
+    const tableA = `<div class="table-wrap zr-wrap"><table class="compact zr-table"><thead><tr><th class="zr-cat">${zrSortHead(v.sa, "cat", "Category", "data-zrsa")}</th>${months.map((m) => `<th class="num">${zrSortHead(v.sa, m, zrMon(m), "data-zrsa")}</th>`).join("")}</tr></thead>
+      <tbody>${aRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${months.map((m) => `<td class="num">${fmtM(MR[m][v.metric][r.i])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    NCSV.zra = () => [`z_report_${sumRec ? "all_outlets" : v.code}_${v.metric}`, ["Category", ...months.map(zrMon)], aRows.map((r) => [r.label, ...months.map((m) => { const x = MR[m][v.metric][r.i]; return isNum(x) ? (v.metric === "basket" ? +x.toFixed(2) : Math.round(x)) : ""; })]), months[months.length - 1]];
+    const dash1 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 1 · All Year</h2><p>${esc(who)}${v.cat ? ` · ${esc(focus)}` : ""} · category ${esc(metricName.toLowerCase())} by month. Click a heading to sort; groups and the Grand Total add up their categories as in the workbook.</p></div>
+      <div class="panel-tools">${`<div class="seg" role="group" aria-label="Measure">${[["sales", "Sales"], ["ff", "FF"], ["basket", "Basket"]].map(([k, t]) => `<button type="button" data-zrm="${k}" aria-pressed="${v.metric === k}">${t}</button>`).join("")}</div>`}${csvBtn("zra")}</div></div>
+      <div class="panel-body">${kp1}<h3 class="zr-h">Monthly ${esc(metricName.toLowerCase())} · ${esc(focus)}</h3><div id="zrTrend" class="zr-chart"></div></div>${tableA}</section>`;
+    // Dashboard 2: projection
+    const P = zrProject(d, v, outRows), fr = v.cat ? P.rows.find((r) => zrNorm(r.label) === zrNorm(v.cat)) || P.grand : P.grand;
+    const yoy = fr.lyS ? fr.pS / fr.lyS - 1 : null, pmom = fr.lmS ? fr.pS / fr.lmS - 1 : null;
+    const scopeName = v.scope === "all" ? "All outlets" : `${v.code} ${oMeta?.[1] || ""}`;
+    const kp2 = `<div class="kpis">
+      ${kpi({ label: "Last year sales", value: bdt(fr.lyS), sub: `${esc(focus)} · ${esc(fmonth(P.ly))}` })}
+      ${kpi({ label: "Last month sales", value: bdt(fr.lmS), sub: `${esc(focus)} · ${esc(fmonth(P.end))}` })}
+      ${kpi({ label: "Projected sales", value: bdt(fr.pS), sub: `${esc(focus)} · ${esc(fmonth(P.target))}`, accent: "var(--good)" })}
+      ${kpi({ label: "Projected growth vs last year", value: delta(yoy), sub: `vs ${esc(fmonth(P.ly))}`, accent: isNum(yoy) && yoy < 0 ? "var(--bad)" : "var(--good)" })}
+      ${kpi({ label: "Projected vs last month", value: delta(pmom), sub: `vs ${esc(fmonth(P.end))}`, accent: isNum(pmom) && pmom < 0 ? "var(--bad)" : "var(--good)" })}
+      ${kpi({ label: "Network seasonal factor", value: isNum(P.fS) ? delta(P.fS) : "—", sub: `${esc(fmonth(P.ly))} vs ${esc(fmonth(P.ply))}` })}
+    </div>`;
+    const PC = [["lyS", "Sales"], ["lyF", "FF"], ["lyB", "Basket"], ["lmS", "Sales"], ["lmF", "FF"], ["lmB", "Basket"], ["pS", "Sales"], ["pF", "FF"], ["pB", "Basket"], ["dS", "Δ Sales"], ["dF", "Δ FF"], ["dB", "Δ Basket"]];
+    const cell = (r, k) => { const x = r[k]; if (/B$/.test(k)) return x === null ? "—" : x.toFixed(1); if (/F$/.test(k)) return int(x); return bdt(x); };
+    const dcls = (k, x) => (/^d/.test(k) && isNum(x) ? (x > 0 ? "up" : x < 0 ? "down" : "") : "");
+    const pRows = zrSort(P.rows.filter((r) => !v.cat || zrNorm(r.label) === zrNorm(v.cat)), v.sp, (r, k) => (k === "cat" ? r.label : r[k]));
+    const tableP = `<div class="table-wrap zr-wrap"><table class="compact zr-table"><thead>
+      <tr><th class="zr-cat" rowspan="2">${zrSortHead(v.sp, "cat", "Category", "data-zrsp")}</th><th colspan="3" class="zr-g">Last year · ${esc(zrMon(P.ly))}</th><th colspan="3" class="zr-g">Last month · ${esc(zrMon(P.end))}</th><th colspan="3" class="zr-g zr-gp">Projected · ${esc(zrMon(P.target))}</th><th colspan="3" class="zr-g zr-gd">Growth / de-growth vs last year</th><th class="num" rowspan="2">${zrSortHead(v.sp, "con", "Con %", "data-zrsp")}</th></tr>
+      <tr>${PC.map(([k, t]) => `<th class="num">${zrSortHead(v.sp, k, t, "data-zrsp")}</th>`).join("")}</tr></thead>
+      <tbody>${pRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${PC.map(([k]) => `<td class="num ${dcls(k, r[k])}">${cell(r, k)}</td>`).join("")}<td class="num">${pct(r.con, 1)}</td></tr>`).join("")}</tbody></table></div>`;
+    NCSV.zrp = () => [`z_report_projected_${v.scope === "all" ? "all_outlets" : v.code}_${P.end}_to`, ["Category", ...PC.map(([k, t]) => `${{ ly: "Last year", lm: "Last month", p: "Projected", d: "Growth" }[k.replace(/[SFB]$/, "")]} ${t}`), "Con %"],
+      pRows.map((r) => [r.label, ...PC.map(([k]) => (isNum(r[k]) ? (/B$/.test(k) ? +r[k].toFixed(2) : Math.round(r[k])) : "")), +(r.con * 100).toFixed(2)]), P.target];
+    const dash2 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 2 · Automated projected Z-Report</h2><p>${esc(scopeName)}${v.cat ? ` · ${esc(focus)}` : ""} · projected ${esc(fmonth(P.target))} = ${esc(fmonth(P.end))} × (1 + the network's change from ${esc(fmonth(P.ply))} to ${esc(fmonth(P.ly))}: sales ${isNum(P.fS) ? pct(P.fS, 1) : "n/a"}, FF ${isNum(P.fF) ? pct(P.fF, 1) : "n/a"}), split by ${esc(fmonth(P.end))}'s category mix.</p></div>
+      <div class="panel-tools"><select class="sel" data-zr="scope" aria-label="Projection scope"><option value="outlet" ${v.scope === "outlet" ? "selected" : ""}>Selected outlet</option>${d.summaries.length ? `<option value="all" ${v.scope === "all" ? "selected" : ""}>All outlets</option>` : ""}</select>
+      <select class="sel" data-zr="pm" aria-label="Last month">${act.map((m) => `<option value="${m}" ${m === v.pm ? "selected" : ""}>Last month ${esc(fmonth(m))}</option>`).join("")}</select>${csvBtn("zrp")}</div></div>
+      <div class="panel-body">${kp2}</div>${tableP}</section>`;
+    AFTER.push(() => zrWire($("#view")));
+    return `${controls}${dash1}${dash2}<p class="muted" style="font-size:12px">From ${esc(d.source?.file || "the Z-Report workbook")}${d.source?.modified ? ` (updated ${esc(d.source.modified)})` : ""}; actual months ${esc(fmonth(act[0]))} to ${esc(fmonth(act[act.length - 1]))}.</p>`;
+  }
+  function zrWire(root) {
+    const v = S.zrv, d = S.zrd;
+    $$("[data-zr]", root).forEach((n) => (n.onchange = () => {
+      const k = n.dataset.zr; v[k] = n.value;
+      // the projection follows the top controls, as in the workbook: a month summary projects all outlets from that month
+      if (k === "sum") { v.scope = n.value ? "all" : "outlet"; v.pm = n.value || v.end; }
+      if (k === "code") { v.scope = "outlet"; v.sum = ""; v.pm = v.end; }
+      if (k === "end") v.pm = n.value;
+      changed();
+    }));
+    $$("[data-zrm]", root).forEach((n) => (n.onclick = () => { v.metric = n.dataset.zrm; changed(); }));
+    $$("[data-zrq]", root).forEach((n) => (n.onclick = () => { const q = n.dataset.zrq; v.start = q === "all" ? d.actual[0] : d.actual[Math.max(0, d.actual.indexOf(v.end) - (+q - 1))]; v.pm = v.end; changed(); }));
+    $$("[data-zrreset]", root).forEach((n) => (n.onclick = () => { S.zrv = { code: v.code }; changed(); }));
+    const sorter = (attr, key) => $$(`[${attr}]`, root).forEach((n) => (n.onclick = () => { const k = n.getAttribute(attr), st = v[key]; if (st.k === k) st.dir = -st.dir; else { st.k = k; st.dir = k === "cat" ? 1 : -1; } changed(); }));
+    sorter("data-zrsa", "sa"); sorter("data-zrsp", "sp");
+  }
+
   function pageIPO() {
     const g = skuGuard(); if (g) return g;
     const list = ipOutlets();
@@ -8828,7 +9022,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, dos: pageDOS, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, ecom: pageEcom, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, sapk: pageSAPK, ipo: pageIPO, ipt: pageIPT, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, ecom: pageEcom, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, sapk: pageSAPK, ipo: pageIPO, ipt: pageIPT, zr: pageZR, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
     // keep embedded iframes alive when only filters change
