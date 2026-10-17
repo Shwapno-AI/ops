@@ -5534,13 +5534,14 @@
   const ecTk = (v) => (!isNum(v) ? "—" : v >= 1e7 ? `৳${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `৳${(v / 1e5).toFixed(1)} L` : `৳${int(v)}`);
 
   function loadEcom() {
-    if (S.ecom || S.ecomLoading) return;
+    if (S.ecom || S.ecomLoading || S.ecomErr) return;
+    const loadId = S.ecomLoadId || 0;
     S.ecomLoading = true; S.ecomErr = null;
-    fetch("data/ecom.json", { cache: "no-cache" })
-      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { if (!(d.schema >= 2)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
-      .catch((e) => { S.ecomErr = e.message; })
-      .finally(() => { S.ecomLoading = false; if (S.page === "ecom") render(); });
+    fetch("data/ecom.json", { cache: "no-store", credentials: "same-origin" })
+      .then((r) => { if (loadId !== (S.ecomLoadId || 0)) return null; if (r.status === 401) { S.ecomAuthenticated = false; ecClearData(); } if (!r.ok) throw new Error(r.status === 401 ? "Your session expired. Sign in again." : "The data is temporarily unavailable."); return r.json(); })
+      .then((d) => { if (loadId !== (S.ecomLoadId || 0) || !ecUnlocked()) return; if (!(d.schema >= 2)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
+      .catch((e) => { if (loadId === (S.ecomLoadId || 0)) S.ecomErr = e.message; })
+      .finally(() => { if (loadId === (S.ecomLoadId || 0)) S.ecomLoading = false; if (S.page === "ecom") render(); });
   }
   function ecPrep(d) {
     const none = "Not in outlet register";
@@ -5652,7 +5653,7 @@
     const h = d.customers?.history;
     if (!Array.isArray(h) || !h.length) return (d.H = null);
     const N = h.length, at = new Map(d.days.map((x, i) => [x, i])), pid = new Map(), cancelled = (d.customers.statuses || []).indexOf("Cancelled");
-    const H = { N, o: new Int32Array(N), c: new Int32Array(N), p: new Int32Array(N), sd: new Int32Array(N), lead: new Int16Array(N), g: new Float64Array(N), canc: new Uint8Array(N) };
+    const H = { N, o: new Int32Array(N), c: new Int32Array(N), p: new Int32Array(N), sd: new Int32Array(N), lead: new Int16Array(N), g: new Float64Array(N), canc: new Uint8Array(N), deliveredLead: new Int16Array(N).fill(-1) };
     const first = new Int32Array(Math.max(1, d.customers.list.length)).fill(1e9);
     for (let i = 0; i < N; i++) {
       const r = h[i], sd = at.has(r[5]) ? at.get(r[5]) : -1;
@@ -5660,6 +5661,8 @@
       if (p === undefined) { p = pid.size; pid.set(r[2], p); }
       const pl = Date.parse(r[4] + "T00:00:00Z"), sl = Date.parse(r[5] + "T00:00:00Z");
       H.o[i] = r[0]; H.c[i] = r[1]; H.p[i] = p; H.sd[i] = sd; H.g[i] = +r[7] || 0; H.canc[i] = r[6] === cancelled ? 1 : 0;
+      const delivered = /^complete$|^completed$|^delivered$/i.test(String(d.customers.statuses?.[r[6]] || "")) && /^\d{4}-\d{2}-\d{2}$/.test(r[9] || "") ? Date.parse(r[9] + "T00:00:00Z") : NaN;
+      if (Number.isFinite(pl) && Number.isFinite(delivered) && delivered >= pl) H.deliveredLead[i] = Math.min(999, Math.round((delivered - pl) / 864e5));
       H.lead[i] = Number.isFinite(pl) && Number.isFinite(sl) ? Math.max(-1, Math.min(999, Math.round((sl - pl) / 864e5))) : -1;
       if (r[1] >= 0 && sd >= 0 && sd < first[r[1]]) first[r[1]] = sd;
     }
@@ -5674,7 +5677,7 @@
     const ck = `${key}|${idx[0]}|${idx[idx.length - 1]}|${idx.length}`;
     if (d.HC.has(ck)) return d.HC.get(ck);
     const mask = ecMask(d, idx), lo = idx[0], par = new Set(), parNet = new Set(), per = new Map();
-    let gross = 0, cancAmt = 0, l0 = 0, l1 = 0, l2 = 0;
+    let gross = 0, cancAmt = 0, l0 = 0, l1 = 0, l2 = 0, dl0 = 0, dl1 = 0, dl2 = 0;
     for (let i = 0; i < H.N; i++) {
       const s = H.sd[i];
       if (s < 0 || !mask[s] || !on[H.o[i]]) continue;
@@ -5683,12 +5686,14 @@
       gross += H.g[i];
       if (H.canc[i]) cancAmt += H.g[i];
       else { const L = H.lead[i]; if (L === 0) l0++; else if (L === 1) l1++; else if (L > 1) l2++; }
+      const deliveredLead = H.deliveredLead[i];
+      if (deliveredLead === 0) dl0++; else if (deliveredLead === 1) dl1++; else if (deliveredLead > 1) dl2++;
       const c = H.c[i];
       if (c >= 0) { let ps = per.get(c); if (!ps) per.set(c, (ps = new Set())); ps.add(H.p[i]); }
     }
     let newC = 0, rep = 0, ordC = 0;
     per.forEach((ps, c) => { if (H.first[c] >= lo) newC++; if (ps.size > 1) rep++; ordC += ps.size; });
-    const out = { orders: par.size, ordersNet: parNet.size, cust: per.size, newC, retC: per.size - newC, rep, ordC, gross, cancAmt, l0, l1, l2, ln: l0 + l1 + l2,
+    const out = { orders: par.size, ordersNet: parNet.size, cust: per.size, newC, retC: per.size - newC, rep, ordC, gross, cancAmt, l0, l1, l2, ln: l0 + l1 + l2, dl0, dl1, dl2, dln: dl0 + dl1 + dl2,
       base: lo === 0 }; // the first month of the data: every customer looks new
     d.HC.set(ck, out);
     return out;
@@ -5733,11 +5738,11 @@
       { k: "late", label: "Delivered late", kind: "cnt", up: 0, v: (t) => t.late, fmt: int },
       { k: "late60", label: "More than an hour late", kind: "rate", up: 0, v: (t) => ecDiv(t.late60, t.deliv), fmt: (v) => ecPct(v), note: "Share of deliveries" },
       { k: "lateMin", label: "Average delay when late", kind: "avg", up: 0, v: (t) => ecDiv(t.lateMin, t.late), fmt: (v) => (isNum(v) ? `${int(v)} min` : "—"), note: "Mean minutes after the slot ended; a few deliveries recorded hours later raise it" },
-      { k: "same", label: "Delivered the day it was ordered", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.l0, h.ln)), fmt: (v) => ecPct(v), note: "Slot on the day the order was placed" },
+      { k: "same", label: "Delivered the day it was ordered", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.dl0, h.dln)), fmt: (v) => ecPct(v), note: "Completed orders with a known actual delivery date; scheduled slots are not delivery dates" },
       { k: "slotch", label: "Slot changed", kind: "rate", up: 0, v: (t) => (isNum(t.slotch) ? ecDiv(t.slotch, t.n) : null), fmt: (v) => ecPct(v), note: "Share of sub-orders moved from the slot the customer chose" },
       { k: "hidden", label: "Late hidden by a slot change", kind: "rate", up: 0, v: (t) => (isNum(t.slotchLate) ? ecDiv(t.slotchLate, t.deliv) : null), fmt: (v) => ecPct(v), note: "On time for the moved slot, after the customer's slot ended; share of deliveries" },
       { k: "custLate", label: "Late for the customer", kind: "rate", up: 0, v: (t) => (isNum(t.slotchLate) ? ecDiv(t.late + t.slotchLate, t.deliv) : null), fmt: (v) => ecPct(v), note: "Late against the slot the customer chose: late plus late hidden by a slot change" },
-      { k: "next", label: "Delivered the next day", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.l1, h.ln)), fmt: (v) => ecPct(v) },
+      { k: "next", label: "Delivered the next day", kind: "rate", up: 1, v: ecH((h) => ecDiv(h.dl1, h.dln)), fmt: (v) => ecPct(v), note: "Completed orders with a known actual delivery date" },
     ]],
     ["Cancellations and edits", [
       { k: "canc", label: "Cancelled", kind: "rate", up: 0, v: (t) => ecDiv(t.canc, t.n), fmt: (v) => ecPct(v), note: "Share of sub-orders" },
@@ -6815,7 +6820,7 @@
     $("#drawerTitle").textContent = name;
     const row = detail?.customer;
     $("#drawerBody").innerHTML = `<div class="ec-customer-context"><strong>Order history · ${esc(sc.label)}</strong><p>${historyAvailable ? `Placed on or before ${esc(fdate(analysis.asOf))}; all available delivery months.` : `Selected delivery month: ${esc(fmonth(m))}.`}</p></div>
-      ${row ? `<div class="stat-grid three"><div class="stat"><small>Health in selected scope</small><strong>${ecCustomerChip(row.status)}</strong><span>${row.status === "unknown" ? "Inactivity cannot be assessed" : `${int(row.daysInactive)} days inactive`}</span></div><div class="stat"><small>Customer journey</small><strong>${esc(ecJourney(row))}</strong><span>${isNum(row.perWeek) ? `${row.perWeek.toFixed(1)} orders a week` : ""}${isNum(row.aov) ? ` · avg ${bdt(row.aov)}` : ""}</span></div><div class="stat"><small>Observed orders</small><strong>${int(row.orders)}</strong></div><div class="stat"><small>Observed net sales</small><strong class="ec-customer-amount">${ecCustomerAmount(row.net)}</strong></div></div>` : ""}
+      ${row ? `<div class="stat-grid three"><div class="stat"><small>Health in selected scope</small><strong>${ecCustomerChip(row.status)}</strong><span>${row.status === "unknown" ? "Inactivity cannot be assessed" : `${int(row.daysInactive)} days inactive`}</span></div><div class="stat"><small>Customer journey</small><strong>${esc(ecJourney(row))}</strong><span>${isNum(row.perWeek) ? `${row.perWeek.toFixed(1)} orders a week` : ""}${isNum(row.aov) ? ` · avg ${bdt(row.aov)}` : ""}</span></div><div class="stat"><small>Completed orders</small><strong>${int(row.orders)}</strong></div><div class="stat"><small>Observed net sales</small><strong class="ec-customer-amount">${ecCustomerAmount(row.net)}</strong></div></div>` : ""}
       <p class="ec-banner">Identical names are grouped and may represent different people. ${historyAvailable ? "Statuses and amounts are from the latest source exports, not their historical state. Orders without placed dates are excluded from dated history and totals." : "Placed dates, delivery dates, statuses and gross amounts are unavailable in this snapshot. Refresh E-Commerce data to enable dated history and churn assessment."}</p>
       <div class="ec-order-tools"><label for="ecOrderSearch">Search orders, sub-orders or outlet</label><input id="ecOrderSearch" class="search" type="search" placeholder="Search order history" autocomplete="off"></div>
       <p id="ecOrderCount" class="ec-note" role="status" aria-live="polite"></p><div id="ecCustomerOrders" class="ec-order-list"></div><div id="ecOrderPager" class="pager"></div>`;
@@ -6827,7 +6832,7 @@
       const selected = orders.filter((order) => !q || [order.order, ...order.statuses, ...order.outlets.map(outletName), ...order.items.map((item) => item.suborder)].join(" ").toLowerCase().includes(q));
       const size = 20, pages = Math.max(1, Math.ceil(selected.length / size)); page = Math.min(page, pages);
       const from = (page - 1) * size;
-      $("#ecOrderCount").textContent = selected.length ? `Showing ${int(from + 1)}–${int(Math.min(from + size, selected.length))} of ${int(selected.length)} distinct parent orders` : `No ${historyAvailable ? "dated " : ""}parent orders match this selection.`;
+      $("#ecOrderCount").textContent = selected.length ? `Showing ${int(from + 1)}–${int(Math.min(from + size, selected.length))} of ${int(selected.length)} distinct parent orders · all statuses` : `No ${historyAvailable ? "dated " : ""}parent orders match this selection.`;
       $("#ecCustomerOrders").innerHTML = selected.slice(from, from + size).map((order) => `<article class="ec-order-card"><h3>Order <bdi>${esc(order.order)}</bdi></h3><p class="ec-order-status">${esc(order.statuses.join(" · ") || "Status unavailable")}</p>
         <dl class="ec-order-facts"><div><dt>Placed</dt><dd>${esc(ecCustomerDate(order.placed))}</dd></div><div><dt>Delivery slot date${order.slotFrom !== order.slotTo ? "s" : ""}</dt><dd>${esc(dates(order.slotFrom, order.slotTo))}${order.hasUndated ? " · some dates unknown" : ""}</dd></div><div><dt>Gross amount</dt><dd>${ecCustomerAmount(order.gross)}</dd></div><div><dt>Net amount</dt><dd>${ecCustomerAmount(order.net)}</dd></div><div><dt>Sub-orders</dt><dd>${int(order.suborders)}</dd></div><div><dt>Outlets in scope</dt><dd>${esc(order.outlets.map(outletName).join(" · "))}</dd></div></dl>
         ${order.items.length ? `<details class="ec-order-parts"><summary>View ${int(order.items.length)} sub-order${order.items.length === 1 ? "" : "s"}</summary><ul>${order.items.map((item) => `<li><strong>Sub-order <bdi>${esc(item.suborder)}</bdi></strong><span>${esc(outletName(item.outlet))}</span><span>Placed ${esc(ecCustomerDate(item.placed))} · delivery ${esc(ecCustomerDate(item.slot))}</span><span>${esc(item.status)} · gross ${ecCustomerAmount(item.gross)} · net ${ecCustomerAmount(item.net)}</span></li>`).join("")}</ul></details>` : ""}</article>`).join("");
@@ -7087,35 +7092,73 @@
     ecWire($("#drawerBody"));
   }
 
-  // The page asks for a password first. The unlock lasts for the browser tab's session (sessionStorage), so moving
-  // between its tabs does not ask again; "Lock" asks again. Its data is not loaded until the page opens.
-  const EC_PASS = "E";
-  function ecUnlocked() {
-    try { return sessionStorage.getItem("opsdash-ecom") === "unlocked"; } catch (e) { return false; }
+  // Access is validated by the private server; only its HttpOnly cookie grants data access.
+  function ecUnlocked() { return S.ecomAuthenticated === true; }
+  function ecClearData() {
+    S.ecomLoadId = (S.ecomLoadId || 0) + 1; S.ecomLoading = false; S.ecomErr = null;
+    S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomC = null;
+    Object.keys(S.tables).filter((id) => id.startsWith("ec-")).forEach((id) => delete S.tables[id]);
+    try { sessionStorage.removeItem("opsdash-ecom"); } catch (e) {}
   }
-  function ecSetLock(open) {
-    try { if (open) sessionStorage.setItem("opsdash-ecom", "unlocked"); else sessionStorage.removeItem("opsdash-ecom"); } catch (e) {}
+  function ecCheckSession() {
+    if (S.ecomAuthLoading) return;
+    S.ecomAuthLoading = true;
+    fetch("api/ecom/session", { cache: "no-store", credentials: "same-origin" })
+      .then((r) => {
+        S.ecomAuthenticated = r.ok;
+        S.ecomAuthError = r.ok || r.status === 401 ? "" : "E-Commerce is unavailable on this site. Contact your dashboard administrator.";
+      })
+      .catch(() => { S.ecomAuthError = "Could not check E-Commerce access. Please retry."; })
+      .finally(() => { S.ecomAuthChecked = true; S.ecomAuthLoading = false; if (S.page === "ecom") render(); });
+  }
+  async function ecSignOut() {
+    S.ecomAuthenticated = false; S.ecomAuthChecked = true; S.ecomBad = ""; S.ecomErr = null;
+    closeDrawer(); $("#drawerBody").innerHTML = ""; ecClearData(); hideTip();
+    S.ecomAuthError = "Signing out…"; render();
+    try {
+      const r = await fetch("api/ecom/logout", { method: "POST", credentials: "same-origin" });
+      if (!r.ok) throw new Error("logout");
+      S.ecomAuthError = "";
+    } catch (e) { S.ecomAuthError = "Could not finish signing out. Check your connection and retry signing out."; }
+    if (S.page === "ecom") render();
   }
   function ecLockPanel() {
     AFTER.push(() => {
-      const f = $("#ecLock");
-      if (!f) return;
-      f.onsubmit = (e) => {
+      const retry = $("[data-ec-auth-retry]");
+      if (retry) retry.onclick = () => { S.ecomAuthError = ""; S.ecomAuthChecked = false; render(); };
+      const logout = $("[data-ec-logout-retry]"); if (logout) logout.onclick = ecSignOut;
+      const f = $("#ecLock"); if (!f) return;
+      f.onsubmit = async (e) => {
         e.preventDefault();
-        const ok = $("#ecPass").value === EC_PASS;
-        S.ecomBad = !ok;
-        if (ok) ecSetLock(true);
-        render();
+        if (S.ecomUnlocking) return;
+        S.ecomUnlocking = true; const button = $("button", f); button.disabled = true;
+        const input = $("#ecPass"), password = input.value; input.value = "";
+        try {
+          const r = await fetch("api/ecom/session", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
+          S.ecomBad = r.ok ? "" : r.status === 401 ? "Wrong password." : r.status === 429 ? "Too many attempts. Please wait a minute and try again." : "E-Commerce access is temporarily unavailable. Please retry later.";
+          if (r.ok) { S.ecomAuthenticated = true; S.ecomAuthChecked = true; S.ecomErr = null; }
+        } catch (e) { S.ecomBad = "Could not sign in. Check your connection and retry."; }
+        finally { S.ecomUnlocking = false; if (S.page === "ecom") render(); }
       };
       if (S.ecomBad) $("#ecPass").focus();
     });
+    if (S.ecomAuthError) return `<section class="panel"><div class="panel-body"><h2>E-Commerce access</h2><p role="alert">${esc(S.ecomAuthError)}</p>${S.ecomAuthError.includes("signing out") ? '<button class="btn" data-ec-logout-retry>Retry signing out</button>' : '<button class="btn" data-ec-auth-retry>Retry</button>'}</div></section>`;
     return `<section class="panel"><div class="panel-head"><div><h2>E-Commerce is locked</h2><p>Enter the password to open this page.</p></div></div>
-      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" autocapitalize="characters" autocomplete="new-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? '<p class="ec-lock-err" role="alert">Wrong password.</p>' : ""}</form></section>`;
+      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" autocomplete="current-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? `<p class="ec-lock-err" role="alert">${esc(S.ecomBad)}</p>` : ""}</form></section>`;
   }
 
   function pageEcom() {
-    if (!ecUnlocked()) return ecLockPanel();
-    if (!S.ecom) { loadEcom(); return `<p class="empty">${S.ecomErr ? `The E-commerce data could not be loaded (${esc(S.ecomErr)}).` : "Loading E-commerce data…"}</p>`; }
+    if (!ecUnlocked()) {
+      if (!S.ecomAuthChecked) { ecCheckSession(); return '<p class="empty">Checking E-Commerce access…</p>'; }
+      return ecLockPanel();
+    }
+    if (!S.ecom) {
+      if (S.ecomErr) {
+        AFTER.push(() => { const b = $("[data-ec-data-retry]"); if (b) b.onclick = () => { S.ecomErr = null; render(); }; });
+        return `<section class="panel"><div class="panel-body"><p role="alert">E-Commerce data could not be loaded. ${esc(S.ecomErr)}</p><button type="button" class="btn" data-ec-data-retry>Retry</button></div></section>`;
+      }
+      loadEcom(); return '<p class="empty">Loading E-commerce data…</p>';
+    }
     const d = S.ecom;
     if (!EC_TABS.some(([k]) => k === S.ecomTab)) S.ecomTab = "over";
     const mi = d.months.includes(S.ecomM) ? d.months.indexOf(S.ecomM) : d.months.length - 1, m = d.months[mi];
@@ -7133,7 +7176,7 @@
     const body = { over: ecOverview, outlets: ecOutlets, prod: ecProducts, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
     AFTER.push(() => {
       ecWire($("#view"));
-      $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomBad = false; delete S.tables["ec-customers"]; delete S.tables["ec-customer-health"]; hideTip(); render(); }));
+      $$("[data-ec-lock]").forEach((b) => (b.onclick = ecSignOut));
     });
     // the period compared, behind a "!" next to the switch
     const cmpTxt = `${C.P.curLabel}${C.P.pm ? ` compared with ${C.P.cmpLabel} (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}`;

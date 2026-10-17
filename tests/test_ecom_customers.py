@@ -44,6 +44,7 @@ class CustomerRankingTests(unittest.TestCase):
             wb.save(self.root / filename)
             wb.close()
         output = self.root / "result.json"
+        output.unlink(missing_ok=True)  # Each build() fixture is independent; refresh tests retain it explicitly.
         with mock.patch.object(refresh, "OUT", output), \
                 mock.patch.object(refresh, "MASTER", self.root / "missing-master.json"), \
                 mock.patch.object(sys, "argv", [str(SOURCE), "--local", str(self.root)]), \
@@ -158,11 +159,11 @@ class CustomerRankingTests(unittest.TestCase):
         self.assertEqual(customers["asOf"], "2026-10-01")
         self.assertEqual(len(customers["history"]), 5)
         self.assertEqual(customers["historyCoverage"]["records"], 5)
-        self.assertTrue(all(len(r) == 9 for r in customers["history"]))
+        self.assertTrue(all(len(r) == 10 for r in customers["history"]))
         history = {r[3]: r for r in customers["history"]}
         self.assertEqual(history["S1"][1:6], [0, "P1", "S1", "2026-10-01", "2026-10-05"])
-        self.assertEqual(history["S1"][7:], [125, 125])
-        self.assertEqual(history["S2"][7:], [75, 0])
+        self.assertEqual(history["S1"][7:9], [125, 125])
+        self.assertEqual(history["S2"][7:9], [75, 0])
         self.assertEqual(history["S2"][1], 0)
         self.assertEqual(data["outlets"][history["S2"][0]][0], "D002")
         self.assertEqual(customers["statuses"][history["S2"][6]], "Cancelled")
@@ -188,9 +189,9 @@ class CustomerRankingTests(unittest.TestCase):
             order("P1", "S3", "Synthetic Alpha", total=20.75, status="Cancelled"),
         ]})
         history = {r[3]: r for r in data["customers"]["history"]}
-        self.assertEqual(history["S1"][7:], [100.49, 100.49])
-        self.assertEqual(history["S2"][7:], [100.49, 100.49])
-        self.assertEqual(history["S3"][7:], [20.75, 0])
+        self.assertEqual(history["S1"][7:9], [100.49, 100.49])
+        self.assertEqual(history["S2"][7:9], [100.49, 100.49])
+        self.assertEqual(history["S3"][7:9], [20.75, 0])
         self.assertEqual(sum(r[8] for r in history.values()), 200.98)
         self.assertEqual(data["customers"]["r"][0][5], 201)
 
@@ -282,6 +283,74 @@ class ExtraColumnTests(unittest.TestCase):
         self.assertEqual(sum(r[4] for r in data["placed"]["r"]), 3)  # all orders
         self.assertEqual(sum(r[5] for r in data["placed"]["r"]), 2)  # delivered: the cancelled sub-order is left out
         self.assertEqual({(r[2], r[3]) for r in data["placed"]["r"]}, {(3, 9)})  # 1 Oct 2026 is a Thursday, 9 AM
+
+
+
+    def test_failed_workbook_keeps_last_good_snapshot_and_does_not_poison_cache(self):
+        self.build({"a.xlsx": [order("P1", "S1", "Synthetic Alpha")],
+                    "b.xlsx": [order("P2", "S2", "Synthetic Beta")]})
+        output = self.root / "result.json"
+        before = output.read_bytes()
+        items, _ = refresh.list_items(self.root)
+        items = [{**item, "modified": "changed"} for item in items]
+        native = refresh.first_sheet
+        def fail_b(path):
+            if Path(path).name == "b.xlsx":
+                raise OSError("Synthetic read failure")
+            return native(path)
+        with mock.patch.object(refresh, "OUT", output), \
+                mock.patch.object(refresh, "MASTER", self.root / "missing.json"), \
+                mock.patch.object(refresh, "list_items", return_value=(items, None)), \
+                mock.patch.object(sys, "argv", [str(SOURCE)]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with mock.patch.object(refresh, "first_sheet", side_effect=fail_b):
+                self.assertEqual(refresh.main(), 1)
+            self.assertEqual(output.read_bytes(), before)
+            with mock.patch.object(refresh, "first_sheet", wraps=native) as reader:
+                self.assertEqual(refresh.main(), 0)
+                self.assertEqual(reader.call_count, 2, "A healthy retry must actually reread the failed source")
+                self.assertEqual(refresh.main(), 0)
+                self.assertEqual(reader.call_count, 2, "Only a fully successful build may hit the cache")
+
+    def test_missing_month_retains_last_complete_snapshot(self):
+        self.build({"a.xlsx": [order("P1", "S1", "Synthetic Alpha", day="9/1/2026")],
+                    "b.xlsx": [order("P2", "S2", "Synthetic Beta", day="10/1/2026")]})
+        output = self.root / "result.json"
+        before = output.read_bytes()
+        (self.root / "b.xlsx").unlink()
+        with mock.patch.object(refresh, "OUT", output), \
+                mock.patch.object(refresh, "MASTER", self.root / "missing.json"), \
+                mock.patch.object(sys, "argv", [str(SOURCE), "--local", str(self.root)]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(refresh.main(), 1)
+        self.assertEqual(output.read_bytes(), before)
+
+    def test_regression_validation_checks_dates_suborders_and_complaints(self):
+        import copy
+        baseline = self.build({"orders.xlsx": [order("P1", "S1", "Synthetic Alpha")]})
+        for kind in ("date", "orders", "complaints"):
+            old, new = copy.deepcopy(baseline), copy.deepcopy(baseline)
+            if kind == "date":
+                old["source"]["asOf"] = "2099-01-01 00:00"
+            elif kind == "orders":
+                new["customers"]["history"] = []
+            else:
+                old["complaints"] = [["Synthetic complaint"]]
+            self.assertTrue(refresh.regression_reason(old, new), kind)
+        self.assertEqual(refresh.regression_reason(baseline, baseline), "")
+
+    def test_unknown_complaint_outlet_inherits_only_an_unambiguous_matched_outlet(self):
+        self.assertEqual(refresh.complaint_outlet_code("?", [{"code": "D001"}]), "D001")
+        self.assertEqual(refresh.complaint_outlet_code("", [{"code": "D001"}, {"code": "D001"}]), "D001")
+        self.assertEqual(refresh.complaint_outlet_code("?", [{"code": "D001"}, {"code": "D002"}]), "?")
+        self.assertEqual(refresh.complaint_outlet_code("D003", [{"code": "D001"}]), "D003")
+
+    def test_history_retains_actual_delivery_date_separately_from_slot(self):
+        row = order("P1", "S1", "Synthetic Alpha", day="10/1/2026", status="Complete")
+        row["DeliveredOn"] = "Oct 02, 2026, 9:00:00 AM"
+        data = self.build({"orders.xlsx": [row]}, headers=HEADERS + ["DeliveredOn"])
+        self.assertEqual(data["customers"]["history"][0][5], "2026-10-01")
+        self.assertEqual(data["customers"]["history"][0][9], "2026-10-02")
 
 
 class SlotChangeTests(unittest.TestCase):

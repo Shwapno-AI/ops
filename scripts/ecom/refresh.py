@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""E-Commerce page: build data/ecom.json from the E-commerce Drive folder.
+"""E-Commerce page: build a private customer snapshot from the E-commerce Drive folder.
 
 Sources, found in any sub-folder of the folder and recognised by their columns:
   * Sub-order exports, one workbook per delivery month. Some hold one row per sub-order (July to
@@ -13,7 +13,7 @@ e-mail addresses inside customer names or complaint text are masked. Contact col
 Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
-Output data/ecom.json (schema 5; the fields below are schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
+Output private/ecom.json (schema 10; fields are additive to schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
 leader, a zonal or one outlet. Aggregate amounts are whole taka; customer history keeps two decimal
 places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   months, mdays  the months and how many slot days each has
@@ -36,7 +36,7 @@ places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
                  net amount excludes cancelled sub-orders. Names match by NFC, whitespace and casefold.
                  Additive historyVersion 1: asOf is the source reference date, statuses is a dictionary,
                  history is [[outlet, customer, parent order, sub-order, placed date, slot date, status,
-                 gross amount, net amount]]. Dates are ISO days; status indexes statuses and reflects
+                 gross amount, net amount, actual delivered date]]. Dates are ISO days; status indexes statuses and reflects
                  the latest retained export, not the status at a past date. historyCoverage counts records
                  and omitted source rows with missing order numbers or dates. Omitted counts are source
                  rows, possibly repeated product lines, not distinct orders; missing-field reasons overlap.
@@ -76,9 +76,10 @@ Added in schemas 4 and 5 (all additive, so the schema 3 fields above keep their 
 
 Environment:
   ECOM_FOLDER_ID  Drive folder to search (default: the E-commerce folder)
-  ECOM_OUT        output file (default: data/ecom.json)
+  ECOM_OUT        private output file (default: private/ecom.json)
   DATA_OUT        the outlet master, data/data.json (default: data/data.json)
   DRIVE_CACHE     shared download cache (see scripts/network/fetch_drive_data.py)
+ECOM_ALLOW_REGRESSION  set to 1 only for an intentional, reviewed history reset
 Usage: python scripts/ecom/refresh.py [--local FOLDER]   (--local reads the workbooks in FOLDER instead of Drive)
 """
 import contextlib
@@ -97,9 +98,9 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
 
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
-OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
+OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "private" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 9  # 5: slot changes; 6: items (every product by outlet and day); 7: outlet codes from DarkStore; 9: placed = all and delivered. Bump to force a rebuild when fields are added
+SCHEMA = 10  # 10: actual delivery dates in private customer history; validated complete refreshes
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
@@ -412,6 +413,31 @@ def read_master():
     return {o["c"]: o for o in (data.get("master") or {}).get("outlets", []) if o.get("c")}
 
 
+def complaint_outlet_code(code, parts):
+    """Use a known matched outlet only when a missing complaint code is unambiguous."""
+    if code and code != "?":
+        return code
+    known = {r["code"] for r in parts if r.get("code") and r["code"] != "?"}
+    return next(iter(known)) if len(known) == 1 else "?"
+
+
+def regression_reason(previous, current):
+    """Never silently replace good history with an incomplete or older source set."""
+    if not previous:
+        return ""
+    if not set(previous.get("months", [])).issubset(current["months"]):
+        return "previously available reporting months are missing"
+    if previous.get("source", {}).get("asOf", "") > current["source"]["asOf"]:
+        return "the latest source date moved backwards"
+    before = {(r[2], r[3]) for r in previous.get("customers", {}).get("history", [])}
+    after = {(r[2], r[3]) for r in current["customers"]["history"]}
+    if not before.issubset(after):
+        return "previously available sub-orders are missing"
+    if len(previous.get("complaints", [])) > len(current["complaints"]):
+        return "previously available complaints are missing"
+    return ""
+
+
 def list_items(local_dir):
     """The workbooks to read: Drive items, or the files of a local folder (--local)."""
     if local_dir:
@@ -432,6 +458,7 @@ def main():
         old = json.loads(OUT.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         old = {}
+    previous_snapshot = old
     fkey = "|".join(f"{i['id']}:{i.get('modified', '')}" for i in sorted(items, key=lambda i: i["id"]))
     if (not local_dir and (old.get("source") or {}).get("key") == fkey
             and old.get("schema") == SCHEMA
@@ -443,6 +470,7 @@ def main():
     prods = {}         # month -> product aggregates, only where the lines reconcile
     complaints = []
     used = []
+    failed_inputs = 0
     history_coverage = {"omittedSourceRows": 0, "omittedMissingOrderRows": 0,
                         "omittedMissingPlacedDateRows": 0, "omittedMissingSlotDateRows": 0}
     with tempfile.TemporaryDirectory(prefix="ecom-") as work:
@@ -453,6 +481,7 @@ def main():
                     local.write_bytes(drive.fetch_bytes(item))
                 except Exception as err:  # noqa: BLE001
                     log(f"::warning::{item['path']}: {err}")
+                    failed_inputs += 1
                     continue
             try:
                 with first_sheet(local) as ws:
@@ -495,6 +524,10 @@ def main():
                         log(f"  complaints  {item['path']}: {len(got)} rows")
             except Exception as err:  # noqa: BLE001 - not a readable workbook
                 log(f"  skip  {item['path']} ({err})")
+                failed_inputs += 1
+    if failed_inputs:
+        log(f"::error::{failed_inputs} source files could not be read; retaining the last complete snapshot and retrying next run.")
+        return 1
     if not best:
         log("::warning::No sub-order workbook could be read; ecom.json left as is.")
         return 1
@@ -621,7 +654,7 @@ def main():
             continue
         found = by_order.get(c["order"], [])
         matched += bool(found)
-        o = outlet(c["code"] or (found[0]["code"] if found else ""), c["name"])
+        o = outlet(complaint_outlet_code(c["code"], found), c["name"])
         complaint_rows.append([f"{year_of(mon)}-{mon:02d}", lists["src"](c["src"]), c["order"], o, lists["cat"](c["cat"]),
                                lists["sub"](c["sub"]), lists["dbl"](c["dbl"]), c["det"], c["fb"],
                                found[0]["st"] if found else "", round(sum(r["tot"] for r in found)),
@@ -632,7 +665,8 @@ def main():
     history_statuses = Codes(sorted({rec["st"] for rec in recs}))
     history = sorted(([outlet(rec["code"], rec["name"]), customer_of[rec["o"]], rec["o"], rec["s"],
                        iso(rec["cr"].date()), iso(rec["day"]), history_statuses(rec["st"]),
-                       round(rec["tot"], 2), 0 if rec["st"] == "Cancelled" else round(rec["tot"], 2)]
+                       round(rec["tot"], 2), 0 if rec["st"] == "Cancelled" else round(rec["tot"], 2),
+                       iso(rec["dl"].date()) if rec["dl"] else ""]
                       for rec in recs), key=lambda r: (r[0], r[1], r[2], r[3]))
     history_coverage["records"] = len(history)
     # schema 6: every product of the months whose product lines add up, by outlet and slot day
@@ -752,9 +786,14 @@ def main():
         "slotChange": {"sources": sorted(sources), "r": [[*k, *v] for k, v in sorted(moves.items())]},
         "editsD": {"r": [[*k, v] for k, v in sorted(edits_d.items())]},
     }
+    reason = regression_reason(previous_snapshot, payload)
+    if reason and os.environ.get("ECOM_ALLOW_REGRESSION") != "1":
+        log(f"::error::Incomplete E-commerce refresh: {reason}; retaining the last complete snapshot.")
+        return 1
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    tmp.chmod(0o600)
     os.replace(tmp, OUT)
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(recs)} sub-orders, {len(outlets)} outlets, "
         f"{len(complaint_rows)} complaints ({matched} matched to an order), {months[0]} to {months[-1]}, "
