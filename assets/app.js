@@ -6447,10 +6447,10 @@
   function ecPlacedHeat(C) {
     const { d, sc, mi } = C;
     if (!d.placed) return `<p class="ec-note">When orders were placed is added by the next data refresh.</p>`;
-    // 8 AM to 7 PM hour by hour; 8 PM to 8 AM (overnight) as one row at the end
-    const g = Array.from({ length: 13 }, () => new Array(7).fill(0)), row = (h) => (h >= 8 && h < 20 ? h - 8 : 12);
+    // 8 PM to 8 AM (overnight) as one row at the top, then 8 AM to 7 PM hour by hour
+    const g = Array.from({ length: 13 }, () => new Array(7).fill(0)), row = (h) => (h >= 8 && h < 20 ? h - 7 : 0);
     d.placed.r.forEach(([o, m, wd, h, n]) => { if (m === mi && sc.on[o]) g[row(h)][wd] += n; });
-    const hl = (i) => (i === 12 ? "8 PM – 8 AM" : ecHour(i + 8));
+    const hl = (i) => (i === 0 ? "8 PM – 8 AM" : ecHour(i + 7));
     const hours = g.map((r, i) => ({ h: i, r, t: r.reduce((a, v) => a + v, 0) })).filter((x) => x.t);
     if (!hours.length) return `<p class="ec-note">No orders for this selection.</p>`;
     const all = hours.reduce((a, x) => a + x.t, 0), top = Math.max(...hours.flatMap((x) => x.r)) || 1;
@@ -6489,7 +6489,7 @@
         ${ecPanel("Orders by slot", `Sub-orders booked into each delivery slot, with the late share${slp ? ` and its change in points against ${esc(fmonth(P.pm))} (slots are by month)` : ""}.`, slotBars)}
         ${ecPanel("Most late deliveries", `Outlets with the most deliveries after the slot ended${lateP ? `; ▲▼ is the late share against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, lateBars)}
       </div>
-      ${ecPanel("When customers order", `Delivered sub-orders of ${esc(ecMonthName(d, m))} by the hour and weekday they were placed (CreatedOn); 8 PM to 8 AM is one row.`, ecPlacedHeat(C))}
+      ${ecPanel("When customers order", `Delivered sub-orders of ${esc(ecMonthName(d, m))} by the hour and weekday they were placed (CreatedOn); 8 PM to 8 AM is one row at the top.`, ecPlacedHeat(C))}
 `;
   }
 
