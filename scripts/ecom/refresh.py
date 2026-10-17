@@ -98,7 +98,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 6  # 5: slot changes; 6: items (every product by outlet and day). Bump to force a rebuild when fields are added
+SCHEMA = 7  # 5: slot changes; 6: items (every product by outlet and day); 7: outlet codes from DarkStore. Bump to force a rebuild when fields are added
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
@@ -305,8 +305,7 @@ def read_orders(ix, rows, stats, extra=()):
         key = (o, s)
         rec = subs.get(key)
         if rec is None:
-            dark = txt(cell(r, c("DarkStore"))).split()
-            code = txt(cell(r, c("Outlet Code"))) or (dark[-1] if dark else "")
+            code = outlet_code(cell(r, c("DarkStore")), cell(r, c("Outlet Code")))
             rec = subs[key] = {
                 "o": o, "s": s, "m": f"{day:%Y-%m}", "day": day, "sh": sh, "end": end, "sl": label, "cr": cr,
                 "code": code, "name": txt(cell(r, c("Outlet Name"))), "dist": txt(cell(r, c("DeliveryDistrict"))),
@@ -373,11 +372,35 @@ def read_complaints(ix, rows):
             continue  # an empty line of the sheet
         rowsout.append({
             "month": txt(cell(r, c("Month"))), "src": txt(cell(r, c("Source"))), "order": oid,
-            "code": txt(cell(r, c("Outlet Code"))), "name": txt(cell(r, c("Outlet Name"))), "cat": cat,
+            "code": outlet_code(cell(r, c("DarkStore")) if c("DarkStore") is not None else "", cell(r, c("Outlet Code"))), "name": txt(cell(r, c("Outlet Name"))), "cat": cat,
             "sub": txt(cell(r, sub_i)), "dbl": txt(cell(r, dbl_i)),
             "det": clean_text(cell(r, c("Complaint Details"))), "fb": clean_text(cell(r, c("Our feedback"))),
         })
     return rowsout
+
+
+CODE_RE = re.compile(r"^[A-Z]\d{3}$")
+
+
+def outlet_code(dark, code=""):
+    """The outlet code is the last 4 characters of DarkStore ("Shwapno Green Road D007" -> D007); the Outlet Code
+    column (which some exports fill with "Rang", "#N/A" or lower case) is used only when DarkStore has none."""
+    d = re.sub(r"\s+", "", str(dark or "")).upper()[-4:]
+    if CODE_RE.match(d):
+        return d
+    c = str(code or "").strip().upper()
+    if CODE_RE.match(c):
+        return c
+    # no code anywhere: the outlet whose master name is in DarkStore (longest name wins), else "?"
+    key = lambda t: re.sub(r"[^a-z0-9]+", " ", str(t or "").lower()).strip()  # noqa: E731
+    global _NAMES
+    if _NAMES is None:
+        _NAMES = sorted(((key(o.get("n")), oc) for oc, o in read_master().items() if key(o.get("n"))), key=lambda x: -len(x[0]))
+    text = f" {key(dark)} "
+    return next((oc for n, oc in _NAMES if f" {n} " in text), "?")
+
+
+_NAMES = None
 
 
 def read_master():
@@ -504,16 +527,20 @@ def main():
             customer_names.append(name)
         customer_of[parent] = customer_ix[key]
 
-    # outlets: master name, RHO and zonal; a code the master does not know keeps the export's name
+    # outlets: name, RHO and zonal from the outlet master (zone distribution); a code the master does not know
+    # keeps the export's name unless it is an error value
     outlets, outlet_ix = [], {}
+
+    mo_known = lambda code: code in master  # noqa: E731
 
     def outlet(code, name=""):
         code = code or "?"
         if code not in outlet_ix:
             mo = master.get(code) or {}
             outlet_ix[code] = len(outlets)
+            name = "" if re.match(r"^#(N/A|REF!|VALUE!|NAME\?)", name or "", re.I) else name
             outlets.append([code, mo.get("n") or name or code, mo.get("rl", ""), mo.get("zn", "")])
-        elif name and outlets[outlet_ix[code]][1] == code:
+        elif name and not mo_known(code) and outlets[outlet_ix[code]][1] == code and not name.startswith("#"):
             outlets[outlet_ix[code]][1] = name
         return outlet_ix[code]
 

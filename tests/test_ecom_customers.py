@@ -21,7 +21,7 @@ HEADERS = ["OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "Subord
            "Outlet Code", "Outlet Name", "SubOrderTotal", "CustomerName", "ProductName", "Price"]
 
 
-def order(parent, sub, name=None, outlet="A", total=100, status="Delivered", day="10/5/2026"):
+def order(parent, sub, name=None, outlet="D001", total=100, status="Delivered", day="10/5/2026"):
     return {"OrderNumber": parent, "SuborderNumber": sub, "DeliveryTime": f"09:00 AM - 10:00 AM {day}",
             "CreatedOn": "Oct 01, 2026, 9:00:00 AM", "SubordeStatus": status, "Outlet Code": outlet,
             "Outlet Name": f"Synthetic outlet {outlet}", "SubOrderTotal": total, "CustomerName": name,
@@ -56,7 +56,7 @@ class CustomerRankingTests(unittest.TestCase):
             "a-old.xlsx": [order("P1", "S1", "Former Synthetic Name", total=999, day="7/1/2026")],
             "b-new.xlsx": [order("P1", "S1", None, total=120),
                            order("P1", "S1", "  Test   Alpha  ", total=120),
-                           order("P1", "S2", "TEST ALPHA", outlet="B", total=30),
+                           order("P1", "S2", "TEST ALPHA", outlet="D002", total=30),
                            order("P1", "S3", None, total=20),
                            order("P2", "S4", "Test Alpha", total=200, status="Cancelled"),
                            order("P3", "S5", "Test Beta", total=60)],
@@ -69,7 +69,7 @@ class CustomerRankingTests(unittest.TestCase):
         self.assertEqual(len({r[3] for r in alpha}), 2)
         self.assertEqual(sum(r[4] for r in alpha), 4)
         self.assertEqual(sum(r[5] for r in alpha), 170)
-        p1_a = [r for r in alpha if r[3] == "P1" and data["outlets"][r[0]][0] == "A"]
+        p1_a = [r for r in alpha if r[3] == "P1" and data["outlets"][r[0]][0] == "D001"]
         self.assertEqual([r[4:] for r in p1_a], [[2, 140]])
         # The same parent appears in both outlet scopes, so summing outlet order counts is incorrect.
         self.assertEqual(len(alpha), 3)
@@ -78,8 +78,8 @@ class CustomerRankingTests(unittest.TestCase):
     def test_conflicting_product_or_suborder_names_exclude_the_whole_parent(self):
         data = self.build({"orders.xlsx": [
             order("P1", "S1", "Test Alpha"), order("P1", "S1", "Test Beta"),
-            order("P1", "S2", None, outlet="B"),
-            order("P2", "S3", "Test Gamma"), order("P2", "S4", "Test Delta", outlet="B"),
+            order("P1", "S2", None, outlet="D002"),
+            order("P2", "S3", "Test Gamma"), order("P2", "S4", "Test Delta", outlet="D002"),
             order("P3", "S5", "Control Example"),
         ]})
         self.assertEqual(data["customers"]["list"], ["Control Example"])
@@ -92,8 +92,8 @@ class CustomerRankingTests(unittest.TestCase):
     def test_missing_names_inherit_only_one_known_parent_identity(self):
         data = self.build({"orders.xlsx": [
             order("P1", "S1", None), order("P1", "S1", "Known Example"),
-            order("P1", "S2", None, outlet="B"),
-            order("P2", "S3", "unknown"), order("P2", "S4", "Guest", outlet="B"),
+            order("P1", "S2", None, outlet="D002"),
+            order("P2", "S3", "unknown"), order("P2", "S4", "Guest", outlet="D002"),
             order("P3", "S5", "qa@example.invalid"), order("P3", "S5", "+8801712345678"),
         ]})
         self.assertEqual(data["customers"]["list"], ["Known Example"])
@@ -125,8 +125,8 @@ class CustomerRankingTests(unittest.TestCase):
     def test_parent_membership_preserves_month_and_outlet_filters(self):
         data = self.build({"orders.xlsx": [
             order("P1", "S1", "Test Alpha", day="7/1/2026", total=40),
-            order("P1", "S2", None, outlet="B", day="10/5/2026", total=60),
-            order("P2", "S3", "Test Alpha", outlet="B", day="10/5/2026", total=80),
+            order("P1", "S2", None, outlet="D002", day="10/5/2026", total=60),
+            order("P2", "S3", "Test Alpha", outlet="D002", day="10/5/2026", total=80),
         ]})
         rows = data["customers"]["r"]
         self.assertEqual(len({r[3] for r in rows}), 2)
@@ -147,7 +147,7 @@ class CustomerRankingTests(unittest.TestCase):
             "a-old.xlsx": [order("P1", "S1", "Synthetic Alpha", total=999, day="7/1/2026")],
             "b-new.xlsx": [order("P1", "S1", "Synthetic Alpha", total=125),
                            order("P1", "S1", "Synthetic Alpha", total=125),
-                           order("P1", "S2", None, outlet="B", total=75, status="Cancelled"),
+                           order("P1", "S2", None, outlet="D002", total=75, status="Cancelled"),
                            order("P2", "S3", None, total=40),
                            order("P3", "S4", "Synthetic Beta", total=25),
                            order("P3", "S5", "Synthetic Gamma", total=35)],
@@ -164,7 +164,7 @@ class CustomerRankingTests(unittest.TestCase):
         self.assertEqual(history["S1"][7:], [125, 125])
         self.assertEqual(history["S2"][7:], [75, 0])
         self.assertEqual(history["S2"][1], 0)
-        self.assertEqual(data["outlets"][history["S2"][0]][0], "B")
+        self.assertEqual(data["outlets"][history["S2"][0]][0], "D002")
         self.assertEqual(customers["statuses"][history["S2"][6]], "Cancelled")
         self.assertEqual(history["S3"][1], -1)
         self.assertEqual([history[s][1] for s in ("S4", "S5")], [-2, -2])
@@ -172,7 +172,7 @@ class CustomerRankingTests(unittest.TestCase):
 
     def test_history_reference_date_uses_placement_not_future_slot_or_build_date(self):
         early = order("P1", "S1", "Synthetic Alpha", day="11/3/2026")
-        late = order("P1", "S2", None, outlet="B", day="11/3/2026")
+        late = order("P1", "S2", None, outlet="D002", day="11/3/2026")
         early["CreatedOn"] = "Oct 07, 2026, 9:00:00 AM"
         late["CreatedOn"] = "Oct 08, 2026, 9:00:00 AM"
         data = self.build({"orders.xlsx": [early, late]})
@@ -346,13 +346,13 @@ class ItemTests(unittest.TestCase):
 
     def test_items(self):
         headers = HEADERS + ["SKU", "Quantity", "Discount", "Edit Reason", "Updated Qty"]
-        def line(parent, name, sku, qty, price, total, status="Delivered", reason=None, upd=None, outlet="A"):
+        def line(parent, name, sku, qty, price, total, status="Delivered", reason=None, upd=None, outlet="D001"):
             r = order(parent, "1", "Test Alpha", outlet=outlet, total=total, status=status)
             r.update({"ProductName": name, "SKU": sku, "Quantity": qty, "Price": price, "Discount": 5, "Edit Reason": reason, "Updated Qty": upd})
             return r
         data = self.build({"orders.xlsx": [
             line("P1", "Rice", 101, 2, 200, 300), line("P1", "Oil", 202, 1, 100, 300, reason="Out of Stock", upd=0),
-            line("P2", "Rice", 101, 3, 300, 300, outlet="B"),
+            line("P2", "Rice", 101, 3, 300, 300, outlet="D002"),
             line("P3", "Rice", 101, 1, 100, 100, status="Cancelled"),
         ]}, headers=headers)
         it = data["items"]
