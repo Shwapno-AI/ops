@@ -5944,7 +5944,7 @@
     const X = (v) => ml + (v / xMax) * (W - ml - mr), Y = (v) => mt + (1 - v / yMax) * (H - mt - mb);
     const med = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }, mx = med(xs), my = med(ys);
     const hi = pts.map((p) => ({ p, s: (p.y - my) * p.x })).filter((e) => e.s > 0).sort((a, b) => b.s - a.s).slice(0, 5).map((e) => e.p), his = new Set(hi);
-    const what = ym === "late" ? "late" : "cancelled";
+    const what = ym === "late" ? "late" : ym === "slotch" ? "slot changed" : "cancelled";
     let g = "";
     for (let k = 0; k <= 4; k++) { const v = (yMax * k) / 4; g += `<line x1="${ml}" x2="${W - mr}" y1="${Y(v)}" y2="${Y(v)}" style="stroke:var(--grid)"/><text x="${ml - 6}" y="${Y(v) + 3.5}" text-anchor="end" class="cw-axis">${(v * 100).toFixed(0)}%</text>`; }
     for (let k = 1; k <= 4; k++) { const v = (xMax * k) / 4; g += `<text x="${X(v)}" y="${H - mb + 15}" text-anchor="middle" class="cw-axis">${int(v)}</text>`; }
@@ -5961,8 +5961,8 @@
       placed.push({ x: x0, y, w });
       return `<text x="${(right ? X(p.x) - 10 : X(p.x) + 10).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${right ? "end" : "start"}" class="ec-lab">${esc(text)}</text>`;
     };
-    const hit = (p) => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="11" fill="transparent" style="cursor:pointer" data-ec-outlet="${p.o.i}" tabindex="0" role="button" aria-label="${esc(`${p.o.c} ${p.o.n}: ${ecPct(p.y)} ${what}`)}" ${ecTipAttr(`<strong>${esc(p.o.c)} ${esc(p.o.n)}</strong><dl><dt>Sub-orders a day</dt><dd>${int(p.x)}</dd><dt>${what === "late" ? "Delivered late" : "Cancelled"}</dt><dd>${ecPct(p.y)}</dd><dt>Zonal</dt><dd>${esc(p.o.zn)}</dd></dl>`)}/>`;
-    host.innerHTML = `${ecLegend([["Outlet", "var(--ec-1)"], [`Five with the most excess ${what === "late" ? "late deliveries" : "cancellations"}`, "var(--ec-2)"]])}<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Outlets by volume and ${what} share">${g}${pts.filter((p) => !his.has(p)).map(dot).join("")}${hi.map(dot).join("")}${hi.map(lab).join("")}${pts.map(hit).join("")}</svg>`;
+    const hit = (p) => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="11" fill="transparent" style="cursor:pointer" data-ec-outlet="${p.o.i}" tabindex="0" role="button" aria-label="${esc(`${p.o.c} ${p.o.n}: ${ecPct(p.y)} ${what}`)}" ${ecTipAttr(`<strong>${esc(p.o.c)} ${esc(p.o.n)}</strong><dl><dt>Sub-orders a day</dt><dd>${int(p.x)}</dd><dt>${what === "late" ? "Delivered late" : ym === "slotch" ? "Slot changed" : "Cancelled"}</dt><dd>${ecPct(p.y)}</dd><dt>Zonal</dt><dd>${esc(p.o.zn)}</dd></dl>`)}/>`;
+    host.innerHTML = `${ecLegend([["Outlet", "var(--ec-1)"], [`Five with the most excess ${what === "late" ? "late deliveries" : ym === "slotch" ? "slot changes" : "cancellations"}`, "var(--ec-2)"]])}<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Outlets by volume and ${what} share">${g}${pts.filter((p) => !his.has(p)).map(dot).join("")}${hi.map(dot).join("")}${hi.map(lab).join("")}${pts.map(hit).join("")}</svg>`;
     ecWire(host);
   }
   // late share by delivery slot and weekday, one hue from the surface to the heat colour
@@ -6269,9 +6269,10 @@
         ${ecPanel(`Biggest gains in net sales`, `${esc(level[0].toUpperCase() + level.slice(1))} that grew most against ${esc(vs)}, in taka at the same number of days. Click one to open it.`, moverBars(gains, "var(--ec-3)"))}
         ${ecPanel(`Biggest falls in net sales`, `${esc(level[0].toUpperCase() + level.slice(1))} that fell most against ${esc(vs)}.`, moverBars(falls, "var(--ec-2)"))}
       </div>` : "";
-    S.ecomY = S.ecomY || "late";
+    const yOpts = [["late", "Late %"], ["canc", "Cancelled %"], ...(d.hasSlotCh ? [["slotch", "Slot change %"]] : [])];
+    if (!yOpts.some(([k]) => k === S.ecomY)) S.ecomY = "late";
     const ym = S.ecomY;
-    const pts = cur.filter((x) => x.n >= 30 && (ym !== "late" || x.deliv >= 20)).map((x) => ({ o: x.o, x: x.n / (P.cur.length || 1), y: ym === "late" ? x.late / x.deliv : x.canc / x.n }));
+    const pts = cur.filter((x) => x.n >= 30 && (ym !== "late" || x.deliv >= 20)).map((x) => ({ o: x.o, x: x.n / (P.cur.length || 1), y: ym === "late" ? x.late / x.deliv : ym === "slotch" ? (x.slotch || 0) / x.n : x.canc / x.n }));
     AFTER.push(() => ecScatter($("#ecScatter"), pts, ym));
     const pr = d.products[m] || [], pp = (P.pm && d.products[P.pm]) || [], ppAt = new Map(pp.map((x) => [x[0], x]));
     const itemsTop = d.items?.months?.includes(m) ? [...ecItemsFor(C, P.cur).entries()].sort((a2, b2) => b2[1].amt - a2[1].amt).slice(0, 10) : null;
@@ -6280,7 +6281,7 @@
       : `<p class="ec-note">Product detail is not in the ${esc(fmonth(m))} export. Products are read only from exports with one row per product whose amounts add up to the sub-order totals (so far, ${esc(Object.keys(d.products).map(fmonth).join(", ") || "none")}).</p>`;
     return `${lead}${movers}
       <div class="ec-row wide">
-        ${ecPanel(`Volume against ${ym === "late" ? "late delivery" : "cancellation"}`, `Each dot is an outlet with 30 or more sub-orders in ${esc(P.curLabel)}: busier to the right, worse higher up. Click a dot for the outlet.`, `<div class="ec-chart" id="ecScatter"></div>`, seg("ecomY", [["late", "Late %"], ["canc", "Cancelled %"]], "Vertical measure"))}
+        ${ecPanel(`Volume against ${ym === "late" ? "late delivery" : ym === "slotch" ? "slot changes" : "cancellation"}`, `Each dot is an outlet with 30 or more sub-orders in ${esc(P.curLabel)}: busier to the right, worse higher up. Click a dot for the outlet.`, `<div class="ec-chart" id="ecScatter"></div>`, seg("ecomY", yOpts, "Vertical measure"))}
         ${itemsTop ? ecPanel("Top 10 products", `By amount, ${esc(P.curLabel)}, ${esc(sc.label)}. Every product, with quantities, discounts and stock-outs, is on the Products tab.`, prod) : ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled, all outlets (the export does not split products by outlet).${pp.length ? ` The change is a day against ${esc(fmonth(P.pm))}.` : " No product detail for last month, so there is no change to show."}` : "", prod)}
       </div>`;
   }
@@ -6312,10 +6313,11 @@
     const rows = [...cur.entries()].filter(([, x]) => x.lines || x.cl).map(([k, x]) => {
       const q = prev?.get(k), [name, sku] = d.items.list[k];
       return { k, name, sku: sku || "", amt: x.amt, share: x.amt / total, qty: x.qty, lines: x.lines, subs: x.subs, reach: x.subs / subsAll, outs: x.outs.size,
-        perDay: x.amt / cdays, price: ecDiv(x.amt, x.qty), disc: x.disc, discP: ecDiv(x.disc, x.amt + x.disc), oos: x.oos, oosP: ecDiv(x.oos, x.lines + x.cl), short: x.short, cl: x.cl, ca: x.ca,
+        perDay: x.amt / cdays, price: ecDiv(x.amt, x.qty), disc: x.disc, discP: ecDiv(x.disc, x.amt + x.disc), oos: x.oos, oosP: ecDiv(x.oos, x.lines + x.cl), lineVal: ecDiv(x.amt, x.lines), loss: x.oos && x.lines ? (x.oos * x.amt) / x.lines : 0, short: x.short, cl: x.cl, ca: x.ca,
         chg: q && q.amt ? x.amt / cdays / (q.amt / pdays) - 1 : canCmp ? (q ? null : "new") : null, amtC: q ? q.amt : canCmp ? 0 : null };
     });
     rows.sort((a, b) => b.amt - a.amt).forEach((r, i) => (r.rank = i + 1));
+    const lossAll = rows.reduce((a, r) => a + r.loss, 0);
     const top10 = rows.slice(0, 10).reduce((a, r) => a + r.amt, 0), maxAmt = Math.max(...rows.map((r) => r.amt), 1);
     const kpis = `<div class="ec-kpis">
       ${ecKpi("Products sold", int(rows.filter((r) => r.lines).length), "", `${int(lines)} product lines`)}
@@ -6324,6 +6326,7 @@
       ${ecKpi("Top 10 products", ecPct(top10 / total), "", "Share of product sales")}
       ${ecKpi("Discount given", bdt(disc), "", `${ecPct(ecDiv(disc, total + disc))} of list price`)}
       ${ecKpi("Out-of-stock lines", int(oos), "", `${ecPct(ecDiv(oos, lines))} of product lines`)}
+      ${ecKpi("Sales lost to stock-outs", bdt(lossAll), "", `Estimated · ${ecPct(ecDiv(lossAll, total + lossAll))} of potential sales`)}
     </div>`;
     const pct = (v) => (isNum(v) ? ecPct(v) : "—");
     const chg = (r) => (r.chg === "new" ? '<span class="ec-up">New</span>' : isNum(r.chg) ? `<span class="${Math.abs(r.chg) < 0.0005 ? "ec-flat" : r.chg > 0 ? "ec-up" : "ec-down"}">${r.chg > 0 ? "▲" : r.chg < 0 ? "▼" : "■"} ${Math.abs(r.chg * 100) >= 100 ? int(Math.abs(r.chg * 100)) : Math.abs(r.chg * 100).toFixed(1)}%</span>` : '<span class="muted">—</span>');
@@ -6346,15 +6349,17 @@
         { k: "outs", label: "Outlets", csvLabel: "Outlets that sold it", num: true, fmt: (r) => int(r.outs) },
         { k: "disc", label: "Discount", num: true, fmt: (r) => (r.disc ? `${bdt(r.disc)}<span class="cell-secondary">${pct(r.discP)}</span>` : "—") },
         { k: "oos", label: "Out of stock", csvLabel: "Lines edited for out of stock", num: true, fmt: (r) => (r.oos ? `<span class="${r.oosP >= 0.1 ? "ec-down" : ""}">${int(r.oos)}</span><span class="cell-secondary">${pct(r.oosP)} of lines</span>` : "—") },
+        { k: "loss", label: "Sales lost", csvLabel: "Estimated sales lost to stock-outs", num: true, fmt: (r) => (r.loss ? `<span class="ec-down">${bdt(r.loss)}</span>` : "—") },
         { k: "short", label: "Qty short", csvLabel: "Quantity cut from the order", num: true, fmt: (r) => (r.short ? (r.short >= 100 ? int(r.short) : r.short.toFixed(1)) : "—") },
         { k: "ca", label: "Cancelled", csvLabel: "Cancelled amount", num: true, fmt: (r) => (r.cl ? `${bdt(r.ca)}<span class="cell-secondary">${int(r.cl)} lines</span>` : "—") },
         { k: "sku", label: "SKU", hide: true },
       ],
     });
     // most out of stock
-    const oosRows = rows.filter((r) => r.oos).sort((a, b) => b.oos - a.oos).slice(0, 12);
-    const oosBars = ecBars(oosRows.map((r) => ({ label: r.name, parts: [[r.oos, "var(--ec-2)"]], val: `${int(r.oos)} · ${pct(r.oosP)}`, attr: `data-ec-prod="${r.k}"`,
-      tip: `<strong>${esc(r.name)}</strong><dl><dt>Out-of-stock lines</dt><dd>${int(r.oos)} (${pct(r.oosP)} of its lines)</dd><dt>Quantity short</dt><dd>${r.short.toFixed(1)}</dd><dt>Sales</dt><dd>${bdt(r.amt)}</dd></dl>` })), { empty: "No out-of-stock edits for this selection." });
+    // sales opportunity lost to stock-outs, largest first: out-of-stock lines at the product's average line value
+    const oosRows = rows.filter((r) => r.loss).sort((a, b) => b.loss - a.loss).slice(0, 12);
+    const oosBars = ecBars(oosRows.map((r) => ({ label: r.name, parts: [[r.loss, "var(--ec-2)"]], val: `${bdt(r.loss)} · ${int(r.oos)} lines`, attr: `data-ec-prod="${r.k}"`,
+      tip: `<strong>${esc(r.name)}</strong><dl><dt>Sales lost (estimate)</dt><dd>${bdt(r.loss)}</dd><dt>Out-of-stock lines</dt><dd>${int(r.oos)} (${pct(r.oosP)} of its lines)</dd><dt>Average line value</dt><dd>${bdt(r.lineVal)}</dd><dt>Sales</dt><dd>${bdt(r.amt)}</dd></dl>` })), { empty: "No out-of-stock edits for this selection." });
     const movers = canCmp ? (() => {
       const mv = rows.filter((r) => isNum(r.amtC)).map((r) => ({ ...r, d: (r.amt / cdays - r.amtC / pdays) * cdays })).sort((a, b) => a.d - b.d), mx = Math.max(...mv.map((r) => Math.abs(r.d)), 1);
       const bars = (arr, col) => ecBars(arr.map((r) => ({ label: r.name, parts: [[Math.abs(r.d), col]], val: `${r.d >= 0 ? "+" : "−"}${bdt(Math.abs(r.d))}`, attr: `data-ec-prod="${r.k}"` })), { max: mx, empty: "Nothing to show." });
@@ -6362,7 +6367,7 @@
     })() : "";
     return `${kpis}${table}
       <div class="ec-row">
-        ${ecPanel("Most often out of stock", "Product lines edited because the item was out of stock; click one for the outlets.", oosBars)}
+        ${ecPanel("Sales lost to stock-outs", `Estimated sales opportunity lost, largest first: each product's out-of-stock lines at its average line value. ${bdt(lossAll)} in all; click one for the outlets.`, oosBars)}
         ${movers || ecPanel("Sales concentration", "How much of product sales the best sellers take.", ecBars([10, 50, 100, 500].filter((n) => n < rows.length).map((n) => { const v = rows.slice(0, n).reduce((a, r) => a + r.amt, 0); return { label: `Top ${n} products`, parts: [[v / total, "var(--ec-1)"]], val: ecPct(v / total) }; }), { max: 1 }))}
       </div>`;
   }
