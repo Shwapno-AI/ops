@@ -6936,6 +6936,8 @@
       rl: [...rl.entries()].filter(([, g]) => keep(g)).sort((a, b) => plain(a[0]).localeCompare(plain(b[0]))),
       zn: [...zn.values()].filter(keep).sort((a, b) => plain(a.rl).localeCompare(plain(b.rl)) || plain(a.zn).localeCompare(plain(b.zn))) };
   }
+  // the export's times are Bangladesh local time already: "2026-10-13 19:58" → "13 Oct 2026, 7:58 PM"
+  const ecAsOfBd = (s2) => { const [day, hm = ""] = s2.split(" "), [h, mi] = hm.split(":").map(Number); return isNum(h) ? `${fdate(day)}, ${h % 12 || 12}:${String(mi).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}` : fdate(day); };
   function ecReportPages(C) {
     const { d, sc } = C, R = ecReportData(C), todayL = fdate(R.today, true);
     const nm = (x) => esc(x.replace(/^M[rs]+\.\s*/, ""));
@@ -6953,7 +6955,7 @@
       B.push({ t: sumHead("Zonal"), r: `<tr><td>${nm(z.zn)}</td>${cells(z)}</tr>` });
     });
     const A = R.all, kpi = (l, v, s2) => `<div class="ecr-k"><small>${l}</small><b>${v}</b><span>${s2}</span></div>`;
-    const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal</h1><span>${esc(sc.label)} · as of the export ${esc(d.source.asOf)}</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
+    const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal</h1><span>${esc(sc.label)} · as of the export ${esc(ecAsOfBd(d.source.asOf))} (Bangladesh time)</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
       <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), "Placed more than 2 days ago")}${kpi("Total pending", int(A.pend), "All pending orders")}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), "All pending orders")}</div>`;
     return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = status Pending (Processing not included). Pending today = pending with today's slot date. &gt; 2 days = placed more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
   }
