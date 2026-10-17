@@ -513,7 +513,13 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .top-ec-i:hover{border-color:var(--ink-2);color:var(--ink)}
 .top-ec-i:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 /* E-Commerce PDF report: A4 portrait pages (794 x 1123 px) built off screen, fixed light colours */
-.ec-pdf{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ec-kpi-btn{font:inherit;color:inherit;text-align:left;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.ec-kpi-btn:hover,.ec-kpi-btn:focus-visible{border-color:var(--ink-2);box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.ec-kpi-btn:disabled{cursor:progress;opacity:.7}
+.ec-kpi-btn .l{display:flex;justify-content:space-between;gap:8px}
+.ec-kpi-dl{font-size:11px;font-weight:700;color:var(--ink-3)}
+.ec-kpi-btn:hover .ec-kpi-dl{color:var(--ink)}
+#ecPdfStatus{color:var(--ink-2);font-weight:600}
 .ec-pdf-host{position:fixed;left:-10000px;top:0;width:794px}
 .ecr-page{width:794px;height:1123px;box-sizing:border-box;padding:28px 34px 16px;background:#fff;color:#14232e;font:10px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:10px;overflow:hidden}
 .ecr-page *{box-sizing:border-box}

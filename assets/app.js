@@ -6889,7 +6889,7 @@
     const { d, sc } = C, rows = d.open.filter((r) => sc.on[r[2]]);
     const amt = rows.reduce((a, r) => a + r[8], 0), old = rows.filter((r) => r[9] > 2).length, older = rows.filter((r) => r[9] > 30).length;
     const kpis = `<div class="ec-kpis">
-      ${ecKpi("Open sub-orders", int(rows.length), "", `${int(rows.filter((r) => r[3] === "Pending").length)} pending · ${int(rows.filter((r) => r[3] === "Processing").length)} processing`)}
+      <button type="button" class="ec-kpi ec-kpi-btn" data-ec-pdf title="Download the PDF report: pending orders by RHO and zonal"><span class="l">Open sub-orders <span class="ec-kpi-dl" aria-hidden="true">⤓ PDF</span></span><span class="v">${int(rows.length)}</span><span class="d"><span>${int(rows.filter((r) => r[3] === "Pending").length)} pending · ${int(rows.filter((r) => r[3] === "Processing").length)} processing</span><span id="ecPdfStatus">Click for the PDF report</span></span></button>
       ${ecKpi("Amount open", bdt(amt), "", "Order totals")}
       ${ecKpi("Open more than 2 days", int(old), "", `${ecPct(ecDiv(old, rows.length), 0)} of open`)}
       ${ecKpi("Open more than 30 days", int(older), "", "Likely never closed in the system")}
@@ -6914,7 +6914,7 @@
         { k: "code", label: "Outlet code", hide: true }, { k: "zn", label: "Zonal", hide: true }, { k: "rl", label: "RHO", hide: true },
       ],
     });
-    const pdf = ecPanel("PDF report", "Pending today, pending over 2 days, total pending and their amounts, by RHO and by zonal, for the selection above.", `<div class="ec-pdf"><button class="btn primary" type="button" data-ec-pdf>Download PDF</button><span class="muted" id="ecPdfStatus">${esc(`As of the export ${d.source.asOf}.`)}</span></div><div id="ecPdfHost" class="ec-pdf-host" aria-hidden="true"></div>`);
+    const pdf = `<div id="ecPdfHost" class="ec-pdf-host" aria-hidden="true"></div>`;
     return `${kpis}${pdf}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details. The list scrolls past ten.", `<div class="ec-scroll">${outBars}</div>`)}</div>${table}`;
   }
 
