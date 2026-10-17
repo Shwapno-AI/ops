@@ -5820,10 +5820,12 @@
 
   // one month against the month before, day by day (or running total): solid this month, dashed last month
   const EC_PACE = [["net", "Net sales"], ["n", "Sub-orders"], ["aov", "Average sub-order"], ["canc", "Cancelled %"], ["late", "Late %"]];
+  // Slot change % joins the list when the data has slot changes
+  const ecPaceOpts = (d) => (d.hasSlotCh ? [...EC_PACE, ["slotch", "Slot change %"]] : EC_PACE);
   function ecPaceSeries(C, k, cum) {
     const { d, P, days } = C;
     const spec = { net: [(i) => days.net[i], null, bdt], n: [(i) => days.n[i], null, int], aov: [(i) => days.net[i], (i) => days.n[i] - days.canc[i], bdt],
-      canc: [(i) => days.canc[i], (i) => days.n[i], (v) => ecPct(v)], late: [(i) => days.late[i], (i) => days.deliv[i], (v) => ecPct(v)] }[k];
+      canc: [(i) => days.canc[i], (i) => days.n[i], (v) => ecPct(v)], slotch: [(i) => days.slotch?.[i] || 0, (i) => days.n[i], (v) => ecPct(v)], late: [(i) => days.late[i], (i) => days.deliv[i], (v) => ecPct(v)] }[k];
     const [num, den, fmt] = spec;
     const run = (idx) => {
       const nu = ecByDom(d, idx, num), de = den ? ecByDom(d, idx, den) : null, out = new Array(31).fill(null);
@@ -6157,7 +6159,8 @@
       ${ecKpiM(C, "ontime", (i) => ecDiv(days.deliv[i] - days.late[i], days.deliv[i]))}
       ${ecKpi("Complaints per 1,000", isNum(per1k) ? int(per1k) : "—", isNum(pPer1k) ? ecDelta(per1k, pPer1k, "rel", "down", fmonth(pcm)) : "", cs.rows.length ? `${int(cs.rows.length)} in ${esc(cs.has ? ecMon(m) : cs.label)}${cs.has ? "" : " (no " + esc(ecMon(m)) + " yet)"} · by month only` : "None in the file")}
     </div>`;
-    S.ecomPaceM = EC_PACE.some(([k]) => k === S.ecomPaceM) ? S.ecomPaceM : "net";
+    const paceOpts = ecPaceOpts(d);
+    S.ecomPaceM = paceOpts.some(([k]) => k === S.ecomPaceM) ? S.ecomPaceM : "net";
     S.ecomPaceC = S.ecomPaceC === "day" ? "day" : "cum";
     AFTER.push(() => ecPace($("#ecPace"), C, S.ecomPaceM, S.ecomPaceC === "cum"));
     const tot = d.months.map((_, i) => ecMonth(d, days, i)), aov = (x) => ecDiv(x.net, x.n - x.canc), ontime = (x) => ecDiv(x.deliv - x.late, x.deliv);
@@ -6171,11 +6174,11 @@
       ${row("Sub-orders", (i) => tot[i].n, int)}${row("Sub-orders a day", (i) => tot[i].n / tot[i].days, int)}${row("Net sales", (i) => tot[i].net, bdt)}${row("Net sales a day", (i) => tot[i].net / tot[i].days, bdt)}
       ${row("Change in net sales a day (MoM)", chg, (v) => (isNum(v) ? `<span class="${v >= 0 ? "ec-up" : "ec-down"}">${v >= 0 ? "▲" : "▼"} ${Math.abs(v * 100).toFixed(1)}%</span>` : "—"))}
       ${row("Average sub-order", (i) => aov(tot[i]), bdt)}${row("Cancelled", (i) => ecDiv(tot[i].canc, tot[i].n), (v) => ecPct(v))}${row("Delivered on time", (i) => ontime(tot[i]), (v) => ecPct(v))}</tbody></table></div>`;
-    const paceName = EC_PACE.find(([k]) => k === S.ecomPaceM)[1];
+    const paceName = paceOpts.find(([k]) => k === S.ecomPaceM)[1];
     return `${kpis}
       <div class="ec-row wide">
         ${ecPanel(`${S.ecomPaceC === "cum" ? "Month to date" : "Day by day"}: ${esc(fmonth(m))} against ${esc(P.pm ? fmonth(P.pm) : "last month")}`, `${esc(paceName)} by day of the month. ${S.ecomPaceC === "cum" ? "Running total (or running share) from the 1st, so the gap between the lines is how far ahead or behind last month the month is." : "Each day's figure."} Hover for both months.`,
-          `<div class="ec-chart ec-pace" id="ecPace"></div>`, `${seg("ecomPaceM", EC_PACE, "Pace measure")}${seg("ecomPaceC", [["cum", "Month to date"], ["day", "Daily"]], "Pace view")}`)}
+          `<div class="ec-chart ec-pace" id="ecPace"></div>`, `${seg("ecomPaceM", paceOpts, "Pace measure")}${seg("ecomPaceC", [["cum", "Month to date"], ["day", "Daily"]], "Pace view")}`)}
         ${ecPanel("Problems to act on", `Worked out from the data for ${esc(P.curLabel)} and ${esc(sc.label)}. Click one to see it.`, ecProblems(C))}
       </div>
       ${ecScorecard(C)}
