@@ -7063,7 +7063,7 @@
 
   // The page asks for a password first. The unlock lasts for the browser tab's session (sessionStorage), so moving
   // between its tabs does not ask again; "Lock" asks again. Its data is not loaded until the page opens.
-  const EC_PASS = "9";
+  const EC_PASS = "E";
   function ecUnlocked() {
     try { return sessionStorage.getItem("opsdash-ecom") === "unlocked"; } catch (e) { return false; }
   }
@@ -7084,7 +7084,7 @@
       if (S.ecomBad) $("#ecPass").focus();
     });
     return `<section class="panel"><div class="panel-head"><div><h2>E-Commerce is locked</h2><p>Enter the password to open this page.</p></div></div>
-      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" inputmode="numeric" autocomplete="new-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? '<p class="ec-lock-err" role="alert">Wrong password.</p>' : ""}</form></section>`;
+      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" autocapitalize="characters" autocomplete="new-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? '<p class="ec-lock-err" role="alert">Wrong password.</p>' : ""}</form></section>`;
   }
 
   function pageEcom() {
