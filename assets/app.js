@@ -6214,7 +6214,7 @@
       const c = a.cur, p = a.cmp, has = P.cmp.length && p.n > 0;
       return { k: a.k, ref: a.ref, name: by === "o" ? `${a.ref.c} ${a.ref.n}` : a.k, sub: by === "o" ? `${a.ref.zn} · ${a.ref.rl}` : by === "zn" ? `${a.ref.rl} · ${int(a.outs.size)} outlets` : `${int(a.outs.size)} outlets`,
         code: by === "o" ? a.ref.c : "", rl: a.ref.rl, zn: by === "rl" ? "" : a.ref.zn,
-        n: c.n, npd: c.days ? c.n / c.days : null, net: c.net, aov: ecDiv(c.net, c.n - c.canc), cp: ecDiv(c.canc, c.n), lp: ecDiv(c.late, c.deliv),
+        n: c.n, npd: c.days ? Math.ceil(c.deliv / c.days) : null, net: c.net, aov: ecDiv(c.net, c.n - c.canc), cp: ecDiv(c.canc, c.n), lp: ecDiv(c.late, c.deliv),
         netC: has ? p.net : null, gNet: has && pd(p.net, p) ? pd(c.net, c) / pd(p.net, p) - 1 : null, gN: has && p.n ? pd(c.n, c) / pd(p.n, p) - 1 : null,
         dNet: has ? (pd(c.net, c) - pd(p.net, p)) * (c.days || 0) : null,
         dCp: has ? ecDiv(c.canc, c.n) - ecDiv(p.canc, p.n) : null, dLp: has && p.deliv && c.deliv ? ecDiv(c.late, c.deliv) - ecDiv(p.late, p.deliv) : null,
@@ -6241,7 +6241,7 @@
         { k: "gNet", label: "Net sales change", csvLabel: "Net sales change a day", num: true, fmt: (r) => chgPct(r.gNet) },
         { k: "dNet", label: "Change, taka", csvLabel: "Net sales change in taka at the same number of days", num: true, fmt: (r) => (isNum(r.dNet) ? `<span class="${r.dNet >= 0 ? "ec-up" : "ec-down"}">${r.dNet >= 0 ? "+" : "−"}${bdt(Math.abs(r.dNet))}</span>` : "—") },
         { k: "n", label: "Sub-orders", num: true, fmt: (r) => int(r.n) },
-        { k: "npd", label: "Orders a day", csvLabel: "Average sub-orders a day", num: true, fmt: (r) => (isNum(r.npd) ? r.npd.toFixed(1) : "—") },
+        { k: "npd", label: "Orders delivered a day", csvLabel: "Orders delivered a day (rounded up)", num: true, fmt: (r) => (isNum(r.npd) ? int(r.npd) : "—") },
         { k: "gN", label: "Sub-orders change", csvLabel: "Sub-orders change a day", num: true, fmt: (r) => chgPct(r.gN) },
         { k: "aov", label: "Average sub-order", num: true, fmt: (r) => bdt(r.aov) },
         { k: "cp", label: "Cancelled", num: true, fmt: (r) => `<span class="${flag(r.cp, avgC)}">${ecPct(r.cp)}</span>` },
