@@ -56,7 +56,8 @@ Added in schemas 4 and 5 (all additive, so the schema 3 fields above keep their 
   nums           {cols: [{name, level ("line": summed over product rows, "sub": once per sub-order)}],
                  r: [[outlet, day, value per column...]]}: every other numeric column, summed over sub-orders
                  that were not cancelled.
-  placed         {r: [[outlet, month, weekday placed (0 = Monday), hour placed, sub-orders]]}, by delivery month.
+  placed         {r: [[outlet, month, weekday placed (0 = Monday), hour placed, sub-orders]]}, by delivery month;
+                 delivered (Complete) sub-orders only, by their CreatedOn time.
   daily.slotch   sub-orders whose delivery slot was moved from the one the customer chose (see slotChange)
   daily.slotchLate  of those, delivered within the new slot but after the customer's slot had ended: late for the
                  customer, but not counted as late against the moved slot
@@ -98,7 +99,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 7  # 5: slot changes; 6: items (every product by outlet and day); 7: outlet codes from DarkStore. Bump to force a rebuild when fields are added
+SCHEMA = 8  # 5: slot changes; 6: items (every product by outlet and day); 7: outlet codes from DarkStore; 8: placed = delivered only. Bump to force a rebuild when fields are added
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
@@ -692,7 +693,8 @@ def main():
             for name, vals in rec["xn"].items():
                 if len(set(vals)) > 1:
                     num_cols[name] = "line"
-        placed[(o, month_ix[rec["m"]], rec["cr"].weekday(), rec["cr"].hour)] += 1
+        if re.match(r"^(complete|completed|delivered)$", rec["st"].strip(), re.I):  # when delivered orders were placed (CreatedOn)
+            placed[(o, month_ix[rec["m"]], rec["cr"].weekday(), rec["cr"].hour)] += 1
     for rec in recs:
         if rec["st"] == "Cancelled":
             continue

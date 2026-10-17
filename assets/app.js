@@ -6447,14 +6447,16 @@
   function ecPlacedHeat(C) {
     const { d, sc, mi } = C;
     if (!d.placed) return `<p class="ec-note">When orders were placed is added by the next data refresh.</p>`;
-    const g = Array.from({ length: 24 }, () => new Array(7).fill(0));
-    d.placed.r.forEach(([o, m, wd, h, n]) => { if (m === mi && sc.on[o]) g[h][wd] += n; });
-    const hours = g.map((r, h) => ({ h, r, t: r.reduce((a, v) => a + v, 0) })).filter((x) => x.t);
+    // 8 PM to 8 AM (overnight) as one row at the top, then 8 AM to 7 PM hour by hour
+    const g = Array.from({ length: 13 }, () => new Array(7).fill(0)), row = (h) => (h >= 8 && h < 20 ? h - 7 : 0);
+    d.placed.r.forEach(([o, m, wd, h, n]) => { if (m === mi && sc.on[o]) g[row(h)][wd] += n; });
+    const hl = (i) => (i === 0 ? "8 PM – 8 AM" : ecHour(i + 7));
+    const hours = g.map((r, i) => ({ h: i, r, t: r.reduce((a, v) => a + v, 0) })).filter((x) => x.t);
     if (!hours.length) return `<p class="ec-note">No orders for this selection.</p>`;
     const all = hours.reduce((a, x) => a + x.t, 0), top = Math.max(...hours.flatMap((x) => x.r)) || 1;
-    const td = (v, label) => `<td style="background:color-mix(in oklab, var(--ec-1) ${Math.round((v / top) * 88)}%, var(--surface-2))${v / top > 0.55 ? ";color:#fff" : ""}" ${ecTipAttr(`<strong>${esc(label)}</strong>${int(v)} sub-orders, ${ecPct(v / all)} of the month`)}>${v ? int(v) : "·"}</td>`;
+    const td = (v, label) => `<td style="background:color-mix(in oklab, var(--ec-1) ${Math.round((v / top) * 88)}%, var(--surface-2))${v / top > 0.55 ? ";color:#fff" : ""}" ${ecTipAttr(`<strong>${esc(label)}</strong>${int(v)} delivered sub-orders, ${ecPct(v / all)} of the month`)}>${v ? int(v) : "·"}</td>`;
     return `<div class="ec-heat"><table><thead><tr><th class="r">Hour placed</th>${EC_WD.map((w) => `<th>${EC_WDN[w]}</th>`).join("")}<th>Share</th></tr></thead><tbody>
-      ${hours.map((x) => `<tr><th class="r">${ecHour(x.h)}</th>${EC_WD.map((w) => td(x.r[w], `${ecHour(x.h)}, ${EC_WDN[w]}`)).join("")}<td class="low">${ecPct(x.t / all, 0)}</td></tr>`).join("")}</tbody></table></div>
+      ${hours.map((x) => `<tr><th class="r">${hl(x.h)}</th>${EC_WD.map((w) => td(x.r[w], `${hl(x.h)}, ${EC_WDN[w]}`)).join("")}<td class="low">${ecPct(x.t / all, 0)}</td></tr>`).join("")}</tbody></table></div>
       <div class="ec-scale"><span>Fewer</span><i aria-hidden="true" style="background:linear-gradient(90deg,var(--surface-2),var(--ec-1))"></i><span>More orders placed</span></div>`;
   }
   function ecSlots(C) {
@@ -6487,7 +6489,7 @@
         ${ecPanel("Orders by slot", `Sub-orders booked into each delivery slot, with the late share${slp ? ` and its change in points against ${esc(fmonth(P.pm))} (slots are by month)` : ""}.`, slotBars)}
         ${ecPanel("Most late deliveries", `Outlets with the most deliveries after the slot ended${lateP ? `; ▲▼ is the late share against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, lateBars)}
       </div>
-      ${ecPanel("When customers order", `Sub-orders delivered in ${esc(ecMonthName(d, m))} by the hour and weekday the order was placed.`, ecPlacedHeat(C))}
+      ${ecPanel("When customers order", `Delivered sub-orders of ${esc(ecMonthName(d, m))} by the hour and weekday they were placed (CreatedOn); 8 PM to 8 AM is one row at the top.`, ecPlacedHeat(C))}
 `;
   }
 
