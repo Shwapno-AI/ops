@@ -5538,7 +5538,7 @@
     const loadId = S.ecomLoadId || 0;
     S.ecomLoading = true; S.ecomErr = null;
     fetch("data/ecom.json", { cache: "no-store", credentials: "same-origin" })
-      .then((r) => { if (loadId !== (S.ecomLoadId || 0)) return null; if (r.status === 401) { S.ecomAuthenticated = false; ecClearData(); } if (!r.ok) throw new Error(r.status === 401 ? "Your session expired. Sign in again." : "The data is temporarily unavailable."); return r.json(); })
+      .then((r) => { if (loadId !== (S.ecomLoadId || 0)) return null; if (!r.ok) throw new Error("The data is temporarily unavailable."); return r.json(); })
       .then((d) => { if (loadId !== (S.ecomLoadId || 0) || !ecUnlocked()) return; if (!(d.schema >= 2)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
       .catch((e) => { if (loadId === (S.ecomLoadId || 0)) S.ecomErr = e.message; })
       .finally(() => { if (loadId === (S.ecomLoadId || 0)) S.ecomLoading = false; if (S.page === "ecom") render(); });
@@ -7092,66 +7092,40 @@
     ecWire($("#drawerBody"));
   }
 
-  // Access is validated by the private server; only its HttpOnly cookie grants data access.
-  function ecUnlocked() { return S.ecomAuthenticated === true; }
+  // The page asks for a password first. The unlock lasts for the browser tab's session (sessionStorage), so moving
+  // between its tabs does not ask again; "Lock" asks again. Its data is not loaded until the page opens.
+  const EC_PASS = "E";
+  function ecUnlocked() {
+    try { return sessionStorage.getItem("opsdash-ecom") === "unlocked"; } catch (e) { return false; }
+  }
   function ecClearData() {
     S.ecomLoadId = (S.ecomLoadId || 0) + 1; S.ecomLoading = false; S.ecomErr = null;
     S.ecom = null; S.ecomCustomerAnalysis = null; S.ecomC = null;
     Object.keys(S.tables).filter((id) => id.startsWith("ec-")).forEach((id) => delete S.tables[id]);
     try { sessionStorage.removeItem("opsdash-ecom"); } catch (e) {}
   }
-  function ecCheckSession() {
-    if (S.ecomAuthLoading) return;
-    S.ecomAuthLoading = true;
-    fetch("api/ecom/session", { cache: "no-store", credentials: "same-origin" })
-      .then((r) => {
-        S.ecomAuthenticated = r.ok;
-        S.ecomAuthError = r.ok || r.status === 401 ? "" : "E-Commerce is unavailable on this site. Contact your dashboard administrator.";
-      })
-      .catch(() => { S.ecomAuthError = "Could not check E-Commerce access. Please retry."; })
-      .finally(() => { S.ecomAuthChecked = true; S.ecomAuthLoading = false; if (S.page === "ecom") render(); });
-  }
-  async function ecSignOut() {
-    S.ecomAuthenticated = false; S.ecomAuthChecked = true; S.ecomBad = ""; S.ecomErr = null;
-    closeDrawer(); $("#drawerBody").innerHTML = ""; ecClearData(); hideTip();
-    S.ecomAuthError = "Signing out…"; render();
-    try {
-      const r = await fetch("api/ecom/logout", { method: "POST", credentials: "same-origin" });
-      if (!r.ok) throw new Error("logout");
-      S.ecomAuthError = "";
-    } catch (e) { S.ecomAuthError = "Could not finish signing out. Check your connection and retry signing out."; }
-    if (S.page === "ecom") render();
+  function ecSetLock(open) {
+    try { if (open) sessionStorage.setItem("opsdash-ecom", "unlocked"); else sessionStorage.removeItem("opsdash-ecom"); } catch (e) {}
   }
   function ecLockPanel() {
     AFTER.push(() => {
-      const retry = $("[data-ec-auth-retry]");
-      if (retry) retry.onclick = () => { S.ecomAuthError = ""; S.ecomAuthChecked = false; render(); };
-      const logout = $("[data-ec-logout-retry]"); if (logout) logout.onclick = ecSignOut;
-      const f = $("#ecLock"); if (!f) return;
-      f.onsubmit = async (e) => {
+      const f = $("#ecLock");
+      if (!f) return;
+      f.onsubmit = (e) => {
         e.preventDefault();
-        if (S.ecomUnlocking) return;
-        S.ecomUnlocking = true; const button = $("button", f); button.disabled = true;
-        const input = $("#ecPass"), password = input.value; input.value = "";
-        try {
-          const r = await fetch("api/ecom/session", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
-          S.ecomBad = r.ok ? "" : r.status === 401 ? "Wrong password." : r.status === 429 ? "Too many attempts. Please wait a minute and try again." : "E-Commerce access is temporarily unavailable. Please retry later.";
-          if (r.ok) { S.ecomAuthenticated = true; S.ecomAuthChecked = true; S.ecomErr = null; }
-        } catch (e) { S.ecomBad = "Could not sign in. Check your connection and retry."; }
-        finally { S.ecomUnlocking = false; if (S.page === "ecom") render(); }
+        const ok = $("#ecPass").value === EC_PASS;
+        S.ecomBad = !ok;
+        if (ok) ecSetLock(true);
+        render();
       };
       if (S.ecomBad) $("#ecPass").focus();
     });
-    if (S.ecomAuthError) return `<section class="panel"><div class="panel-body"><h2>E-Commerce access</h2><p role="alert">${esc(S.ecomAuthError)}</p>${S.ecomAuthError.includes("signing out") ? '<button class="btn" data-ec-logout-retry>Retry signing out</button>' : '<button class="btn" data-ec-auth-retry>Retry</button>'}</div></section>`;
     return `<section class="panel"><div class="panel-head"><div><h2>E-Commerce is locked</h2><p>Enter the password to open this page.</p></div></div>
-      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" autocomplete="current-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? `<p class="ec-lock-err" role="alert">${esc(S.ecomBad)}</p>` : ""}</form></section>`;
+      <form id="ecLock" class="ec-lock" autocomplete="off"><label for="ecPass">Password</label><div class="ec-lock-row"><input id="ecPass" class="search" type="password" autocapitalize="characters" autocomplete="new-password" required><button class="btn" type="submit">Unlock</button></div>${S.ecomBad ? '<p class="ec-lock-err" role="alert">Wrong password.</p>' : ""}</form></section>`;
   }
 
   function pageEcom() {
-    if (!ecUnlocked()) {
-      if (!S.ecomAuthChecked) { ecCheckSession(); return '<p class="empty">Checking E-Commerce access…</p>'; }
-      return ecLockPanel();
-    }
+    if (!ecUnlocked()) return ecLockPanel();
     if (!S.ecom) {
       if (S.ecomErr) {
         AFTER.push(() => { const b = $("[data-ec-data-retry]"); if (b) b.onclick = () => { S.ecomErr = null; render(); }; });
@@ -7176,7 +7150,7 @@
     const body = { over: ecOverview, outlets: ecOutlets, prod: ecProducts, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
     AFTER.push(() => {
       ecWire($("#view"));
-      $$("[data-ec-lock]").forEach((b) => (b.onclick = ecSignOut));
+      $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); ecClearData(); S.ecomBad = false; hideTip(); render(); }));
     });
     // the period compared, behind a "!" next to the switch
     const cmpTxt = `${C.P.curLabel}${C.P.pm ? ` compared with ${C.P.cmpLabel} (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}`;

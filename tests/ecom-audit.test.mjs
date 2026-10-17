@@ -46,23 +46,20 @@ test('persistent loading failures remain visible and retry only on user action',
   ctx.render(); await tick(); assert.equal(requests(),1);
   ctx.AFTER.at(-1)(); button.onclick(); await tick(); assert.equal(requests(),2); assert.match(ctx.html,/could not be loaded/);
 });
-test('an expired server session returns to login without a request loop',async()=>{
-  const {ctx,requests,cleared}=loadContext(401);
-  await tick();assert.equal(ctx.S.ecomAuthenticated,false);assert.equal(ctx.html,'<locked>');assert.equal(cleared(),1);assert.equal(requests(),1);
-});
-test('the old sessionStorage unlock flag does not authorize the new interface',()=>{
-  const ctx={S:{},sessionStorage:{getItem:()=> 'unlocked'}};vm.createContext(ctx);
-  vm.runInContext(between('  function ecUnlocked()', '  function ecClearData(')+'; result=ecUnlocked()',ctx);
-  assert.equal(ctx.result,false);
-});
-
 test('locking during an in-flight response cannot repopulate private data or table caches',async()=>{
   let release;
   const ctx={S:{page:'ecom',ecomAuthenticated:true,tables:{'ec-open':{spec:{rows:['synthetic']}},ach:{page:1}}},
     sessionStorage:{removeItem:()=>{}},fetch:()=>new Promise(resolve=>release=resolve),
     ecUnlocked:()=>ctx.S.ecomAuthenticated,ecPrep:()=>assert.fail('A response after Lock must be discarded'),render:()=>{}};
   vm.createContext(ctx);
-  vm.runInContext(between('  function ecClearData()', '  function ecCheckSession(')+loader+'; loadEcom(); S.ecomAuthenticated=false; ecClearData();',ctx);
+  vm.runInContext(between('  function ecClearData()', '  function ecSetLock(')+loader+'; loadEcom(); S.ecomAuthenticated=false; ecClearData();',ctx);
   release({ok:true,json:()=>Promise.resolve({schema:10})});await tick();
   assert.equal(ctx.S.ecom,null);assert.equal(ctx.S.ecomC,null);assert.equal(ctx.S.tables['ec-open'],undefined);assert.ok(ctx.S.tables.ach);
+});
+
+test('previous tab-session access works without the removed private session API',()=>{
+  const ctx={sessionStorage:{getItem:()=> 'unlocked'}};vm.createContext(ctx);
+  vm.runInContext(between('  function ecUnlocked()', '  function ecClearData(')+'; result=ecUnlocked()',ctx);
+  assert.equal(ctx.result,true);
+  ctx.sessionStorage.getItem=()=>null;vm.runInContext('result=ecUnlocked()',ctx);assert.equal(ctx.result,false);
 });
