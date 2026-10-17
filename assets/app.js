@@ -6477,17 +6477,16 @@
       tip: `<strong>${esc(x.o.c)} ${esc(x.o.n)}</strong><dl><dt>Delivered</dt><dd>${int(x.deliv)}</dd><dt>Late</dt><dd>${int(x.late)} (${ecPct(x.late / x.deliv)})</dd><dt>Over an hour</dt><dd>${int(x.late60)}</dd>${q ? `<dt>${esc(P.cmpLabel)}</dt><dd>${int(q.late)} late (${ecPct(ecDiv(q.late, q.deliv))})</dd>` : ""}</dl>` }; }), { empty: "No late deliveries for this selection." });
     const hc = T.h, hp = (P.cmpKey === "mom" ? C.Tm : C.Ts)?.h;
     const leadRows = hc ? [["The same day", "l0"], ["The next day", "l1"], ["2 or more days later", "l2"]].map(([label, k]) => ({ label, parts: [[hc[k], "var(--ec-1)"]], val: `${int(hc[k])} · ${ecPct(ecDiv(hc[k], hc.ln))}${hp ? ecPtsTxt(ecDiv(hc[k], hc.ln), ecDiv(hp[k], hp.ln), k === "l0" ? 1 : k === "l2" ? 0 : 1) : ""}` })) : [];
+    // booking lead time sits under the slot changes, full width like "Which way slots move"
+    const leadPanel = `${ecPanel("How far ahead customers book", `Days from placing the order to its delivery slot, sub-orders not cancelled${hp ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}.`, hc ? ecBars(leadRows) : `<p class="ec-note">Needs the customer history in the data file.</p>`)}`;
     return `${kpis}
-      ${ecSlotChange(C, whyN)}
+      ${ecSlotChange(C, whyN, leadPanel)}
       ${ecPanel("Late deliveries by slot and weekday", `Share of deliveries that arrived after their slot ended, ${esc(ecMonthName(d, m))}. Darker is later; hover a cell for the counts.`, ecHeat(d, sc, mi))}
       <div class="ec-row">
         ${ecPanel("Orders by slot", `Sub-orders booked into each delivery slot, with the late share${slp ? ` and its change in points against ${esc(fmonth(P.pm))} (slots are by month)` : ""}.`, slotBars)}
         ${ecPanel("Most late deliveries", `Outlets with the most deliveries after the slot ended${lateP ? `; ▲▼ is the late share against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, lateBars)}
       </div>
-      <div class="ec-row">
-        ${ecPanel("When customers order", `Sub-orders delivered in ${esc(ecMonthName(d, m))} by the hour and weekday the order was placed.`, ecPlacedHeat(C))}
-        ${ecPanel("How far ahead customers book", `Days from placing the order to its delivery slot, sub-orders not cancelled${hp ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}.`, hc ? ecBars(leadRows) : `<p class="ec-note">Needs the customer history in the data file.</p>`)}
-      </div>
+      ${ecPanel("When customers order", `Sub-orders delivered in ${esc(ecMonthName(d, m))} by the hour and weekday the order was placed.`, ecPlacedHeat(C))}
 `;
   }
 
@@ -6495,7 +6494,7 @@
   // count as on time, so the late figures miss them; "late for the customer" adds back the ones that came after
   // the customer's own slot had ended.
   const ecSlotShort = (label) => label.replace(/:00/g, "").replace(/ - /, "–");
-  function ecSlotChange(C, whyN) {
+  function ecSlotChange(C, whyN, after = "") {
     const { d, mi, sc, days, P, T } = C;
     if (!d.hasSlotCh) {
       const slotCols = [...new Set((d.source.files || []).flatMap((f) => (f.columns || []).map((c) => c.name)).filter((n) => /slot|deliverytime|resched/i.test(n)))];
@@ -6503,7 +6502,7 @@
         <p class="ec-note" style="margin:0">To measure slot changes, the export needs one of these in the sub-order workbooks:
         a column with the slot the customer chose (any name: it is recognised by values like "11:00 AM - 12:00 PM 10/5/2026"), a column that flags a rescheduled slot (a name with "reschedule" or "slot change"), or the same sub-order in two exports with different slots.
         Once the data refresh finds one, this section shows how many orders were moved, which slots they moved from and to, and the late deliveries the moves hid.
-        Until then, the nearest signs are the cancellations: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery.</p>`);
+        Until then, the nearest signs are the cancellations: ${int(whyN("DeliveryTimeNotSuitable"))} because the delivery time did not suit and ${int(whyN("DelayedDelivery"))} for delayed delivery.</p>`) + after;
     }
     const kpis = `<div class="ec-kpis">
       ${ecKpiM(C, "slotch", (i) => ecDiv(days.slotch[i], days.n[i]))}
@@ -6535,7 +6534,8 @@
         ${ecPanel("From the customer's slot to the delivery slot", `The most common moves in ${esc(ecMonthName(d, d.months[mi]))}, with the hours moved.`, `${legend}${moves}`)}
         ${ecPanel("Outlets that change the most slots", `Share of their sub-orders moved${prev ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, `${legend}${outs}`)}
       </div>
-      ${ecPanel("Which way slots move", `Sub-orders moved in ${esc(ecMonthName(d, d.months[mi]))}, by direction.`, dirBars)}</section>`;
+      ${ecPanel("Which way slots move", `Sub-orders moved in ${esc(ecMonthName(d, d.months[mi]))}, by direction.`, dirBars)}
+      ${after}</section>`;
   }
 
   // ---- Customers: cohorts (customers by the month of their first order, and how many came back)
