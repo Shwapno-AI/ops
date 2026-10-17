@@ -2,6 +2,10 @@
 (() => {
   "use strict";
   const DAY = 86400000;
+  // Churn: a regular customer (average order of at least ৳1,000, and at least one order a week: an average gap
+  // of 7 days or less between orders over a journey of a week or more) who has placed nothing for 15 days or more.
+  // Anyone else without an order for 15 days is "inactive", not churned.
+  const RULE = Object.freeze({ days: 15, aov: 1000, perWeek: 1, minOrders: 2 });
   const analysisContexts = new WeakMap();
   const scopeKey = (on) => on.map(Boolean).join(",");
   function day(value) {
@@ -20,14 +24,20 @@
     return { c, availableAsOf, asOf: end < availableAsOf ? end : availableAsOf, month };
   }
   function baseRow(customer, name) {
-    return { customer, name, parents: new Map(), periodParents: new Set(), net: 0, suborders: 0, periodNet: 0, periodSuborders: 0, undated: false };
+    return { customer, name, parents: new Map(), parentNet: new Map(), periodParents: new Set(), net: 0, suborders: 0, periodNet: 0, periodSuborders: 0, undated: false };
   }
   function finish(row, asOf) {
     const dates = [...row.parents.values()].filter(Boolean).sort();
-    const lastOrder = dates.at(-1) || "";
+    const firstOrder = dates[0] || "", lastOrder = dates.at(-1) || "";
     const daysInactive = lastOrder ? Math.round((Date.parse(asOf) - Date.parse(lastOrder)) / DAY) : null;
-    const status = daysInactive !== null && daysInactive < 30 ? "active" : row.undated || daysInactive === null ? "unknown" : "churned";
-    return { customer: row.customer, name: row.name, status, daysInactive, lastOrder,
+    const journeyDays = lastOrder ? Math.round((Date.parse(lastOrder) - Date.parse(firstOrder)) / DAY) + 1 : null;
+    const paid = [...row.parentNet.values()].filter((v) => v > 0).length;
+    const aov = paid ? money(row.net / paid) : null;
+    // orders a week = 7 / the average gap between orders; needs two orders on different days
+    const span = journeyDays ? journeyDays - 1 : 0, perWeek = span > 0 ? (7 * (row.parents.size - 1)) / span : null;
+    const regular = row.parents.size >= RULE.minOrders && span >= 7 && aov !== null && aov >= RULE.aov && perWeek >= RULE.perWeek;
+    const status = daysInactive !== null && daysInactive < RULE.days ? "active" : row.undated || daysInactive === null ? "unknown" : regular ? "churned" : "inactive";
+    return { customer: row.customer, name: row.name, status, regular, daysInactive, firstOrder, lastOrder, journeyDays, aov, perWeek,
       orders: row.parents.size, net: money(row.net), suborders: row.suborders,
       periodOrders: row.periodParents.size, periodNet: money(row.periodNet), periodSuborders: row.periodSuborders };
   }
@@ -58,7 +68,7 @@
       if (!groups.has(customer)) groups.set(customer, baseRow(customer, name));
       const row = groups.get(customer), prior = row.parents.get(parent);
       row.parents.set(parent, !prior || placed < prior ? placed : prior);
-      row.suborders++; row.net += amount(net);
+      row.suborders++; row.net += amount(net); row.parentNet.set(parent, (row.parentNet.get(parent) || 0) + amount(net));
       if (slot.slice(0, 7) === month) { row.periodParents.add(parent); row.periodNet += amount(net); row.periodSuborders++; }
     }
     const rows = [...groups.values()].map((row) => finish(row, asOf))
@@ -105,5 +115,5 @@
       .sort((a, b) => b.placed.localeCompare(a.placed) || String(a.order).localeCompare(String(b.order)));
     return { asOf: analysis.asOf, availableAsOf: analysis.availableAsOf, coverageStart: analysis.coverageStart, customer: summary, orders };
   }
-  globalThis.EcomCustomerAnalysis = Object.freeze({ analyze, details });
+  globalThis.EcomCustomerAnalysis = Object.freeze({ analyze, details, RULE });
 })();
