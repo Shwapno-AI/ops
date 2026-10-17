@@ -56,8 +56,8 @@ Added in schemas 4 and 5 (all additive, so the schema 3 fields above keep their 
   nums           {cols: [{name, level ("line": summed over product rows, "sub": once per sub-order)}],
                  r: [[outlet, day, value per column...]]}: every other numeric column, summed over sub-orders
                  that were not cancelled.
-  placed         {r: [[outlet, month, weekday placed (0 = Monday), hour placed, sub-orders]]}, by delivery month;
-                 delivered (Complete) sub-orders only, by their CreatedOn time.
+  placed         {r: [[outlet, month, weekday placed (0 = Monday), hour placed, sub-orders, delivered sub-orders]]},
+                 by delivery month and CreatedOn time; delivered = status Complete.
   daily.slotch   sub-orders whose delivery slot was moved from the one the customer chose (see slotChange)
   daily.slotchLate  of those, delivered within the new slot but after the customer's slot had ended: late for the
                  customer, but not counted as late against the moved slot
@@ -99,7 +99,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 8  # 5: slot changes; 6: items (every product by outlet and day); 7: outlet codes from DarkStore; 8: placed = delivered only. Bump to force a rebuild when fields are added
+SCHEMA = 9  # 5: slot changes; 6: items (every product by outlet and day); 7: outlet codes from DarkStore; 9: placed = all and delivered. Bump to force a rebuild when fields are added
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
@@ -673,7 +673,7 @@ def main():
             if f["kind"] == "orders" and col["use"] == "num":
                 num_cols.setdefault(col["name"], "sub")
     num_rows = defaultdict(lambda: defaultdict(float))
-    placed = Counter()
+    placed, placed_done = Counter(), Counter()
     for rec in recs:
         o, d_ix = outlet(rec["code"], rec["name"]), day_ix[rec["day"]]
         cancelled = rec["st"] == "Cancelled"
@@ -693,8 +693,10 @@ def main():
             for name, vals in rec["xn"].items():
                 if len(set(vals)) > 1:
                     num_cols[name] = "line"
-        if re.match(r"^(complete|completed|delivered)$", rec["st"].strip(), re.I):  # when delivered orders were placed (CreatedOn)
-            placed[(o, month_ix[rec["m"]], rec["cr"].weekday(), rec["cr"].hour)] += 1
+        pk = (o, month_ix[rec["m"]], rec["cr"].weekday(), rec["cr"].hour)  # when orders were placed (CreatedOn)
+        placed[pk] += 1
+        if re.match(r"^(complete|completed|delivered)$", rec["st"].strip(), re.I):
+            placed_done[pk] += 1
     for rec in recs:
         if rec["st"] == "Cancelled":
             continue
@@ -745,7 +747,7 @@ def main():
         "complaints": complaint_rows,
         "dims": dims,
         "nums": nums,
-        "placed": {"r": [[*k, v] for k, v in sorted(placed.items())]},
+        "placed": {"r": [[*k, v, placed_done[k]] for k, v in sorted(placed.items())]},
         "whyD": {"r": [[*k, v] for k, v in sorted(why_d.items())]},
         "slotChange": {"sources": sorted(sources), "r": [[*k, *v] for k, v in sorted(moves.items())]},
         "editsD": {"r": [[*k, v] for k, v in sorted(edits_d.items())]},
