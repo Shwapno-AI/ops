@@ -545,3 +545,21 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .ecr-body tr.tot td{font-weight:750;border-top:1.5px solid #14232e;border-bottom:none}
 .ecr-note{margin:0;color:#5a7282}
 .ecr-foot{display:flex;justify-content:space-between;gap:12px;color:#7d919e;font-size:8.5px;border-top:1px solid #d8e2e8;padding-top:6px}
+/* Z - REPORT: controls row, category × month tables with a sticky category column */
+.zr-ctl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end}
+.zr-ctl label,.zr-ctl>div{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--ink-2);min-width:0}
+.zr-ctl label:first-child{flex:1 1 260px}.zr-ctl label:nth-child(2){flex:1 1 220px}
+.zr-ctl select.sel{max-width:100%}
+.zr-h{margin:16px 0 4px;font-size:13px;font-weight:600}
+.zr-chart{width:100%;min-height:220px}
+.zr-wrap{max-height:none}
+.zr-table th,.zr-table td{white-space:nowrap}
+.zr-table .zr-cat{position:sticky;left:0;z-index:1;background:var(--surface);text-align:left;min-width:180px}
+.zr-table thead .zr-cat{z-index:2}
+.zr-table tr.zr-total td{font-weight:600;background:var(--surface-2)}
+.zr-table tr.zr-total td.zr-cat{background:var(--surface-2)}
+.zr-table tr.zr-grand td{font-weight:700;border-top:2px solid var(--ink-2)}
+.zr-table th.zr-g{text-align:center;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);border-bottom:2px solid var(--info)}
+.zr-table th.zr-gp{border-bottom-color:var(--good)}.zr-table th.zr-gd{border-bottom-color:var(--bad)}
+.zr-table td.up{color:var(--good)}.zr-table td.down{color:var(--bad)}
+@media (max-width:640px){.zr-ctl label,.zr-ctl>div{flex:1 1 100%}}
