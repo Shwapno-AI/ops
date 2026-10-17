@@ -6725,30 +6725,34 @@
 
   const ecCustomerCsvText = (value) => { const s = String(value ?? ""); return /^\s*[=+\-@]/.test(s) ? "'" + s : s; };
   const ecCustomerButton = (customer, name) => `<button type="button" class="ec-customer-link" data-ec-customer="${customer}" aria-label="${esc(`View order history for ${name}`)}">${esc(name)}</button>`;
-  const ecCustomerStatus = (status) => ({ churned: "Churned", active: "Active", unknown: "Unknown" }[status] || "Unknown");
-  const ecCustomerChip = (status) => chip({ cls: { churned: "bad", active: "good", unknown: "idle" }[status] || "idle", label: ecCustomerStatus(status) });
+  const ecCustomerStatus = (status) => ({ churned: "Churned", active: "Active", inactive: "Inactive", unknown: "Unknown" }[status] || "Unknown");
+  const ecCustomerChip = (status) => chip({ cls: { churned: "bad", active: "good", inactive: "warn", unknown: "idle" }[status] || "idle", label: ecCustomerStatus(status) });
+  // "7 Jul – 13 Oct · 99 days"; one day when the first and last orders fall on the same date
+  const ecJourney = (r) => (r.firstOrder ? `${fdate(r.firstOrder, true)}${r.lastOrder !== r.firstOrder ? ` – ${fdate(r.lastOrder, true)}` : ""} · ${int(r.journeyDays)} ${r.journeyDays === 1 ? "day" : "days"}` : "Unknown");
+  const EC_CHURN = globalThis.EcomCustomerAnalysis?.RULE || { days: 15, aov: 1000, perWeek: 1, minOrders: 2 };
   const ecCustomerDate = (value) => value ? fdate(value) : "Unknown";
   const ecCustomerAmount = (value) => isNum(value) ? `${value < 0 ? "−" : ""}৳${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Unavailable";
 
   function ecCustomerHealth(C) {
     const { d, m, sc, customerAnalysis: a } = C;
     if (!a) return ecPanel("Customer health", "", '<p class="ec-note">Churn assessment needs placed-order history. Refresh the E-Commerce data to enable it. The selected-month ranking below remains available.</p>');
-    const health = ["all", "churned", "active", "unknown"].includes(S.ecomHealth) ? S.ecomHealth : "all";
+    const health = ["all", "churned", "inactive", "active", "unknown"].includes(S.ecomHealth) ? S.ecomHealth : "all";
     const rows = a.rows.filter((r) => health === "all" || r.status === health);
-    const counts = Object.fromEntries(["churned", "active", "unknown"].map((status) => [status, a.rows.filter((r) => r.status === status).length]));
+    const counts = Object.fromEntries(["churned", "inactive", "active", "unknown"].map((status) => [status, a.rows.filter((r) => r.status === status).length]));
     const omittedSourceRows = d.customers?.historyCoverage?.omittedSourceRows || 0;
     const warnings = [a.unknownCustomers ? `${int(a.unknownCustomers)} name groups have unknown inactivity.` : "",
       a.unknownDates ? `${int(a.unknownDates)} scoped sub-orders have no placed date; they cannot be assigned to the cutoff and are excluded from dated totals.` : "",
       a.missing ? `${int(a.missing)} orders without names are excluded.` : "", a.conflicts ? `${int(a.conflicts)} orders with conflicting names are excluded.` : "",
       omittedSourceRows ? `Across all source exports, ${int(omittedSourceRows)} source rows were omitted from customer history because order identifiers or required dates were missing or invalid. Rows may include repeated product lines; this is a row count, not distinct orders, and cannot be assigned to the selected scope.` : ""].filter(Boolean).join(" ");
-    const summary = ecPanel("Customer health & observed contribution", "", `<div class="ec-customer-context"><strong>As of ${esc(fdate(a.asOf))} · ${esc(sc.label)}</strong><p>Churned means 30 days or more without a placed order in selected scope; active means under 30 days. Any placed order counts, including cancelled orders. This view includes name groups with no orders in the selected delivery month.</p><p>Latest source date: ${esc(fdate(a.availableAsOf))}. ${a.coverageStart ? `Available dated history starts ${esc(fdate(a.coverageStart))}.` : "No dated history is available through this cutoff."} The cutoff is the earlier of the selected month-end and latest source date.</p></div>
+    const summary = ecPanel("Customer health & observed contribution", "", `<div class="ec-customer-context"><strong>As of ${esc(fdate(a.asOf))} · ${esc(sc.label)}</strong><p><b>Churned</b> means a regular customer who has placed no order for ${EC_CHURN.days} days or more in the selected scope. Regular means an average order of ৳${int(EC_CHURN.aov)} or more (orders not cancelled) and at least ${EC_CHURN.perWeek} order a week (on average 7 days or less between orders, over a journey of a week or more). <b>Inactive</b>: no order for ${EC_CHURN.days} days or more but not a regular customer. <b>Active</b>: ordered in the last ${EC_CHURN.days} days. Any placed order counts as activity, including cancelled orders. This view includes name groups with no orders in the selected delivery month.</p><p>Latest source date: ${esc(fdate(a.availableAsOf))}. ${a.coverageStart ? `Available dated history starts ${esc(fdate(a.coverageStart))}.` : "No dated history is available through this cutoff."} The cutoff is the earlier of the selected month-end and latest source date.</p></div>
       <div class="ec-kpis ec-health-kpis">
-        ${ecKpi("Churned name groups", int(a.churned.customers), "", "Inactive in selected scope")}
+        ${ecKpi("Churned customers", int(a.churned.customers), "", `Regular, no order for ${EC_CHURN.days}+ days`)}
+        ${ecKpi("Inactive, not regular", int(counts.inactive), "", `No order for ${EC_CHURN.days}+ days`)}
         ${ecKpi("Their observed orders", int(a.churned.orders), "", "Known history through cutoff")}
         ${ecKpi("Their observed net sales", bdt(a.churned.net), "", "Historical contribution")}
         ${ecKpi("Share of observed net sales", ecPct(a.churned.share), "", "Of named, dated scoped history")}
       </div><p class="ec-note">These are observed orders and net sales, not predicted lost sales. Identical customer names are grouped and may represent different people. Statuses and amounts reflect the latest source exports; their earlier state cannot be reconstructed.</p>${warnings ? `<p class="ec-customer-warning">${esc(warnings)}</p>` : ""}`);
-    const tools = `<label class="ec-health-filter">Health in selected scope <select class="sel" data-ec-health aria-label="Customer health in selected scope">${[["all", `All (${int(a.rows.length)})`], ...["churned", "active", "unknown"].map((s) => [s, `${ecCustomerStatus(s)} (${int(counts[s])})`])].map(([value, label]) => `<option value="${value}" ${value === health ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
+    const tools = `<label class="ec-health-filter">Health in selected scope <select class="sel" data-ec-health aria-label="Customer health in selected scope">${[["all", `All (${int(a.rows.length)})`], ...["churned", "inactive", "active", "unknown"].map((s) => [s, `${ecCustomerStatus(s)} (${int(counts[s])})`])].map(([value, label]) => `<option value="${value}" ${value === health ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
     return summary + mountTable("ec-customer-health", {
       title: "Customer health & history", file: `ecommerce_customer_health_as_of_${a.asOf}`, stamp: a.asOf,
       desc: (n) => `${int(n)} name groups shown, ${sc.label}. Click a name for actual parent orders and sub-orders.`,
@@ -6759,9 +6763,13 @@
       cols: [
         { k: "name", label: "Customer name", firstDir: "asc", fmt: (r) => ecCustomerButton(r.customer, r.name), csv: (r) => ecCustomerCsvText(r.name) },
         { k: "status", label: "Health in scope", firstDir: "asc", fmt: (r) => ecCustomerChip(r.status), csv: (r) => ecCustomerStatus(r.status) },
+        { k: "journeyDays", label: "Customer journey", csvLabel: "Customer journey (first to last placed order)", num: true, val: (r) => r.journeyDays, fmt: (r) => esc(ecJourney(r)), csv: (r) => ecJourney(r) },
+        { k: "firstOrder", label: "First order", csvLabel: "First known placed-order date", hide: true, csv: (r) => r.firstOrder || "" },
         { k: "lastOrder", label: "Last known order", csvLabel: "Last known placed-order date", val: (r) => r.lastOrder || null, fmt: (r) => esc(ecCustomerDate(r.lastOrder)) },
         { k: "daysInactive", label: "Days inactive in scope", num: true, val: (r) => r.status === "unknown" ? null : r.daysInactive, fmt: (r) => r.status === "unknown" ? '<span class="muted">Unknown</span>' : int(r.daysInactive), csv: (r) => r.status === "unknown" ? "Unknown" : r.daysInactive },
         { k: "orders", label: "Observed orders", csvLabel: "Observed distinct parent orders through cutoff", num: true, fmt: (r) => int(r.orders) },
+        { k: "perWeek", label: "Orders a week", csvLabel: "Orders a week over the journey", num: true, val: (r) => r.perWeek, fmt: (r) => (isNum(r.perWeek) ? `<span class="${r.perWeek >= EC_CHURN.perWeek ? "" : "muted"}">${r.perWeek.toFixed(1)}</span>` : "—"), csv: (r) => (isNum(r.perWeek) ? r.perWeek.toFixed(2) : "") },
+        { k: "aov", label: "Avg order", csvLabel: "Average order (net, orders not cancelled)", num: true, val: (r) => r.aov, fmt: (r) => (isNum(r.aov) ? `<span class="${r.aov >= EC_CHURN.aov ? "" : "muted"}">${bdt(r.aov)}</span>` : "—"), csv: (r) => r.aov ?? "" },
         { k: "net", label: "Observed net sales", csvLabel: "Observed net sales through cutoff (latest amounts)", num: true, fmt: (r) => bdt(r.net) },
         { k: "periodOrders", label: "Month orders", csvLabel: `Distinct orders with ${m} delivery slots and placed through cutoff`, num: true, fmt: (r) => int(r.periodOrders) },
         { k: "periodNet", label: "Month net sales", csvLabel: `Net sales with ${m} delivery slots and placed through cutoff (latest amounts)`, num: true, fmt: (r) => bdt(r.periodNet) },
@@ -6795,7 +6803,7 @@
     $("#drawerTitle").textContent = name;
     const row = detail?.customer;
     $("#drawerBody").innerHTML = `<div class="ec-customer-context"><strong>Order history · ${esc(sc.label)}</strong><p>${historyAvailable ? `Placed on or before ${esc(fdate(analysis.asOf))}; all available delivery months.` : `Selected delivery month: ${esc(fmonth(m))}.`}</p></div>
-      ${row ? `<div class="stat-grid three"><div class="stat"><small>Health in selected scope</small><strong>${ecCustomerChip(row.status)}</strong><span>${row.status === "unknown" ? "Inactivity cannot be assessed" : `${int(row.daysInactive)} days inactive`}</span></div><div class="stat"><small>Observed orders</small><strong>${int(row.orders)}</strong></div><div class="stat"><small>Observed net sales</small><strong class="ec-customer-amount">${ecCustomerAmount(row.net)}</strong></div></div>` : ""}
+      ${row ? `<div class="stat-grid three"><div class="stat"><small>Health in selected scope</small><strong>${ecCustomerChip(row.status)}</strong><span>${row.status === "unknown" ? "Inactivity cannot be assessed" : `${int(row.daysInactive)} days inactive`}</span></div><div class="stat"><small>Customer journey</small><strong>${esc(ecJourney(row))}</strong><span>${isNum(row.perWeek) ? `${row.perWeek.toFixed(1)} orders a week` : ""}${isNum(row.aov) ? ` · avg ${bdt(row.aov)}` : ""}</span></div><div class="stat"><small>Observed orders</small><strong>${int(row.orders)}</strong></div><div class="stat"><small>Observed net sales</small><strong class="ec-customer-amount">${ecCustomerAmount(row.net)}</strong></div></div>` : ""}
       <p class="ec-banner">Identical names are grouped and may represent different people. ${historyAvailable ? "Statuses and amounts are from the latest source exports, not their historical state. Orders without placed dates are excluded from dated history and totals." : "Placed dates, delivery dates, statuses and gross amounts are unavailable in this snapshot. Refresh E-Commerce data to enable dated history and churn assessment."}</p>
       <div class="ec-order-tools"><label for="ecOrderSearch">Search orders, sub-orders or outlet</label><input id="ecOrderSearch" class="search" type="search" placeholder="Search order history" autocomplete="off"></div>
       <p id="ecOrderCount" class="ec-note" role="status" aria-live="polite"></p><div id="ecCustomerOrders" class="ec-order-list"></div><div id="ecOrderPager" class="pager"></div>`;

@@ -12,18 +12,44 @@ function snapshot(history, asOf = "2026-10-13", overrides = {}) {
 const record = (customer, parent, placed, { outlet = 0, suborder = `${parent}-sub`, slot = placed, status = 0, gross = 100, net = status === 1 ? 0 : gross } = {}) =>
   [outlet, customer, parent, suborder, placed, slot, status, gross, net];
 
-test("exactly 30 days qualifies using source data date, independent of build date", () => {
-  const d = snapshot([record(0, "A", "2026-09-13"), record(1, "B", "2026-09-14"), record(2, "C", "2026-09-12")]);
+test("15 days without an order separates active from inactive, using the source data date", () => {
+  const d = snapshot([record(0, "A", "2026-09-28"), record(1, "B", "2026-09-29"), record(2, "C", "2026-09-27")]);
   const a = analyze(d, [true], "2026-10");
   assert.equal(a.asOf, "2026-10-13");
   assert.deepEqual(a.rows.map(({ name, status, daysInactive }) => [name, status, daysInactive]), [
-    [names[0], "churned", 30], [names[1], "active", 29], [names[2], "churned", 31],
+    [names[0], "inactive", 15], [names[1], "active", 14], [names[2], "inactive", 16],
   ]);
-  assert.equal(a.churned.customers, 2);
-  assert.equal(a.churned.orders, 2);
-  assert.equal(a.churned.net, 200);
-  assert.equal(a.churned.share, 2 / 3);
+  assert.equal(a.churned.customers, 0, "one-off small orders are inactive, not churned");
   assert.ok(a.rows.every((r) => r.periodOrders === 0), "inactive names remain in the selected month view");
+});
+
+test("churn needs a regular customer: average order of 1,000 or more and at least one order a week", () => {
+  const weekly = (c, prefix, net, step = 7, n = 4, start = Date.parse("2026-08-01")) =>
+    Array.from({ length: n }, (_, k) => record(c, `${prefix}${k}`, new Date(start + k * step * 86400000).toISOString().slice(0, 10), { gross: net }));
+  const d = snapshot([...weekly(0, "reg", 1000), ...weekly(1, "small", 999), ...weekly(2, "slow", 1500, 8)]);
+  const a = analyze(d, [true], "2026-10");
+  const by = Object.fromEntries(a.rows.map((r) => [r.name, r]));
+  assert.equal(by[names[0]].status, "churned");
+  assert.equal(by[names[0]].aov, 1000);
+  assert.equal(by[names[0]].firstOrder, "2026-08-01");
+  assert.equal(by[names[0]].lastOrder, "2026-08-22");
+  assert.equal(by[names[0]].journeyDays, 22);
+  assert.ok(by[names[0]].perWeek >= 1);
+  assert.equal(by[names[1]].status, "inactive", "average order under 1,000");
+  assert.equal(by[names[2]].status, "inactive", "fewer than one order a week");
+  assert.ok(by[names[2]].perWeek < 1);
+  assert.equal(a.churned.customers, 1);
+  assert.equal(a.churned.orders, 4);
+  assert.equal(a.churned.net, 4000);
+  assert.equal(a.churned.share, 4000 / (4000 + 4 * 999 + 4 * 1500));
+});
+
+test("cancelled orders do not lower the average order, and a single order is never regular", () => {
+  const d = snapshot([record(0, "a", "2026-09-01", { gross: 1200 }), record(0, "b", "2026-09-08", { status: 1, gross: 50 }), record(1, "only", "2026-09-01", { gross: 5000 })]);
+  const a = analyze(d, [true], "2026-10");
+  assert.equal(a.rows[0].aov, 1200);
+  assert.equal(a.rows[0].status, "churned");
+  assert.equal(a.rows[1].status, "inactive");
 });
 
 test("historical cutoff excludes later placements, including backdated delivery slots", () => {
@@ -35,7 +61,7 @@ test("historical cutoff excludes later placements, including backdated delivery 
   const a = analyze(d, [true], "2026-09");
   assert.equal(a.asOf, "2026-09-30");
   assert.equal(a.rows.length, 1);
-  assert.equal(a.rows[0].status, "churned");
+  assert.equal(a.rows[0].status, "inactive");
   assert.equal(a.rows[0].lastOrder, "2026-08-01");
   assert.equal(a.rows[0].periodOrders, 0);
   assert.equal(a.totals.net, 100);
@@ -57,7 +83,7 @@ test("parent orders count once across outlets and suborders; amounts follow scop
   const scoped = analyze(d, [true, false], "2026-10");
   assert.equal(scoped.rows[0].orders, 1);
   assert.equal(scoped.rows[0].net, 80);
-  assert.equal(scoped.rows[0].status, "churned");
+  assert.equal(scoped.rows[0].status, "inactive");
   const history = details(d, [true, true], "2026-10", 0);
   assert.equal(history.orders.length, 2);
   assert.equal(history.orders[1].order, "shared");
@@ -89,7 +115,7 @@ test("cancelled orders count as placed activity and contribute zero net sales", 
 test("monthly ranking uses delivery month while churn uses placement date", () => {
   const d = snapshot([record(0, "prior-placement", "2026-09-12", { slot: "2026-10-01" }), record(1, "future-slot", "2026-10-12", { slot: "2026-11-01", status: 2 })]);
   const a = analyze(d, [true], "2026-10");
-  assert.equal(a.rows[0].status, "churned");
+  assert.equal(a.rows[0].status, "inactive");
   assert.equal(a.rows[0].periodOrders, 1);
   assert.equal(a.rows[0].periodSuborders, 1);
   assert.equal(a.rows[1].status, "active");
@@ -139,7 +165,7 @@ test("input remains unchanged, empty scope stays empty and duplicate rows do not
 test("fractional currency remains precise in contribution and order detail totals", () => {
   const d = snapshot([record(0, "A", "2026-08-01", { suborder: "a", gross: 0.1 }), record(0, "A", "2026-08-01", { suborder: "b", gross: 0.2 })]);
   assert.equal(analyze(d, [true], "2026-10").rows[0].net, 0.3);
-  assert.equal(analyze(d, [true], "2026-10").churned.net, 0.3);
+  assert.equal(analyze(d, [true], "2026-10").totals.net, 0.3);
   assert.equal(details(d, [true], "2026-10", 0).orders[0].gross, 0.3);
 });
 
