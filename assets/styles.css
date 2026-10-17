@@ -564,6 +564,8 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .zr-note{margin:0;font-size:13px}
 .zr-ctx{margin:0;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface-2);font-size:13px;color:var(--ink-2)}
 .zr-ctx b{color:var(--ink)}
+.zr-ctxrow{display:flex;align-items:center;gap:10px}.zr-ctxrow .zr-ctx{flex:1;min-width:0}
+.zr-hide{white-space:nowrap;flex:none}
 .zr-x{all:unset;cursor:pointer;margin-left:2px;padding:0 6px;border-radius:50%;font-weight:700;color:var(--ink-2)}.zr-x:hover{background:var(--line)}
 .zr-order{all:unset;cursor:pointer;font-size:12.5px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--ink-2)}
 .zr-order[aria-pressed="true"]{background:var(--surface-2);color:var(--ink);font-weight:600}

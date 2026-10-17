@@ -8255,7 +8255,10 @@
     const ctx = `${all ? `<b>All outlets</b>` : `<b>${esc(v.code)} ${esc(sel?.nm || "")}</b>${sel?.zn ? ` · ${esc(sel.zn)}` : ""}${sel?.rl ? ` · ${esc(sel.rl)}` : ""}${sel && !sel.live ? ` · <span class="down">no sales since ${esc(fmonth(sel.lm))}</span>` : ""}`}
       · <b>${esc(fmonth(v.start))} – ${esc(fmonth(v.end))}</b> (${int(months.length)} month${months.length === 1 ? "" : "s"})
       · <b>${esc(focus)}</b>${v.cat ? ` <button type="button" class="zr-x" data-zrclear title="Back to Grand Total" aria-label="Clear category">×</button>` : ""}`;
-    const controls = `<section class="panel zr-bar"><div class="panel-body">
+    // the filters fold away to the "Showing …" line; the choice is kept in this browser
+    if (S.zrHide === undefined) { try { S.zrHide = localStorage.getItem("opsdash-zr-hide") === "1"; } catch { S.zrHide = false; } }
+    const hideBtn = `<button class="btn zr-hide" type="button" data-zrhide aria-expanded="${!S.zrHide}" aria-controls="zrFilters">${S.zrHide ? "Show filters ▾" : "Hide filters ▴"}</button>`;
+    const controls = S.zrHide ? `<section class="panel zr-bar"><div class="panel-body"><div class="zr-ctxrow"><p class="zr-ctx">Showing ${ctx}</p>${hideBtn}</div></div></section>` : `<section class="panel zr-bar" id="zrFilters"><div class="panel-body">
       <div class="zr-row">
         <div class="zr-f"><span class="zr-l">Show</span><div class="seg" role="group" aria-label="Show">${[["outlet", "One outlet"], ["all", "All outlets"]].map(([k, t]) => `<button type="button" data-zrmode="${k}" aria-pressed="${v.mode === k}" ${k === "all" && !d.summaries.length ? "disabled" : ""}>${t}</button>`).join("")}</div></div>
         ${all ? `<div class="zr-f zr-grow"><span class="zr-l">&nbsp;</span><p class="muted zr-note">The workbook's all-outlet rows (All:Mon-YY), month by month.</p></div>` : `
@@ -8270,7 +8273,7 @@
         <div class="zr-f zr-grow"><span class="zr-l">Category</span>${catSel}</div>
         <div class="zr-f"><span class="zr-l">&nbsp;</span><button class="btn" type="button" data-zrreset>Reset all</button></div>
       </div>
-      <p class="zr-ctx">Showing ${ctx}</p>
+      <div class="zr-ctxrow"><p class="zr-ctx">Showing ${ctx}</p>${hideBtn}</div>
     </div></section>`;
     AFTER.push(() => zrWire($("#view")));
     if (!all && !out) return `${controls}<p class="empty">${S.zrOErr ? `Could not load ${esc(S.zrOErr)}.` : `Loading ${esc(v.code)}…`}</p>`;
@@ -8336,6 +8339,7 @@
       if (k === "end" || k === "start") { if (v.start > v.end) [v.start, v.end] = [v.end, v.start]; v.pm = v.end; }
       changed();
     }));
+    $$("[data-zrhide]", root).forEach((n) => (n.onclick = () => { S.zrHide = !S.zrHide; try { localStorage.setItem("opsdash-zr-hide", S.zrHide ? "1" : "0"); } catch {} render(); }));
     $$("[data-zrmode]", root).forEach((n) => (n.onclick = () => { v.mode = n.dataset.zrmode; changed(); }));
     $$("[data-zrm]", root).forEach((n) => (n.onclick = () => { v.metric = n.dataset.zrm; changed(); }));
     $$("[data-zrq]", root).forEach((n) => (n.onclick = () => { const q = n.dataset.zrq; v.start = q === "all" ? act[0] : act[Math.max(0, act.indexOf(v.end) - (+q - 1))]; v.pm = v.end; changed(); }));
