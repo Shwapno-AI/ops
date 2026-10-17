@@ -11,6 +11,10 @@ and a new file adds one.
 The workbooks are large (about 100 MB each), so a file whose Drive id and modified time have not
 changed is not downloaded again: its audits are reused from the previous sa.json.
 
+Current month: the workbook whose name starts with "Store_Operations_Compliance_Audit_responses" in the
+Dashboard Raw Data folder (SA_CURRENT_FOLDER_ID) is the source for the month(s) it covers. Audits of those months
+from the Store Assessment folder are dropped, so a stale month file there cannot add to or override it.
+
 Output:
   sa.json          questions, categories, auditors, months and every audit visit with its
                    question scores (compact arrays)
@@ -18,6 +22,8 @@ Output:
 
 Environment:
   SA_FOLDER_ID  Drive folder (default: Store Assessment)
+  SA_CURRENT_FOLDER_ID  folder holding the current-month file (default: Dashboard Raw Data); "" turns it off
+  SA_CURRENT_PREFIX     its file name prefix (default: Store_Operations_Compliance_Audit_responses)
   SA_OUT        output file (default: data/sa.json)
   DATA_OUT      data.json with the outlet master (default: data/data.json)
   DRIVE_CACHE   shared download cache (see scripts/network/fetch_drive_data.py)
@@ -39,6 +45,8 @@ sys.path.insert(0, str(HERE.parent / "network"))
 import xlsx_stream  # noqa: E402
 
 FOLDER = (os.environ.get("SA_FOLDER_ID") or "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF").strip()
+CUR_FOLDER = os.environ.get("SA_CURRENT_FOLDER_ID", "16HTr8nfPz4P2PMr4QB0bjgwiD110Qd-0").strip()
+CUR_PREFIX = (os.environ.get("SA_CURRENT_PREFIX") or "Store_Operations_Compliance_Audit_responses").strip().lower()
 OUT = Path(os.environ.get("SA_OUT") or ROOT / "data" / "sa.json")
 OUT_REM = OUT.with_name("sa-remarks.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
@@ -149,6 +157,18 @@ def main():
         import fetch_drive_data as drive
         log(f"Listing Drive folder {FOLDER}…")
         items = [i for i in drive.walk(FOLDER) if drive.is_spreadsheet(i)]
+        if CUR_FOLDER:
+            log(f"Listing Drive folder {CUR_FOLDER} for {CUR_PREFIX}…")
+            try:
+                cur = [i for i in drive.walk(CUR_FOLDER) if drive.is_spreadsheet(i) and i["name"].lower().startswith(CUR_PREFIX)]
+            except Exception as err:  # noqa: BLE001 - the month files still work without it
+                cur = []
+                log(f"::warning::Could not list the current-month folder ({err}).")
+            for i in cur:
+                i["current"] = True
+            items += cur
+            if not cur:
+                log(f"::warning::No {CUR_PREFIX}… workbook found; the current month comes from the Store Assessment folder.")
     if not items:
         log("::warning::No workbooks in the Store Assessment folder; sa.json left as is.")
         return 1
@@ -169,18 +189,28 @@ def main():
             return k
         return None
     oq = {q[0]: q for q in old.get("questions") or []}
+    # the current-month file is read first, so the months it covers are known before the month files are looked at
+    items.sort(key=lambda i: not (i.get("current") or (local and i["name"].lower().startswith(CUR_PREFIX))))
+    covered = set()
     per_file = []  # (file meta, visits {rid: visit}, answers list or None, reused rows or None)
     with tempfile.TemporaryDirectory(prefix="sa-") as work:
         for item in items:
             fkey = f"{item['id']}|{item.get('modified', '')}"
             meta = {"key": fkey, "name": item.get("path") or item["name"], "modified": item.get("modified", ""), "modifiedIso": "" if local else modified_iso(item.get("modified", ""))}
+            if item.get("current") or (local and item["name"].lower().startswith(CUR_PREFIX)):
+                meta["current"] = True
             pk = same_file(item) if old.get("schema") == 1 else None
             if pk:
                 n, f = prev_files[pk]
                 rows = [v for v in old.get("visits") or [] if v[1] == n]
-                if rows:
+                # a month file the current-month file fully replaced kept no audits; reuse that only while it still does
+                if rows or (f.get("superseded") and set(f["superseded"]) <= covered):
                     meta.update({"key": pk, "modified": f.get("modified", meta["modified"]), "modifiedIso": f.get("modifiedIso") or meta["modifiedIso"]})
+                    if not rows:
+                        meta["superseded"] = f["superseded"]
                     per_file.append((meta, None, None, rows))
+                    if meta.get("current"):
+                        covered |= {v[2][:7] for v in rows}
                     log(f"  keep  {meta['name']}: {len(rows)} audits (unchanged)")
                     continue
             if local:
@@ -201,6 +231,8 @@ def main():
                 log(f"  skip  {meta['name']}  (not a store assessment export)")
                 continue
             per_file.append((meta, got[0], got[1], None))
+            if meta.get("current"):
+                covered |= {v["date"][:7] for v in got[0].values() if v["date"]}
             log(f"  read  {meta['name']}: {len(got[0])} audits, {len(got[1])} answers")
     if not per_file:
         log("::error::No store assessment workbooks found; sa.json left as is.")
@@ -231,7 +263,8 @@ def main():
             aidx[name] = len(auditors)
             auditors.append(name)
         return aidx[name]
-    per_file.sort(key=lambda x: x[0]["modifiedIso"] or x[0]["modified"])
+    # the current-month file goes last, so it wins any audit that also appears in a month file
+    per_file.sort(key=lambda x: (bool(x[0].get("current")), x[0]["modifiedIso"] or x[0]["modified"]))
     visits, remarks, files_meta = {}, {}, []
     for fn, (meta, vmap, answers, reused) in enumerate(per_file):
         meta = dict(meta)
@@ -261,6 +294,21 @@ def main():
                 visits[rid] = [rid, fn, v["date"], v["time"], v["site"], auditor(v["user"]), v["total"], v["possible"], v["answered"], qs_by.get(rid, [None] * len(scored))]
         meta["audits"] = sum(1 for v in visits.values() if v[1] == fn)
         files_meta.append(meta)
+    # the months the current-month file covers come from it alone
+    cur_fn = {fn for fn, m in enumerate(files_meta) if m.get("current")}
+    cur_months = {v[2][:7] for v in visits.values() if v[1] in cur_fn}
+    if cur_months:
+        dropped = [rid for rid, v in visits.items() if v[1] not in cur_fn and v[2][:7] in cur_months]
+        gone = defaultdict(set)
+        for rid in dropped:
+            gone[visits[rid][1]].add(visits[rid][2][:7])
+            del visits[rid]
+            remarks.pop(str(rid), None)
+        log(f"Current month {', '.join(sorted(cur_months))} from {', '.join(files_meta[fn]['name'] for fn in sorted(cur_fn))}; {len(dropped)} audits of that month from other files dropped.")
+        for fn, m in enumerate(files_meta):
+            m["audits"] = sum(1 for v in visits.values() if v[1] == fn)
+            if fn not in cur_fn and not m["audits"] and gone.get(fn):
+                m["superseded"] = sorted(gone[fn])  # months it held, all taken from the current-month file
     vis = sorted(visits.values(), key=lambda v: (v[2], v[3], v[0]))
     # tidy numbers: whole points where possible
     for v in vis:
@@ -290,7 +338,7 @@ def main():
 
     payload = {
         "schema": 1, "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "source": {"folder": FOLDER, "files": files_meta},
+        "source": {"folder": FOLDER, "currentFolder": CUR_FOLDER, "files": files_meta},
         "cats": cats,
         # [question id, category index, title, type, max score]
         "questions": [[q, cats.index(qinfo[q]["cat"]), qinfo[q]["title"], qinfo[q]["type"], qinfo[q]["max"]] for q in scored],
