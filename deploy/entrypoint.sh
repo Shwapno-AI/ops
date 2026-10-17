@@ -28,7 +28,6 @@ refresh() {
   python3 /app/scripts/ccv/refresh.py || echo "Credit card and visit refresh failed; keeping the last good data."
   python3 /app/scripts/stockgap/refresh.py || echo "Stock gap refresh failed; keeping the last good data."
   python3 /app/scripts/pakhaqs/refresh.py || echo "PAKHAQS refresh failed; keeping the last good data."
-  python3 /app/scripts/ecom/refresh.py || echo "E-commerce refresh failed; keeping the last good data."
   find "$DRIVE_CACHE" -type f ! -newer /tmp/run-start -delete 2>/dev/null || true
   echo "Refresh finished at $(date '+%d %b %H:%M')."
 }
@@ -51,6 +50,21 @@ refresh() {
       refresh; last=$(date +%s)
     fi
     sleep $(( ${WATCH_MINUTES:-5} * 60 ))
+  done
+) &
+
+# E-commerce loop: every ECOM_MINUTES (10) around the clock, ecom.json is rebuilt from the E-commerce Drive folder.
+# The script lists the folder first and keeps ecom.json when no file changed, so a quiet run takes seconds. It has
+# its own download cache, so the main refresh's clean-up never drops the E-commerce files.
+(
+  sleep 30   # let the first Drive run write data.json (the outlet master) first
+  while true; do
+    start=$(date +%s)
+    mkdir -p /tmp/drive-cache-ecom && touch /tmp/ecom-run-start
+    DRIVE_CACHE=/tmp/drive-cache-ecom python3 /app/scripts/ecom/refresh.py || echo "E-commerce refresh failed; keeping the last good data."
+    find /tmp/drive-cache-ecom -type f ! -newer /tmp/ecom-run-start -delete 2>/dev/null || true
+    left=$(( ${ECOM_MINUTES:-10} * 60 - ($(date +%s) - start) ))
+    [ "$left" -gt 30 ] && sleep "$left" || sleep 30
   done
 ) &
 
