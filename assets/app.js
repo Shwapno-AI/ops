@@ -6929,8 +6929,8 @@
   // ---- PDF report: pending orders (SubordeStatus Pending or Processing in the latest export), those due today (slot date = the export's
   // date) and deliveries on the latest slot date, by RHO and zonal. A4 portrait pages filled row by row, captured like Priority Tasks.
   function ecReportData(C) {
-    const { d, sc } = C, today = d.source.asOf.slice(0, 10), month = today.slice(0, 7); // "> 2 days" counts orders placed this month only
-    const pend = d.open.filter((r) => sc.on[r[2]]); // SubordeStatus Pending or Processing (the open list holds only these)
+    const { d, sc } = C, today = d.source.asOf.slice(0, 10), month = today.slice(0, 7); // only orders placed this month
+    const pend = d.open.filter((r) => sc.on[r[2]] && r[4].slice(0, 7) === month); // SubordeStatus Pending or Processing (the open list holds only these), placed this month
     const blank = () => ({ pend: 0, pendAmt: 0, pend2: 0, pendT: 0, pendTAmt: 0 });
     const rl = new Map(), zn = new Map(), all = blank();
     const at = (o) => {
@@ -6938,7 +6938,7 @@
       const kz = `${o.rl}\u0001${o.zn}`, z = zn.get(kz) || { ...blank(), rl: o.rl, zn: o.zn }; zn.set(kz, z);
       return [a, z, all];
     };
-    pend.forEach((r) => at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (r[9] > 2 && r[4].slice(0, 7) === month) g.pend2++; if (r[5] === today) { g.pendT++; g.pendTAmt += r[8]; } }));
+    pend.forEach((r) => at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (r[9] > 2) g.pend2++; if (r[5] === today) { g.pendT++; g.pendTAmt += r[8]; } }));
     const keep = (g) => g.pend, plain = (x) => x.replace(/^M[rs]+\.\s*/, "");
     return { today, month, all,
       rl: [...rl.entries()].filter(([, g]) => keep(g)).sort((a, b) => plain(a[0]).localeCompare(plain(b[0]))),
@@ -6950,7 +6950,7 @@
     const { d, sc } = C, R = ecReportData(C), todayL = fdate(R.today, true);
     const nm = (x) => esc(x.replace(/^M[rs]+\.\s*/, ""));
     const cells = (g) => `<td class="n">${int(g.pendT)}</td><td class="n${g.pend2 ? " bad" : ""}">${int(g.pend2)}</td><td class="n"><b>${int(g.pend)}</b></td><td class="n">${bdt(g.pendTAmt)}</td><td class="n">${bdt(g.pendAmt)}</td>`;
-    const sumHead = (first) => `<tr><th>${first}</th><th class="n">Pending today (${esc(todayL)})</th><th class="n">Pending &gt; 2 days (${esc(fmonth(R.month))})</th><th class="n">Total pending</th><th class="n">Today's pending amount</th><th class="n">Total pending amount</th></tr>`;
+    const sumHead = (first) => `<tr><th>${first}</th><th class="n">Pending today (${esc(todayL)})</th><th class="n">Pending &gt; 2 days (${esc(fmonth(R.month))})</th><th class="n">Total pending (${esc(fmonth(R.month))})</th><th class="n">Today's pending amount</th><th class="n">Total pending amount (${esc(fmonth(R.month))})</th></tr>`;
     // blocks: { h } a heading, { t: head, r: row } a table row (the head repeats on a new page)
     const B = [];
     B.push({ h: "By RHO" });
@@ -6963,9 +6963,9 @@
       B.push({ t: sumHead("Zonal"), r: `<tr><td>${nm(z.zn)}</td>${cells(z)}</tr>` });
     });
     const A = R.all, kpi = (l, v, s2) => `<div class="ecr-k"><small>${l}</small><b>${v}</b><span>${s2}</span></div>`;
-    const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal</h1><span>${esc(sc.label)} · as of the export ${esc(ecAsOfBd(d.source.asOf))} (Bangladesh time)</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
-      <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), `Placed in ${esc(fmonth(R.month))}, over 2 days ago`)}${kpi("Total pending", int(A.pend), "All pending orders")}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), "All pending orders")}</div>`;
-    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = SubordeStatus Pending or Processing. Pending today = pending with today's slot date. &gt; 2 days = placed this month, more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
+    const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal, ${esc(fmonth(R.month))}</h1><span>${esc(sc.label)} · as of the export ${esc(ecAsOfBd(d.source.asOf))} (Bangladesh time)</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
+      <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), `Placed in ${esc(fmonth(R.month))}, over 2 days ago`)}${kpi("Total pending", int(A.pend), `Placed in ${esc(fmonth(R.month))}`)}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), `Placed in ${esc(fmonth(R.month))}`)}</div>`;
+    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = SubordeStatus Pending or Processing, orders placed in ${esc(fmonth(R.month))}. Pending today = pending with today's slot date. &gt; 2 days = placed more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
   }
   async function ecPdf() {
     const C = S.ecomC, host = $("#ecPdfHost"), status = $("#ecPdfStatus"), btn = $("[data-ec-pdf]");
