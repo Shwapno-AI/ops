@@ -6938,7 +6938,11 @@
       const kz = `${o.rl}\u0001${o.zn}`, z = zn.get(kz) || { ...blank(), rl: o.rl, zn: o.zn }; zn.set(kz, z);
       return [a, z, all];
     };
-    pend.forEach((r) => at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (r[9] > 2) g.pend2++; if (r[5] === today) { g.pendT++; g.pendTAmt += r[8]; } }));
+    // the two groups do not overlap and the total is their sum: slot today first, else placed more than 2 days ago
+    pend.forEach((r) => {
+      const t = r[5] === today, old = !t && r[9] > 2;
+      if (t || old) at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (t) { g.pendT++; g.pendTAmt += r[8]; } else g.pend2++; });
+    });
     const keep = (g) => g.pend, plain = (x) => x.replace(/^M[rs]+\.\s*/, "");
     return { today, month, all,
       rl: [...rl.entries()].filter(([, g]) => keep(g)).sort((a, b) => plain(a[0]).localeCompare(plain(b[0]))),
@@ -6964,8 +6968,8 @@
     });
     const A = R.all, kpi = (l, v, s2) => `<div class="ecr-k"><small>${l}</small><b>${v}</b><span>${s2}</span></div>`;
     const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal, ${esc(fmonth(R.month))}</h1><span>${esc(sc.label)} · as of the export ${esc(ecAsOfBd(d.source.asOf))} (Bangladesh time)</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
-      <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), `Placed in ${esc(fmonth(R.month))}, over 2 days ago`)}${kpi("Total pending", int(A.pend), `Placed in ${esc(fmonth(R.month))}`)}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), `Placed in ${esc(fmonth(R.month))}`)}</div>`;
-    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = SubordeStatus Pending or Processing, orders placed in ${esc(fmonth(R.month))}. Pending today = pending with today's slot date. &gt; 2 days = placed more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
+      <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), `Placed in ${esc(fmonth(R.month))}, slot not today`)}${kpi("Total pending", int(A.pend), "Today + over 2 days")}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), "Today + over 2 days")}</div>`;
+    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = SubordeStatus Pending or Processing, orders placed in ${esc(fmonth(R.month))}. Pending today = pending with today's slot date. &gt; 2 days = placed more than 2 days ago, slot not today. Total = pending today + &gt; 2 days.</span><span>Page ${i} of ${n}</span></div>` };
   }
   async function ecPdf() {
     const C = S.ecomC, host = $("#ecPdfHost"), status = $("#ecPdfStatus"), btn = $("[data-ec-pdf]");
