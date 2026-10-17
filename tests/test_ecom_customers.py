@@ -286,6 +286,10 @@ class ExtraColumnTests(unittest.TestCase):
 
 
 
+    def test_snapshot_is_readable_by_the_static_web_server(self):
+        self.build({"orders.xlsx": [order("P1", "S1", "Synthetic Alpha")]})
+        self.assertEqual((self.root / "result.json").stat().st_mode & 0o444, 0o444)
+
     def test_failed_workbook_keeps_last_good_snapshot_and_does_not_poison_cache(self):
         self.build({"a.xlsx": [order("P1", "S1", "Synthetic Alpha")],
                     "b.xlsx": [order("P2", "S2", "Synthetic Beta")]})

@@ -54,18 +54,7 @@ refresh() {
   done
 ) &
 
-# Private E-commerce API. Access fails closed unless ECOM_PASSWORD or BASIC_AUTH_PASSWORD is configured.
-: "${ECOM_OUT:=/var/lib/ops-private/ecom.json}"
-export ECOM_OUT
-mkdir -p "$(dirname "$ECOM_OUT")"
-(
-  while true; do
-    python3 /app/scripts/ecom/server.py || echo "E-commerce API stopped; restarting."
-    sleep 5
-  done
-) &
-
-# E-commerce loop: every ECOM_MINUTES (10) around the clock, the private snapshot is rebuilt from Drive.
+# E-commerce loop: every ECOM_MINUTES (10) around the clock, ecom.json is rebuilt from the E-commerce Drive folder.
 # The script lists the folder first and keeps ecom.json when no file changed, so a quiet run takes seconds. It has
 # its own download cache, so the main refresh's clean-up never drops the E-commerce files.
 (

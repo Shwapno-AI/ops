@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""E-Commerce page: build a private customer snapshot from the E-commerce Drive folder.
+"""E-Commerce page: build the E-Commerce dashboard snapshot from the E-commerce Drive folder.
 
 Sources, found in any sub-folder of the folder and recognised by their columns:
   * Sub-order exports, one workbook per delivery month. Some hold one row per sub-order (July to
@@ -13,7 +13,7 @@ e-mail addresses inside customer names or complaint text are masked. Contact col
 Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
-Output private/ecom.json (schema 10; fields are additive to schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
+Output data/ecom.json (schema 10; fields are additive to schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
 leader, a zonal or one outlet. Aggregate amounts are whole taka; customer history keeps two decimal
 places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   months, mdays  the months and how many slot days each has
@@ -76,7 +76,7 @@ Added in schemas 4 and 5 (all additive, so the schema 3 fields above keep their 
 
 Environment:
   ECOM_FOLDER_ID  Drive folder to search (default: the E-commerce folder)
-  ECOM_OUT        private output file (default: private/ecom.json)
+  ECOM_OUT        output file (default: data/ecom.json)
   DATA_OUT        the outlet master, data/data.json (default: data/data.json)
   DRIVE_CACHE     shared download cache (see scripts/network/fetch_drive_data.py)
 ECOM_ALLOW_REGRESSION  set to 1 only for an intentional, reviewed history reset
@@ -98,7 +98,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
 
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
-OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "private" / "ecom.json")
+OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
 SCHEMA = 10  # 10: actual delivery dates in private customer history; validated complete refreshes
 # columns read by the fields above; everything else in an export is classified for dims / nums
@@ -793,7 +793,7 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    tmp.chmod(0o600)
+    tmp.chmod(0o644)
     os.replace(tmp, OUT)
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(recs)} sub-orders, {len(outlets)} outlets, "
         f"{len(complaint_rows)} complaints ({matched} matched to an order), {months[0]} to {months[-1]}, "

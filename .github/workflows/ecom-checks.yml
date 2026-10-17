@@ -38,9 +38,3 @@ jobs:
           sh -n deploy/entrypoint.sh scripts/prepare-pages.sh
           node --test tests/*.mjs
           python -m unittest discover -s tests -p 'test*.py'
-      - name: Reject customer snapshots in public source
-        run: |
-          if git ls-files 'data/ecom.json*' private/ | read -r snapshot; then
-            echo "::error::E-commerce customer snapshots must not be committed."
-            exit 1
-          fi

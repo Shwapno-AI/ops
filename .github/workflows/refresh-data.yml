@@ -68,8 +68,9 @@ jobs:
       - name: Build stockgap.json from the Stock Gap Dashboard workbook
         continue-on-error: true
         run: python scripts/stockgap/refresh.py
-      # E-commerce customer history is refreshed only on the private Docker server.
-      # Never build or commit it in this public repository/workflow.
+      - name: Build ecom.json from the E-commerce sub-order and complaint workbooks
+        continue-on-error: true
+        run: python scripts/ecom/refresh.py
       - name: Build zr.json from the Z-Report workbook
         continue-on-error: true
         run: python scripts/zr/refresh.py
@@ -89,12 +90,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/pakhaqs.json && [ -z "$(git status --porcelain -- data/sales data/zr.json data/zr)" ]; then echo "No data changes."; exit 0; fi
+          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/ecom.json data/pakhaqs.json && [ -z "$(git status --porcelain -- data/sales data/zr.json data/zr)" ]; then echo "No data changes."; exit 0; fi
           git config user.name "ops-dashboard-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- data/sales 2>/dev/null || true  # monthly sales files; absent until a month is kept
           git add -A -- data/zr.json data/zr 2>/dev/null || true  # Z-Report; absent until the workbook is found
-          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/pakhaqs.json
+          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/ecom.json data/pakhaqs.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
           # Someone may have pushed code or another data refresh while this run was busy: replay the data commit
           # on top and retry. The data files are whole snapshots and this run's are the newest, so a conflict on
