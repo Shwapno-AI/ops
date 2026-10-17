@@ -279,7 +279,7 @@ class ExtraColumnTests(unittest.TestCase):
         totals = [sum(r[2 + i] for r in nums["r"]) for i in range(len(names))]
         # the cancelled sub-order is left out; the repeated charge counts once, the quantities add up
         self.assertEqual(dict(zip(names, totals)), {"DeliveryCharge": 80, "Quantity": 4})
-        self.assertEqual(sum(r[-1] for r in data["placed"]["r"]), 3)
+        self.assertEqual(sum(r[-1] for r in data["placed"]["r"]), 2)  # delivered only: the cancelled sub-order is left out
         self.assertEqual({(r[2], r[3]) for r in data["placed"]["r"]}, {(3, 9)})  # 1 Oct 2026 is a Thursday, 9 AM
 
 
