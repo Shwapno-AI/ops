@@ -44,12 +44,19 @@ test("churn needs a regular customer: average order of 1,000 or more and at leas
   assert.equal(a.churned.share, 4000 / (4000 + 4 * 999 + 4 * 1500));
 });
 
-test("cancelled orders do not lower the average order, and a single order is never regular", () => {
-  const d = snapshot([record(0, "a", "2026-09-01", { gross: 1200 }), record(0, "b", "2026-09-08", { status: 1, gross: 50 }), record(1, "only", "2026-09-01", { gross: 5000 })]);
+test("only completed orders count, and a single order is never regular", () => {
+  const d = snapshot([record(0, "a", "2026-09-01", { gross: 1200 }), record(0, "b", "2026-09-08", { status: 1, gross: 50 }), record(0, "c", "2026-09-08", { gross: 1300 }), record(1, "only", "2026-09-01", { gross: 5000 })]);
   const a = analyze(d, [true], "2026-10");
-  assert.equal(a.rows[0].aov, 1200);
+  assert.equal(a.rows[0].orders, 2, "the cancelled order is left out");
+  assert.equal(a.rows[0].aov, 1250);
   assert.equal(a.rows[0].status, "churned");
   assert.equal(a.rows[1].status, "inactive");
+});
+
+test("each customer lists the outlets they ordered from, most orders first", () => {
+  const d = snapshot([record(0, "a", "2026-10-01", { outlet: 1 }), record(0, "b", "2026-10-02", { outlet: 0 }), record(0, "c", "2026-10-03", { outlet: 1 }), record(0, "x", "2026-10-04", { outlet: 2, status: 1 })]);
+  const a = analyze(d, [true, true, true], "2026-10");
+  assert.deepEqual(a.rows[0].outlets, [[1, 2], [0, 1]], "the cancelled order's outlet is not listed");
 });
 
 test("historical cutoff excludes later placements, including backdated delivery slots", () => {
@@ -98,22 +105,23 @@ test("the earliest placement of a parent drives inactivity, not a later suborder
   assert.equal(analyze(d, [true], "2026-10").rows[0].daysInactive, 30);
 });
 
-test("cancelled orders count as placed activity and contribute zero net sales", () => {
-  const d = snapshot([record(0, "delivered", "2026-08-01", { gross: 250 }), record(0, "cancelled", "2026-10-10", { status: 1, gross: 500 })]);
+test("cancelled and open orders are not activity; the order history still lists them", () => {
+  const d = snapshot([record(0, "delivered", "2026-08-01", { gross: 250 }), record(0, "cancelled", "2026-10-10", { status: 1, gross: 500 }), record(0, "pending", "2026-10-11", { status: 2, gross: 90 })]);
   const a = analyze(d, [true], "2026-10");
-  assert.equal(a.rows[0].status, "active");
-  assert.equal(a.rows[0].orders, 2);
+  assert.equal(a.rows[0].status, "inactive");
+  assert.equal(a.rows[0].lastOrder, "2026-08-01");
+  assert.equal(a.rows[0].orders, 1);
   assert.equal(a.rows[0].net, 250);
-  assert.equal(a.rows[0].periodOrders, 1);
+  assert.equal(a.rows[0].periodOrders, 0);
   assert.equal(a.rows[0].periodNet, 0);
-  const order = details(d, [true], "2026-10", 0).orders[0];
+  const order = details(d, [true], "2026-10", 0).orders.find((o) => o.order === "cancelled");
   assert.equal(order.gross, 500);
   assert.equal(order.net, 0);
   assert.deepEqual(order.statuses, ["Cancelled"]);
 });
 
 test("monthly ranking uses delivery month while churn uses placement date", () => {
-  const d = snapshot([record(0, "prior-placement", "2026-09-12", { slot: "2026-10-01" }), record(1, "future-slot", "2026-10-12", { slot: "2026-11-01", status: 2 })]);
+  const d = snapshot([record(0, "prior-placement", "2026-09-12", { slot: "2026-10-01" }), record(1, "future-slot", "2026-10-12", { slot: "2026-11-01" })]);
   const a = analyze(d, [true], "2026-10");
   assert.equal(a.rows[0].status, "inactive");
   assert.equal(a.rows[0].periodOrders, 1);

@@ -13,6 +13,8 @@
     const time = Date.parse(value + "T00:00:00Z");
     return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? value : "";
   }
+  // Customer health counts completed (delivered) sub-orders only; cancelled, pending and processing ones are left out.
+  const DONE = /^(complete|completed|delivered)$/i;
   const amount = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
   const money = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
   function context(d, month) {
@@ -24,7 +26,7 @@
     return { c, availableAsOf, asOf: end < availableAsOf ? end : availableAsOf, month };
   }
   function baseRow(customer, name) {
-    return { customer, name, parents: new Map(), parentNet: new Map(), periodParents: new Set(), net: 0, suborders: 0, periodNet: 0, periodSuborders: 0, undated: false };
+    return { customer, name, parents: new Map(), parentNet: new Map(), outlets: new Map(), periodParents: new Set(), net: 0, suborders: 0, periodNet: 0, periodSuborders: 0, undated: false };
   }
   function finish(row, asOf) {
     const dates = [...row.parents.values()].filter(Boolean).sort();
@@ -39,6 +41,8 @@
     const status = daysInactive !== null && daysInactive < RULE.days ? "active" : row.undated || daysInactive === null ? "unknown" : regular ? "churned" : "inactive";
     return { customer: row.customer, name: row.name, status, regular, daysInactive, firstOrder, lastOrder, journeyDays, aov, perWeek,
       orders: row.parents.size, net: money(row.net), suborders: row.suborders,
+      // outlets the customer ordered from, most orders first: [[outlet, orders]]
+      outlets: [...row.outlets.entries()].map(([o, set]) => [o, set.size]).sort((a, b) => b[1] - a[1] || a[0] - b[0]),
       periodOrders: row.periodParents.size, periodNet: money(row.periodNet), periodSuborders: row.periodSuborders };
   }
   function analyze(d, on, month) {
@@ -47,8 +51,8 @@
     const { c, asOf, availableAsOf } = ctx, groups = new Map(), missing = new Set(), conflicts = new Set(), seen = new Set();
     let coverageStart = "", unknownDates = 0;
     for (const record of c.history) {
-      const [outlet, customer, parent, suborder, placedValue, slotValue, , , net] = record;
-      if (!on[outlet]) continue;
+      const [outlet, customer, parent, suborder, placedValue, slotValue, statusIndex, , net] = record;
+      if (!on[outlet] || !DONE.test(String(c.statuses?.[statusIndex] ?? "").trim())) continue;
       const placed = day(placedValue), slot = day(slotValue), name = c.list[customer];
       if (!placed) {
         unknownDates++;
@@ -68,6 +72,8 @@
       if (!groups.has(customer)) groups.set(customer, baseRow(customer, name));
       const row = groups.get(customer), prior = row.parents.get(parent);
       row.parents.set(parent, !prior || placed < prior ? placed : prior);
+      if (!row.outlets.has(outlet)) row.outlets.set(outlet, new Set());
+      row.outlets.get(outlet).add(parent);
       row.suborders++; row.net += amount(net); row.parentNet.set(parent, (row.parentNet.get(parent) || 0) + amount(net));
       if (slot.slice(0, 7) === month) { row.periodParents.add(parent); row.periodNet += amount(net); row.periodSuborders++; }
     }
