@@ -6926,11 +6926,11 @@
     return `${kpis}${pdf}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details. The list scrolls past ten.", `<div class="ec-scroll">${outBars}</div>`)}</div>${table}`;
   }
 
-  // ---- PDF report: pending orders (status Pending in the latest export), those due today (slot date = the export's
+  // ---- PDF report: pending orders (SubordeStatus Pending or Processing in the latest export), those due today (slot date = the export's
   // date) and deliveries on the latest slot date, by RHO and zonal. A4 portrait pages filled row by row, captured like Priority Tasks.
   function ecReportData(C) {
     const { d, sc } = C, today = d.source.asOf.slice(0, 10), month = today.slice(0, 7); // "> 2 days" counts orders placed this month only
-    const pend = d.open.filter((r) => sc.on[r[2]] && r[3] === "Pending");
+    const pend = d.open.filter((r) => sc.on[r[2]]); // SubordeStatus Pending or Processing (the open list holds only these)
     const blank = () => ({ pend: 0, pendAmt: 0, pend2: 0, pendT: 0, pendTAmt: 0 });
     const rl = new Map(), zn = new Map(), all = blank();
     const at = (o) => {
@@ -6965,7 +6965,7 @@
     const A = R.all, kpi = (l, v, s2) => `<div class="ecr-k"><small>${l}</small><b>${v}</b><span>${s2}</span></div>`;
     const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal</h1><span>${esc(sc.label)} · as of the export ${esc(ecAsOfBd(d.source.asOf))} (Bangladesh time)</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
       <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), `Placed in ${esc(fmonth(R.month))}, over 2 days ago`)}${kpi("Total pending", int(A.pend), "All pending orders")}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), "All pending orders")}</div>`;
-    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = status Pending (Processing not included). Pending today = pending with today's slot date. &gt; 2 days = placed this month, more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
+    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = SubordeStatus Pending or Processing. Pending today = pending with today's slot date. &gt; 2 days = placed this month, more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
   }
   async function ecPdf() {
     const C = S.ecomC, host = $("#ecPdfHost"), status = $("#ecPdfStatus"), btn = $("[data-ec-pdf]");
