@@ -6002,6 +6002,7 @@
     act("[data-ec-zn]", (n) => { closeDrawer(); const z = n.dataset.ecZn, o = S.ecom.O.find((x) => x.zn === z && (!S.ecomRho || x.rl === S.ecomRho)); S.ecomZn = z; S.ecomOutlet = ""; if (o) S.ecomRho = o.rl; S.ecomBy = "o"; changed(); });
     act("[data-ec-tab]", (n) => { closeDrawer(); S.ecomTab = n.dataset.ecTab; changed(); window.scrollTo(0, 0); });
     act("[data-ec-csv]", () => { const C = S.ecomC; if (C?.scoreCsv) saveCsv(`ecommerce_scorecard_${C.sc.label.replace(/\W+/g, "_")}`, C.scoreCsv[0], C.scoreCsv.slice(1), C.m); });
+    act("[data-ec-pdf]", () => ecPdf());
     act("[data-ec-clear]", () => { S.ecomRho = ""; S.ecomZn = ""; S.ecomOutlet = ""; changed(); });
     const rho = $('[data-sel="ecomRho"]', root), zonal = $('[data-sel="ecomZn"]', root);
     if (rho) rho.onchange = () => { S.ecomRho = rho.value; S.ecomZn = ""; S.ecomOutlet = ""; changed(); };
@@ -6913,7 +6914,122 @@
         { k: "code", label: "Outlet code", hide: true }, { k: "zn", label: "Zonal", hide: true }, { k: "rl", label: "RHO", hide: true },
       ],
     });
-    return `${kpis}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details. The list scrolls past ten.", `<div class="ec-scroll">${outBars}</div>`)}</div>${table}`;
+    const pdf = ecPanel("PDF report", "Pending orders and delivered orders by RHO and by zonal, with the list of pending orders, for the selection above.", `<div class="ec-pdf"><button class="btn primary" type="button" data-ec-pdf>Download PDF</button><span class="muted" id="ecPdfStatus">${esc(`Pending as of the export ${d.source.asOf}; delivered for ${C.P.curLabel}.`)}</span></div><div id="ecPdfHost" class="ec-pdf-host" aria-hidden="true"></div>`);
+    return `${kpis}${pdf}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details. The list scrolls past ten.", `<div class="ec-scroll">${outBars}</div>`)}</div>${table}`;
+  }
+
+  // ---- PDF report: pending orders (status Pending in the latest export) and delivered orders (by slot day) by RHO
+  // and zonal, then the pending orders themselves. A4 portrait pages filled row by row, captured like Priority Tasks.
+  function ecReportData(C) {
+    const { d, sc, P } = C, last = P.cur[P.cur.length - 1];
+    const mtd = ecByOutletIdx(d, sc.on, P.cur), day = ecByOutletIdx(d, sc.on, [last]);
+    const pend = d.open.filter((r) => sc.on[r[2]] && r[3] === "Pending");
+    const blank = () => ({ pend: 0, pendAmt: 0, pend2: 0, delDay: 0, delMtd: 0, late: 0 });
+    const rl = new Map(), zn = new Map(), all = blank();
+    const at = (o) => {
+      const a = rl.get(o.rl) || blank(); rl.set(o.rl, a);
+      const kz = `${o.rl}\u0001${o.zn}`, z = zn.get(kz) || { ...blank(), rl: o.rl, zn: o.zn }; zn.set(kz, z);
+      return [a, z, all];
+    };
+    pend.forEach((r) => at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (r[9] > 2) g.pend2++; }));
+    mtd.forEach((t) => at(t.o).forEach((g) => { g.delMtd += t.deliv; g.late += t.late; }));
+    day.forEach((t) => at(t.o).forEach((g) => (g.delDay += t.deliv)));
+    const keep = (g) => g.pend || g.delMtd, plain = (x) => x.replace(/^M[rs]+\.\s*/, "");
+    return { last, days: P.cur.length, all, pend,
+      rl: [...rl.entries()].filter(([, g]) => keep(g)).sort((a, b) => plain(a[0]).localeCompare(plain(b[0]))),
+      zn: [...zn.values()].filter(keep).sort((a, b) => plain(a.rl).localeCompare(plain(b.rl)) || plain(a.zn).localeCompare(plain(b.zn))) };
+  }
+  function ecReportPages(C) {
+    const { d, sc, P } = C, R = ecReportData(C), dayL = fdate(d.days[R.last], true);
+    const nm = (x) => esc(x.replace(/^M[rs]+\.\s*/, ""));
+    const cells = (g) => `<td class="n">${int(g.pend)}</td><td class="n">${bdt(g.pendAmt)}</td><td class="n${g.pend2 ? " bad" : ""}">${int(g.pend2)}</td><td class="n">${int(g.delDay)}</td><td class="n">${int(g.delMtd)}</td><td class="n">${int(Math.round(g.delMtd / (R.days || 1)))}</td><td class="n">${g.delMtd ? ecPct(g.late / g.delMtd, 1) : "—"}</td>`;
+    const sumHead = (first) => `<tr><th>${first}</th><th class="n">Pending</th><th class="n">Pending amount</th><th class="n">Pending &gt; 2 days</th><th class="n">Delivered ${esc(dayL)}</th><th class="n">Delivered ${esc(P.curLabel)}</th><th class="n">Delivered a day</th><th class="n">Late</th></tr>`;
+    const listHead = `<tr><th>Order</th><th>Outlet</th><th>Placed</th><th>Slot</th><th class="n">Amount</th><th class="n">Days open</th></tr>`;
+    // blocks: { h } a heading, { t: head, r: row } a table row (the head repeats on a new page)
+    const B = [];
+    B.push({ h: "By RHO" });
+    R.rl.forEach(([k, g]) => B.push({ t: sumHead("RHO"), r: `<tr><td><b>${nm(k)}</b></td>${cells(g)}</tr>` }));
+    B.push({ t: sumHead("RHO"), r: `<tr class="tot"><td>All</td>${cells(R.all)}</tr>` });
+    B.push({ h: "By zonal" });
+    let cur = null;
+    R.zn.forEach((z) => {
+      if (z.rl !== cur) { cur = z.rl; B.push({ t: sumHead("Zonal"), r: `<tr class="grp"><td colspan="8">${nm(z.rl)}</td></tr>` }); }
+      B.push({ t: sumHead("Zonal"), r: `<tr><td>${nm(z.zn)}</td>${cells(z)}</tr>` });
+    });
+    B.push({ h: `Pending orders (${int(R.pend.length)})`, p: true });
+    const pl = R.pend.map((r) => ({ r, o: d.O[r[2]] })).sort((a, b) => nm(a.o.rl).localeCompare(nm(b.o.rl)) || nm(a.o.zn).localeCompare(nm(b.o.zn)) || b.r[9] - a.r[9]);
+    cur = null;
+    pl.forEach(({ r, o }) => {
+      const k = `${o.rl} · ${o.zn}`;
+      if (k !== cur) { cur = k; B.push({ t: listHead, r: `<tr class="grp"><td colspan="6">${nm(o.rl)} · ${nm(o.zn)}</td></tr>` }); }
+      B.push({ t: listHead, r: `<tr><td>${esc(r[0])}${r[1] !== "1" ? `-${esc(r[1])}` : ""}</td><td>${esc(o.c)} ${esc(o.n)}</td><td>${esc(r[4])}</td><td>${esc(fdate(r[5], true))} ${esc(ecSlotShort(r[6] || ""))}</td><td class="n">৳${int(r[8])}</td><td class="n${r[9] > 2 ? " bad" : ""}">${int(r[9])}</td></tr>` });
+    });
+    if (!pl.length) B.push({ h: "", note: "No pending orders for this selection." });
+    const A = R.all, kpi = (l, v, s2) => `<div class="ecr-k"><small>${l}</small><b>${v}</b><span>${s2}</span></div>`;
+    const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending and delivered orders</h1><span>${esc(sc.label)} · pending as of the export ${esc(d.source.asOf)} · delivered by slot date, ${esc(P.curLabel)}</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
+      <div class="ecr-kpis">${kpi("Pending orders", int(A.pend), `${bdt(A.pendAmt)} · ${int(A.pend2)} over 2 days`)}${kpi(`Delivered ${esc(dayL)}`, int(A.delDay), "Latest slot date in the export")}${kpi(`Delivered ${esc(P.curLabel)}`, int(A.delMtd), `${int(Math.round(A.delMtd / (R.days || 1)))} a day`)}${kpi("Delivered late", A.delMtd ? ecPct(A.late / A.delMtd, 1) : "—", `${int(A.late)} after the slot ended`)}</div>`;
+    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = status Pending (Processing not included). Delivered = sub-orders delivered, by slot date.</span><span>Page ${i} of ${n}</span></div>` };
+  }
+  async function ecPdf() {
+    const C = S.ecomC, host = $("#ecPdfHost"), status = $("#ecPdfStatus"), btn = $("[data-ec-pdf]");
+    if (!C || !host || S.ecPdfBusy) return;
+    S.ecPdfBusy = true; if (btn) btn.disabled = true;
+    try {
+      status.textContent = "Laying out the pages…";
+      const { B, head, foot } = ecReportPages(C), pages = [];
+      host.innerHTML = "";
+      let page = null, body = null, tb = null, tHead = null;
+      const newPage = () => {
+        page = document.createElement("div"); page.className = "ecr-page";
+        page.innerHTML = `${pages.length ? "" : head}<div class="ecr-body"></div><div class="ecr-foot"></div>`;
+        host.append(page); pages.push(page); body = page.querySelector(".ecr-body"); tb = null; tHead = null;
+      };
+      const full = () => body.scrollHeight > body.clientHeight;
+      newPage();
+      for (let i = 0; i < B.length; i++) {
+        const b = B[i];
+        if (b.h !== undefined) {
+          if (b.p && pages.length === 1 && body.children.length) newPage(); // the order list starts on a new page
+          const h = document.createElement(b.note ? "p" : "h2"); h.textContent = b.note || b.h; if (b.note) h.className = "ecr-note";
+          body.append(h); tb = null; tHead = null;
+          if (full() && body.children.length > 1) { h.remove(); newPage(); body.append(h); }
+          continue;
+        }
+        if (!tb || tHead !== b.t) {
+          const t = document.createElement("table"); t.innerHTML = `<thead>${b.t}</thead><tbody></tbody>`;
+          body.append(t); tb = t.tBodies[0]; tHead = b.t;
+        }
+        tb.insertAdjacentHTML("beforeend", b.r);
+        if (full()) {
+          const row = tb.lastElementChild; row.remove();
+          if (!tb.rows.length) tb.parentElement.remove();
+          newPage();
+          const t = document.createElement("table"); t.innerHTML = `<thead>${b.t}</thead><tbody></tbody>`;
+          body.append(t); tb = t.tBodies[0]; tHead = b.t; tb.append(row);
+        }
+      }
+      pages.forEach((pg, i) => (pg.querySelector(".ecr-foot").outerHTML = foot(i + 1, pages.length)));
+      await loadH2C();
+      const imgs = [];
+      for (let i = 0; i < pages.length; i++) {
+        status.textContent = `Rendering page ${i + 1} of ${pages.length}…`;
+        await arWaitImages(pages[i]);
+        const c = await window.html2canvas(pages[i], { scale: 1.6, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
+        const bin = atob(c.toDataURL("image/jpeg", 0.82).split(",")[1]), bytes = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+        imgs.push({ bytes, w: c.width, h: c.height });
+      }
+      const blob = arPdfBlob(imgs), url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = `ecommerce_pending_delivered_${C.sc.label.replace(/\W+/g, "_")}_${C.d.days[C.P.cur[C.P.cur.length - 1]]}.pdf`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      status.textContent = `Downloaded ${pages.length} page${pages.length === 1 ? "" : "s"}.`;
+    } catch (e) {
+      console.error(e);
+      status.textContent = "Could not build the PDF. Try again.";
+    } finally {
+      host.innerHTML = ""; S.ecPdfBusy = false; if (btn) btn.disabled = false;
+    }
   }
 
   // ---- drawers: one outlet, one complaint

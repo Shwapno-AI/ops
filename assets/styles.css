@@ -512,3 +512,30 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .top-ec-i{all:unset;box-sizing:border-box;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ink-3);color:var(--ink-2);font-size:12px;font-weight:700;line-height:1;cursor:help;flex:none}
 .top-ec-i:hover{border-color:var(--ink-2);color:var(--ink)}
 .top-ec-i:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+/* E-Commerce PDF report: A4 portrait pages (794 x 1123 px) built off screen, fixed light colours */
+.ec-pdf{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ec-pdf-host{position:fixed;left:-10000px;top:0;width:794px}
+.ecr-page{width:794px;height:1123px;box-sizing:border-box;padding:28px 34px 16px;background:#fff;color:#14232e;font:10px/1.35 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.ecr-page *{box-sizing:border-box}
+.ecr-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:2px solid #14232e}
+.ecr-head p{margin:0;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#c8102e;font-weight:700}
+.ecr-head h1{margin:2px 0 3px;font-size:21px;line-height:1.15;font-weight:750}
+.ecr-head span{color:#5a7282}
+.ecr-head img{height:42px;width:auto;border-radius:6px}
+.ecr-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.ecr-k{border:1px solid #d8e2e8;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.ecr-k small{color:#5a7282;font-size:9px;text-transform:uppercase;letter-spacing:.06em}
+.ecr-k b{font-size:19px;font-weight:750}
+.ecr-k span{color:#5a7282}
+.ecr-body{flex:1;min-height:0;overflow:hidden}
+.ecr-body>*+*{margin-top:6px}
+.ecr-body h2{margin:10px 0 0;font-size:13px;font-weight:700}
+.ecr-body table{width:100%;border-collapse:collapse}
+.ecr-body th{text-align:left;font-weight:600;color:#5a7282;font-size:9px;padding:4px 6px;border-bottom:1.5px solid #14232e;vertical-align:bottom}
+.ecr-body td{padding:3.5px 6px;border-bottom:1px solid #e3eaee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.ecr-body .n{text-align:right;font-variant-numeric:tabular-nums}
+.ecr-body .bad{color:#c8102e;font-weight:600}
+.ecr-body tr.grp td{background:#eef3f6;font-weight:700;color:#14232e}
+.ecr-body tr.tot td{font-weight:750;border-top:1.5px solid #14232e;border-bottom:none}
+.ecr-note{margin:0;color:#5a7282}
+.ecr-foot{display:flex;justify-content:space-between;gap:12px;color:#7d919e;font-size:8.5px;border-top:1px solid #d8e2e8;padding-top:6px}

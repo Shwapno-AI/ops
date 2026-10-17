@@ -11,6 +11,7 @@ ENV TZ=Asia/Dhaka \
     REFRESH_TO=23 \
     WATCH_MINUTES=5 \
     RCV_MINUTES=10 \
+    ECOM_MINUTES=10 \
     RCV_DRILL_DIR=/usr/share/nginx/html/data/rcv-drill \
     DATA_OUT=/usr/share/nginx/html/data/data.json \
     NETWORK_OUT=/usr/share/nginx/html/data/network.json \
