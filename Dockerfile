@@ -24,7 +24,7 @@ ENV TZ=Asia/Dhaka \
     SG_OUT=/usr/share/nginx/html/data/stockgap.json \
     PK_OUT=/usr/share/nginx/html/data/pakhaqs.json \
     ZR_OUT=/usr/share/nginx/html/data/zr.json \
-    ECOM_OUT=/usr/share/nginx/html/data/ecom.json
+    ECOM_OUT=/var/lib/ops-private/ecom.json
 
 COPY index.html /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets
@@ -36,6 +36,8 @@ RUN echo '{"type":"module"}' > /app/assets/package.json
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+VOLUME ["/var/lib/ops-private"]
 
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1/healthz || exit 1

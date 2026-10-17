@@ -4,3 +4,5 @@ data/sku-outlet/
 data/sku-outlet.tmp/
 data/rcv-drill/
 __pycache__/
+private/
+data/ecom.json*

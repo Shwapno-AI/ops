@@ -15,6 +15,7 @@ on:
       - data/sku-rl.json
       - .nojekyll
       - .github/workflows/deploy-pages.yml
+      - scripts/prepare-pages.sh
   workflow_dispatch:   # also started by the Refresh data workflow when the data changed
 
 permissions:
@@ -40,10 +41,7 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Prepare the website
-        run: |
-          mkdir -p _site
-          cp index.html .nojekyll _site/
-          cp -R assets data _site/
+        run: sh scripts/prepare-pages.sh
       - name: Upload the website
         uses: actions/upload-pages-artifact@v4
         with:
