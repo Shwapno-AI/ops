@@ -522,7 +522,7 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .ecr-head h1{margin:2px 0 3px;font-size:21px;line-height:1.15;font-weight:750}
 .ecr-head span{color:#5a7282}
 .ecr-head img{height:42px;width:auto;border-radius:6px}
-.ecr-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.ecr-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
 .ecr-k{border:1px solid #d8e2e8;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
 .ecr-k small{color:#5a7282;font-size:9px;text-transform:uppercase;letter-spacing:.06em}
 .ecr-k b{font-size:19px;font-weight:750}

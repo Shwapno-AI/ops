@@ -6914,35 +6914,33 @@
         { k: "code", label: "Outlet code", hide: true }, { k: "zn", label: "Zonal", hide: true }, { k: "rl", label: "RHO", hide: true },
       ],
     });
-    const pdf = ecPanel("PDF report", "Pending orders, pending today and delivered today, by RHO and by zonal, for the selection above.", `<div class="ec-pdf"><button class="btn primary" type="button" data-ec-pdf>Download PDF</button><span class="muted" id="ecPdfStatus">${esc(`As of the export ${d.source.asOf}.`)}</span></div><div id="ecPdfHost" class="ec-pdf-host" aria-hidden="true"></div>`);
+    const pdf = ecPanel("PDF report", "Pending today, pending over 2 days, total pending and their amounts, by RHO and by zonal, for the selection above.", `<div class="ec-pdf"><button class="btn primary" type="button" data-ec-pdf>Download PDF</button><span class="muted" id="ecPdfStatus">${esc(`As of the export ${d.source.asOf}.`)}</span></div><div id="ecPdfHost" class="ec-pdf-host" aria-hidden="true"></div>`);
     return `${kpis}${pdf}<div class="ec-row">${ecPanel("How long they have been open", "Days since the order was placed, with the amount.", ageBars)}${ecPanel("Outlets with the most open orders", "Click one for its details. The list scrolls past ten.", `<div class="ec-scroll">${outBars}</div>`)}</div>${table}`;
   }
 
   // ---- PDF report: pending orders (status Pending in the latest export), those due today (slot date = the export's
   // date) and deliveries on the latest slot date, by RHO and zonal. A4 portrait pages filled row by row, captured like Priority Tasks.
   function ecReportData(C) {
-    const { d, sc, P } = C, last = P.cur[P.cur.length - 1], today = d.source.asOf.slice(0, 10);
-    const day = ecByOutletIdx(d, sc.on, [last]);
+    const { d, sc } = C, today = d.source.asOf.slice(0, 10);
     const pend = d.open.filter((r) => sc.on[r[2]] && r[3] === "Pending");
-    const blank = () => ({ pend: 0, pendAmt: 0, pend2: 0, pendT: 0, delDay: 0 });
+    const blank = () => ({ pend: 0, pendAmt: 0, pend2: 0, pendT: 0, pendTAmt: 0 });
     const rl = new Map(), zn = new Map(), all = blank();
     const at = (o) => {
       const a = rl.get(o.rl) || blank(); rl.set(o.rl, a);
       const kz = `${o.rl}\u0001${o.zn}`, z = zn.get(kz) || { ...blank(), rl: o.rl, zn: o.zn }; zn.set(kz, z);
       return [a, z, all];
     };
-    pend.forEach((r) => at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (r[9] > 2) g.pend2++; if (r[5] === today) g.pendT++; }));
-    day.forEach((t) => at(t.o).forEach((g) => (g.delDay += t.deliv)));
-    const keep = (g) => g.pend || g.delDay, plain = (x) => x.replace(/^M[rs]+\.\s*/, "");
-    return { last, today, all,
+    pend.forEach((r) => at(d.O[r[2]]).forEach((g) => { g.pend++; g.pendAmt += r[8]; if (r[9] > 2) g.pend2++; if (r[5] === today) { g.pendT++; g.pendTAmt += r[8]; } }));
+    const keep = (g) => g.pend, plain = (x) => x.replace(/^M[rs]+\.\s*/, "");
+    return { today, all,
       rl: [...rl.entries()].filter(([, g]) => keep(g)).sort((a, b) => plain(a[0]).localeCompare(plain(b[0]))),
       zn: [...zn.values()].filter(keep).sort((a, b) => plain(a.rl).localeCompare(plain(b.rl)) || plain(a.zn).localeCompare(plain(b.zn))) };
   }
   function ecReportPages(C) {
-    const { d, sc } = C, R = ecReportData(C), dayL = fdate(d.days[R.last], true), todayL = fdate(R.today, true);
+    const { d, sc } = C, R = ecReportData(C), todayL = fdate(R.today, true);
     const nm = (x) => esc(x.replace(/^M[rs]+\.\s*/, ""));
-    const cells = (g) => `<td class="n">${int(g.pend)}</td><td class="n">${bdt(g.pendAmt)}</td><td class="n${g.pend2 ? " bad" : ""}">${int(g.pend2)}</td><td class="n">${int(g.pendT)}</td><td class="n">${int(g.delDay)}</td>`;
-    const sumHead = (first) => `<tr><th>${first}</th><th class="n">Pending</th><th class="n">Pending amount</th><th class="n">Pending &gt; 2 days</th><th class="n">Pending today (${esc(todayL)})</th><th class="n">Delivered ${esc(dayL)}</th></tr>`;
+    const cells = (g) => `<td class="n">${int(g.pendT)}</td><td class="n${g.pend2 ? " bad" : ""}">${int(g.pend2)}</td><td class="n"><b>${int(g.pend)}</b></td><td class="n">${bdt(g.pendTAmt)}</td><td class="n">${bdt(g.pendAmt)}</td>`;
+    const sumHead = (first) => `<tr><th>${first}</th><th class="n">Pending today (${esc(todayL)})</th><th class="n">Pending &gt; 2 days</th><th class="n">Total pending</th><th class="n">Today's pending amount</th><th class="n">Total pending amount</th></tr>`;
     // blocks: { h } a heading, { t: head, r: row } a table row (the head repeats on a new page)
     const B = [];
     B.push({ h: "By RHO" });
@@ -6956,8 +6954,8 @@
     });
     const A = R.all, kpi = (l, v, s2) => `<div class="ecr-k"><small>${l}</small><b>${v}</b><span>${s2}</span></div>`;
     const head = `<div class="ecr-head"><div><p>Shwapno E-Commerce</p><h1>Pending orders by RHO and zonal</h1><span>${esc(sc.label)} · as of the export ${esc(d.source.asOf)}</span></div><img src="assets/shwapno-logo.jpg" alt="" onerror="this.remove()"></div>
-      <div class="ecr-kpis">${kpi("Pending", int(A.pend), bdt(A.pendAmt))}${kpi("Pending over 2 days", int(A.pend2), "Placed more than 2 days ago")}${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi(`Delivered ${esc(dayL)}`, int(A.delDay), "Latest slot date in the export")}</div>`;
-    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = status Pending (Processing not included). Pending today = pending with today's slot date. Delivered = by slot date.</span><span>Page ${i} of ${n}</span></div>` };
+      <div class="ecr-kpis">${kpi(`Pending today (${esc(todayL)})`, int(A.pendT), "Slot date today")}${kpi("Pending &gt; 2 days", int(A.pend2), "Placed more than 2 days ago")}${kpi("Total pending", int(A.pend), "All pending orders")}${kpi("Today's pending amount", bdt(A.pendTAmt), "Slot date today")}${kpi("Total pending amount", bdt(A.pendAmt), "All pending orders")}</div>`;
+    return { B, head, foot: (i, n) => `<div class="ecr-foot"><span>Pending = status Pending (Processing not included). Pending today = pending with today's slot date. &gt; 2 days = placed more than 2 days ago.</span><span>Page ${i} of ${n}</span></div>` };
   }
   async function ecPdf() {
     const C = S.ecomC, host = $("#ecPdfHost"), status = $("#ecPdfStatus"), btn = $("[data-ec-pdf]");
