@@ -18,7 +18,7 @@ downloaded again.
 
 Output:
   zr.json      meta, months, All Year rows, projection rows, network totals, all-outlet month summaries,
-               outlets [[code, name, file]]
+               outlets [[code, name, file, last month with data]]
   zr/<code>.json  {code, name, months: {"YYYY-MM": [[sales by category], [footfall by category]]}}
 
 Environment:
@@ -47,6 +47,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 FOLDER = (os.environ.get("ZR_FOLDER_ID") or "1oRRVEZ7A6AjrsXZ-wHx7JQrDh3FoB2eb").strip()
 OUT = Path(os.environ.get("ZR_OUT") or ROOT / "data" / "zr.json")
 OUT_DIR = OUT.with_suffix("")  # data/zr/
+SCHEMA = 2  # a new schema rebuilds even when the workbook is unchanged
 SHEETS = ("MAIN", "All Year", "AUTOMATED PROJECTED ZREPORT")
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 OREL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -300,9 +301,9 @@ def build(path, meta):
             used.add(fn)
             body = {"code": code, "name": names[code], "months": {m: [[tidy(v) for v in a], [tidy(v) for v in b]] for m, (a, b) in sorted(months[code].items())}}
             (tmp / fn).write_text(json.dumps(body, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-            outlets.append([code, names[code], f"{OUT_DIR.name}/{fn}"])
+            outlets.append([code, names[code], f"{OUT_DIR.name}/{fn}", max(months[code])])  # last month with a row
         payload = {
-            "schema": 1, "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            "schema": SCHEMA, "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "source": {"folder": FOLDER, **meta},
             "months": sorted(set(horizon) | set(actual)), "actual": actual,
             # [label, category index or null, [indexes of the rows it adds up]]
@@ -351,7 +352,8 @@ def main():
         log("::warning::No workbook in the Z-Report folder; zr.json left as is.")
         return 1
     try:
-        old = json.loads(OUT.read_text(encoding="utf-8")).get("source", {})
+        prev = json.loads(OUT.read_text(encoding="utf-8"))
+        old = prev.get("source", {}) if prev.get("schema") == SCHEMA else {}
     except (OSError, ValueError):
         old = {}
     with tempfile.TemporaryDirectory(prefix="zr-") as work:

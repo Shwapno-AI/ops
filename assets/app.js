@@ -8148,18 +8148,18 @@
     if (!act.includes(v.end)) v.end = last;
     if (!act.includes(v.start)) v.start = act[Math.max(0, act.indexOf(v.end) - 11)];
     if (v.start > v.end) v.start = v.end;
-    if (v.sum && !d.summaries.some((x) => x.month === v.sum)) v.sum = "";
+    v.mode = v.mode === "all" && d.summaries.length ? "all" : "outlet"; // one outlet, or the workbook's all-outlet rows
     if (v.cat && !d.rows.some((r) => zrNorm(r[0]) === zrNorm(v.cat))) v.cat = "";
     v.metric = ["sales", "ff", "basket"].includes(v.metric) ? v.metric : "sales";
-    v.scope = v.scope === "all" && d.summaries.length ? "all" : "outlet";
     if (!act.includes(v.pm)) v.pm = v.end;
-    v.sa = v.sa || { k: "cat", dir: 1 }; v.sp = v.sp || { k: "cat", dir: 1 };
+    v.rl = v.rl || ""; v.zn = v.zn || "";
+    v.sa = v.sa || { k: "order", dir: 1 }; v.sp = v.sp || { k: "order", dir: 1 };
     return v;
   }
   function zrProject(d, v, outRows) {
     const end = v.pm, ly = zrShift(end, -12), ply = zrShift(ly, -1), target = zrShift(end, 1);
     const sum = (m) => d.summaries.find((x) => x.month === m);
-    const at = (m) => (v.scope === "all" ? (sum(m) ? zrRows(d.rows, sum(m).sales, sum(m).ff) : zrRows(d.rows)) : outRows(m));
+    const at = (m) => (v.mode === "all" ? (sum(m) ? zrRows(d.rows, sum(m).sales, sum(m).ff) : zrRows(d.rows)) : outRows(m));
     const LY = at(ly), LM = at(end), gi = d.grand;
     const nLY = d.network[ly] || [0, 0], nP = d.network[ply] || [0, 0];
     const fS = nP[0] ? nLY[0] / nP[0] - 1 : null, fF = nP[1] ? nLY[1] / nP[1] - 1 : null;
@@ -8189,7 +8189,8 @@
   const zrSortHead = (st, key, label, attr, extra = "") => `<button class="sort-button${st.k === key ? " active" : ""}" ${attr}="${esc(key)}">${esc(label)}<span>${st.k === key ? (st.dir === 1 ? "▲" : "▼") : "↕"}</span></button>${extra}`;
   const zrCmp = (a, b) => (typeof a === "number" && typeof b === "number" ? a - b : a === null || a === undefined ? -1 : b === null || b === undefined ? 1 : String(a).localeCompare(String(b), undefined, { numeric: true }));
   // keep the grand total at the bottom whatever the sort
-  const zrSort = (rows, st, get) => { const g = rows.filter((r) => zrNorm(r.label) === "grand total"), o = rows.filter((r) => zrNorm(r.label) !== "grand total"); o.sort((a, b) => zrCmp(get(a, st.k), get(b, st.k)) * st.dir); return o.concat(g); };
+  const zrSort = (rows, st, get) => { if (st.k === "order") return rows; // the workbook's own order: each group's categories, then its total
+    const g = rows.filter((r) => zrNorm(r.label) === "grand total"), o = rows.filter((r) => zrNorm(r.label) !== "grand total"); o.sort((a, b) => zrCmp(get(a, st.k), get(b, st.k)) * st.dir); return o.concat(g); };
   function zrTrend(host, months, vals, fmt, title) {
     if (!host) return;
     if (!months.length) { host.innerHTML = '<p class="empty">No months in the range.</p>'; return; }
@@ -8205,35 +8206,76 @@
       ${nums.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3.5" style="fill:var(--info);stroke:var(--surface)" stroke-width="1.5"/><rect x="${(X(i) - (W - l - r) / Math.max(1, months.length - 1) / 2).toFixed(1)}" y="${t}" width="${((W - l - r) / Math.max(1, months.length - 1)).toFixed(1)}" height="${H - t - b}" fill="transparent" data-zrtip="${esc(`<strong>${esc(fmonth(months[i]))}</strong><dl><dt>${esc(title)}</dt><dd>${esc(fmt(vals[i]))}</dd></dl>`)}"/>`).join("")}</svg>`;
     $$("[data-zrtip]", host).forEach((n) => attachTip(n, () => n.dataset.zrtip));
   }
+  // outlets with the master's RHO and zonal, those still trading (a row in the latest month) first
+  function zrOutlets(d) {
+    if (S.zrList?.d === d && S.zrList.m === S.data?.master) return S.zrList.list;
+    const master = new Map((S.data?.master?.outlets || []).map((o) => [o.c, o])), last = d.actual[d.actual.length - 1];
+    const list = d.outlets.map(([c, n, , lm]) => {
+      const m = master.get(c), nm = String(n || "").replace(new RegExp(`^${c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[-–:]?\\s*`, "i"), "") || n;
+      return { c, nm, rl: m?.rl || "", zn: m?.zn || "", lm: lm || "", live: !lm || lm === last, hay: `${c} ${nm} ${m?.zn || ""}`.toLowerCase() };
+    }).sort((a, b) => (b.live - a.live) || a.c.localeCompare(b.c, undefined, { numeric: true }));
+    S.zrList = { d, m: S.data?.master, list };
+    return list;
+  }
   function pageZR() {
     if (!S.zrd) { loadZr(); return `<p class="empty">${S.zrErr ? `The Z-Report data could not be loaded (${esc(S.zrErr)}). Upload the Z-Report workbook (sheets MAIN, All Year and AUTOMATED PROJECTED ZREPORT) to the Z-Report Drive folder.` : "Loading the Z-Report…"}</p>`; }
-    const d = S.zrd, v = zrView(), act = d.actual;
-    const oMeta = d.outlets.find((o) => o[0] === v.code), out = S.zrO?.[v.code];
-    if (!out) zrLoadOutlet(v.code);
-    const master = new Map((S.data?.master?.outlets || []).map((o) => [o.c, o]));
-    const mo = master.get(v.code);
+    const d = S.zrd, v = zrView(), act = d.actual, all = v.mode === "all";
+    const list = zrOutlets(d), sel = list.find((o) => o.c === v.code);
+    const out = S.zrO?.[v.code];
+    if (!all && !out) zrLoadOutlet(v.code);
     const outRows = (m) => { const rec = out?.months?.[m]; return zrRows(d.rows, rec?.[0], rec?.[1]); };
-    const sumRec = v.sum ? d.summaries.find((x) => x.month === v.sum) : null;
-    const months = sumRec ? [sumRec.month] : act.filter((m) => m >= v.start && m <= v.end);
-    const MR = Object.fromEntries(months.map((m) => [m, sumRec ? zrRows(d.rows, sumRec.sales, sumRec.ff) : outRows(m)]));
+    const sumOf = (m) => d.summaries.find((x) => x.month === m);
+    const months = act.filter((m) => m >= v.start && m <= v.end && (!all || sumOf(m)));
+    const MR = Object.fromEntries(months.map((m) => [m, all ? zrRows(d.rows, sumOf(m).sales, sumOf(m).ff) : outRows(m)]));
     const fi = v.cat ? d.rows.findIndex((r) => zrNorm(r[0]) === zrNorm(v.cat)) : d.grand, focus = v.cat ? d.rows[fi][0] : "Grand Total";
     const metricName = { sales: "Sales", ff: "FF", basket: "Basket" }[v.metric];
     const fmtM = (x) => (v.metric === "basket" ? (isNum(x) ? x.toFixed(1) : "—") : v.metric === "ff" ? int(x) : bdt(x));
-    const who = sumRec ? `All outlets, ${fmonth(sumRec.month)} (${int(sumRec.outlets)} outlets)` : `${v.code} ${oMeta?.[1] || ""}`;
-    // controls
-    const outOpts = d.outlets.map((o) => { const m2 = master.get(o[0]); return `<option value="${esc(o[0])}">${esc(o[0])} ${esc(o[1])}${m2?.zn ? ` · ${esc(m2.zn)}` : ""}</option>`; }).join("");
-    const monOpts = (sel) => act.map((m) => `<option value="${m}" ${m === sel ? "selected" : ""}>${esc(fmonth(m))}</option>`).join("");
-    const controls = `<section class="panel"><div class="panel-body zr-ctl">
-      <label><span>Outlet</span><select class="sel" data-zr="code">${outOpts.replace(`value="${esc(v.code)}"`, `value="${esc(v.code)}" selected`)}</select></label>
-      <label><span>Category</span><select class="sel" data-zr="cat"><option value="">All categories (Grand Total)</option>${d.rows.filter((r) => zrNorm(r[0]) !== "grand total").map((r) => `<option value="${esc(r[0])}" ${zrNorm(r[0]) === zrNorm(v.cat) ? "selected" : ""}>${r[1] === null ? "▸ " : ""}${esc(r[0])}</option>`).join("")}</select></label>
-      <label><span>All-outlet month summary</span><select class="sel" data-zr="sum"><option value="">Selected outlet and date range</option>${d.summaries.slice().reverse().map((x) => `<option value="${x.month}" ${x.month === v.sum ? "selected" : ""}>${esc(fmonth(x.month))} · ${int(x.outlets)} outlets</option>`).join("")}</select></label>
-      <label><span>From</span><select class="sel" data-zr="start" ${sumRec ? "disabled" : ""}>${monOpts(v.start)}</select></label>
-      <label><span>To</span><select class="sel" data-zr="end" ${sumRec ? "disabled" : ""}>${monOpts(v.end)}</select></label>
-      <div><span>Quick range</span><div class="seg" role="group" aria-label="Quick range">${[["6", "6M"], ["12", "12M"], ["24", "24M"], ["all", "All"]].map(([k, t]) => `<button type="button" data-zrq="${k}" ${sumRec ? "disabled" : ""}>${t}</button>`).join("")}</div></div>
-      <div><span>&nbsp;</span><button class="btn" type="button" data-zrreset>Reset</button></div>
+    const lastSum = sumOf(months[months.length - 1] || "");
+    const who = all ? `All outlets${lastSum ? ` (${int(lastSum.outlets)} in ${fmonth(lastSum.month)})` : ""}` : `${v.code} ${sel?.nm || ""}`;
+
+    // ---- filter bar: what is shown (one outlet / all outlets), which outlet, period, category
+    const narrowed = list.filter((o) => (!v.rl || o.rl === v.rl) && (!v.zn || o.zn === v.zn));
+    const rls = [...new Set(list.map((o) => o.rl).filter(Boolean))].sort(), zns = [...new Set(list.filter((o) => !v.rl || o.rl === v.rl).map((o) => o.zn).filter(Boolean))].sort();
+    const idx = narrowed.findIndex((o) => o.c === v.code);
+    const span = act.indexOf(v.end) - act.indexOf(v.start) + 1;
+    const quick = [["6", "6M"], ["12", "12M"], ["24", "24M"], ["all", "All"]].map(([k, t]) => {
+      const on = k === "all" ? v.start === act[0] : span === +k;
+      return `<button type="button" data-zrq="${k}" aria-pressed="${on}">${t}</button>`;
+    }).join("");
+    // categories grouped as in the workbook: each group's categories, then the rest
+    const inGroup = new Set(), groups = d.rows.map((r, i) => ({ r, i })).filter(({ r, i }) => r[1] === null && i !== d.grand).map(({ r }) => {
+      const kids = r[2].filter((j) => d.rows[j][1] !== null); kids.forEach((j) => inGroup.add(j)); return { r, kids };
+    });
+    const opt = (label, txt) => `<option value="${esc(label)}" ${zrNorm(label) === zrNorm(v.cat) ? "selected" : ""}>${esc(txt || label)}</option>`;
+    const rest = d.rows.map((r, j) => ({ r, j })).filter(({ r, j }) => r[1] !== null && !inGroup.has(j));
+    const catSel = `<select class="sel" data-zr="cat" aria-label="Category"><option value="">Grand Total (all categories)</option>
+      ${groups.map((g) => `<optgroup label="${esc(g.r[0])}">${opt(g.r[0], `${g.r[0]} (group total)`)}${g.kids.map((j) => opt(d.rows[j][0])).join("")}</optgroup>`).join("")}
+      ${rest.length ? `<optgroup label="Other categories">${rest.map(({ r }) => opt(r[0])).join("")}</optgroup>` : ""}</select>`;
+    const monSel = (key, cur, aria) => `<select class="sel" data-zr="${key}" aria-label="${aria}">${act.map((m) => `<option value="${m}" ${m === cur ? "selected" : ""}>${esc(fmonth(m))}</option>`).join("")}</select>`;
+    const ctx = `${all ? `<b>All outlets</b>` : `<b>${esc(v.code)} ${esc(sel?.nm || "")}</b>${sel?.zn ? ` · ${esc(sel.zn)}` : ""}${sel?.rl ? ` · ${esc(sel.rl)}` : ""}${sel && !sel.live ? ` · <span class="down">no sales since ${esc(fmonth(sel.lm))}</span>` : ""}`}
+      · <b>${esc(fmonth(v.start))} – ${esc(fmonth(v.end))}</b> (${int(months.length)} month${months.length === 1 ? "" : "s"})
+      · <b>${esc(focus)}</b>${v.cat ? ` <button type="button" class="zr-x" data-zrclear title="Back to Grand Total" aria-label="Clear category">×</button>` : ""}`;
+    const controls = `<section class="panel zr-bar"><div class="panel-body">
+      <div class="zr-row">
+        <div class="zr-f"><span class="zr-l">Show</span><div class="seg" role="group" aria-label="Show">${[["outlet", "One outlet"], ["all", "All outlets"]].map(([k, t]) => `<button type="button" data-zrmode="${k}" aria-pressed="${v.mode === k}" ${k === "all" && !d.summaries.length ? "disabled" : ""}>${t}</button>`).join("")}</div></div>
+        ${all ? `<div class="zr-f zr-grow"><span class="zr-l">&nbsp;</span><p class="muted zr-note">The workbook's all-outlet rows (All:Mon-YY), month by month.</p></div>` : `
+        <div class="zr-f zr-grow"><span class="zr-l">Outlet <span class="muted">· type a code, name or zonal</span></span>
+          <div class="zr-pick"><input id="zrQ" class="search" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. D109 or Bashundhara" value="${esc(sel ? `${sel.c} · ${sel.nm}` : v.code)}" aria-label="Outlet" aria-autocomplete="list" aria-controls="zrSug"><div id="zrSug" class="zr-sug" role="listbox" hidden></div></div></div>
+        <div class="zr-f"><span class="zr-l">&nbsp;</span><div class="zr-step"><button class="btn" type="button" data-zrstep="-1" ${idx <= 0 ? "disabled" : ""} title="Previous outlet" aria-label="Previous outlet">‹</button><span class="muted">${idx >= 0 ? `${int(idx + 1)} of ${int(narrowed.length)}` : `${int(narrowed.length)} outlets`}</span><button class="btn" type="button" data-zrstep="1" ${idx < 0 || idx >= narrowed.length - 1 ? "disabled" : ""} title="Next outlet" aria-label="Next outlet">›</button></div></div>
+        <div class="zr-f"><span class="zr-l">RHO</span><select class="sel" data-zr="rl"><option value="">All RHOs</option>${rls.map((x) => `<option value="${esc(x)}" ${x === v.rl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
+        <div class="zr-f"><span class="zr-l">Zonal</span><select class="sel" data-zr="zn"><option value="">All zonals</option>${zns.map((x) => `<option value="${esc(x)}" ${x === v.zn ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>`}
+      </div>
+      <div class="zr-row">
+        <div class="zr-f"><span class="zr-l">Period</span><div class="zr-period">${monSel("start", v.start, "From month")}<span class="muted">to</span>${monSel("end", v.end, "To month")}<div class="seg" role="group" aria-label="Quick period">${quick}</div></div></div>
+        <div class="zr-f zr-grow"><span class="zr-l">Category</span>${catSel}</div>
+        <div class="zr-f"><span class="zr-l">&nbsp;</span><button class="btn" type="button" data-zrreset>Reset all</button></div>
+      </div>
+      <p class="zr-ctx">Showing ${ctx}</p>
     </div></section>`;
-    if (!out && !sumRec) return `${controls}<p class="empty">${S.zrOErr ? `Could not load ${esc(S.zrOErr)}.` : `Loading ${esc(v.code)}…`}</p>`;
-    // Dashboard 1: All Year
+    AFTER.push(() => zrWire($("#view")));
+    if (!all && !out) return `${controls}<p class="empty">${S.zrOErr ? `Could not load ${esc(S.zrOErr)}.` : `Loading ${esc(v.code)}…`}</p>`;
+
+    // ---- Dashboard 1: All Year
     const tot = (k) => months.reduce((a, m) => a + (MR[m][k][fi] || 0), 0);
     const sales = tot("sales"), ff = tot("ff"), lastM = months[months.length - 1], prevM = months.length > 1 ? months[months.length - 2] : null;
     const lS = lastM ? MR[lastM].sales[fi] || 0 : 0, pS = prevM ? MR[prevM].sales[fi] || 0 : 0, mom = pS ? lS / pS - 1 : null;
@@ -8243,27 +8285,28 @@
       ${kpi({ label: "Period basket", value: ff ? (sales / ff).toFixed(1) : "—", sub: "Sales ÷ FF" })}
       ${kpi({ label: "Average monthly sales", value: bdt(months.length ? sales / months.length : null), sub: esc(focus) })}
       ${kpi({ label: "Latest month sales", value: bdt(lS), sub: lastM ? esc(fmonth(lastM)) : "" })}
-      ${kpi({ label: "Latest MoM growth", value: delta(mom), sub: prevM ? `vs ${esc(fmonth(prevM))}` : "", accent: isNum(mom) && mom < 0 ? "var(--bad)" : "var(--good)" })}
+      ${kpi({ label: "Latest month vs month before", value: delta(mom), sub: prevM ? `vs ${esc(fmonth(prevM))}` : "", accent: isNum(mom) && mom < 0 ? "var(--bad)" : "var(--good)" })}
     </div>`;
     AFTER.push(() => zrTrend($("#zrTrend"), months, months.map((m) => MR[m][v.metric][fi]), fmtM, `${metricName}, ${focus}`));
     const getA = (r, k) => (k === "cat" ? r.label : MR[k]?.[v.metric][r.i]);
     const aRows = zrSort(d.rows.map((r, i) => ({ label: r[0], total: r[1] === null, i })).filter((r) => !v.cat || zrNorm(r.label) === zrNorm(v.cat)), v.sa, getA);
     const rowCls = (r) => (zrNorm(r.label) === "grand total" ? "zr-grand" : r.total ? "zr-total" : "");
+    const orderBtn = (st, attr) => `<button type="button" class="zr-order" ${attr}="order" aria-pressed="${st.k === "order"}" title="Rows in the workbook's order">Workbook order</button>`;
     const tableA = `<div class="table-wrap zr-wrap"><table class="compact zr-table"><thead><tr><th class="zr-cat">${zrSortHead(v.sa, "cat", "Category", "data-zrsa")}</th>${months.map((m) => `<th class="num">${zrSortHead(v.sa, m, zrMon(m), "data-zrsa")}</th>`).join("")}</tr></thead>
-      <tbody>${aRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${months.map((m) => `<td class="num">${fmtM(MR[m][v.metric][r.i])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-    NCSV.zra = () => [`z_report_${sumRec ? "all_outlets" : v.code}_${v.metric}`, ["Category", ...months.map(zrMon)], aRows.map((r) => [r.label, ...months.map((m) => { const x = MR[m][v.metric][r.i]; return isNum(x) ? (v.metric === "basket" ? +x.toFixed(2) : Math.round(x)) : ""; })]), months[months.length - 1]];
-    const dash1 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 1 · All Year</h2><p>${esc(who)}${v.cat ? ` · ${esc(focus)}` : ""} · category ${esc(metricName.toLowerCase())} by month. Click a heading to sort; groups and the Grand Total add up their categories as in the workbook.</p></div>
-      <div class="panel-tools">${`<div class="seg" role="group" aria-label="Measure">${[["sales", "Sales"], ["ff", "FF"], ["basket", "Basket"]].map(([k, t]) => `<button type="button" data-zrm="${k}" aria-pressed="${v.metric === k}">${t}</button>`).join("")}</div>`}${csvBtn("zra")}</div></div>
+      <tbody>${aRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${months.map((m) => `<td class="num">${fmtM(MR[m][v.metric][r.i])}</td>`).join("")}</tr>`).join("") || `<tr><td class="empty" colspan="${months.length + 1}">No months in the period.</td></tr>`}</tbody></table></div>`;
+    NCSV.zra = () => [`z_report_${all ? "all_outlets" : v.code}_${v.metric}`, ["Category", ...months.map(zrMon)], aRows.map((r) => [r.label, ...months.map((m) => { const x = MR[m][v.metric][r.i]; return isNum(x) ? (v.metric === "basket" ? +x.toFixed(2) : Math.round(x)) : ""; })]), months[months.length - 1]];
+    const dash1 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 1 · All Year</h2><p>${esc(who)} · ${esc(focus)} · ${esc(metricName.toLowerCase())} by month. Click a heading to sort; groups and the Grand Total add up their categories as in the workbook.</p></div>
+      <div class="panel-tools"><div class="seg" role="group" aria-label="Measure">${[["sales", "Sales"], ["ff", "FF"], ["basket", "Basket"]].map(([k, t]) => `<button type="button" data-zrm="${k}" aria-pressed="${v.metric === k}">${t}</button>`).join("")}</div>${orderBtn(v.sa, "data-zrsa")}${csvBtn("zra")}</div></div>
       <div class="panel-body">${kp1}<h3 class="zr-h">Monthly ${esc(metricName.toLowerCase())} · ${esc(focus)}</h3><div id="zrTrend" class="zr-chart"></div></div>${tableA}</section>`;
-    // Dashboard 2: projection
+
+    // ---- Dashboard 2: projection, for what is shown above
     const P = zrProject(d, v, outRows), fr = v.cat ? P.rows.find((r) => zrNorm(r.label) === zrNorm(v.cat)) || P.grand : P.grand;
     const yoy = fr.lyS ? fr.pS / fr.lyS - 1 : null, pmom = fr.lmS ? fr.pS / fr.lmS - 1 : null;
-    const scopeName = v.scope === "all" ? "All outlets" : `${v.code} ${oMeta?.[1] || ""}`;
     const kp2 = `<div class="kpis">
       ${kpi({ label: "Last year sales", value: bdt(fr.lyS), sub: `${esc(focus)} · ${esc(fmonth(P.ly))}` })}
       ${kpi({ label: "Last month sales", value: bdt(fr.lmS), sub: `${esc(focus)} · ${esc(fmonth(P.end))}` })}
       ${kpi({ label: "Projected sales", value: bdt(fr.pS), sub: `${esc(focus)} · ${esc(fmonth(P.target))}`, accent: "var(--good)" })}
-      ${kpi({ label: "Projected growth vs last year", value: delta(yoy), sub: `vs ${esc(fmonth(P.ly))}`, accent: isNum(yoy) && yoy < 0 ? "var(--bad)" : "var(--good)" })}
+      ${kpi({ label: "Projected vs last year", value: delta(yoy), sub: `vs ${esc(fmonth(P.ly))}`, accent: isNum(yoy) && yoy < 0 ? "var(--bad)" : "var(--good)" })}
       ${kpi({ label: "Projected vs last month", value: delta(pmom), sub: `vs ${esc(fmonth(P.end))}`, accent: isNum(pmom) && pmom < 0 ? "var(--bad)" : "var(--good)" })}
       ${kpi({ label: "Network seasonal factor", value: isNum(P.fS) ? delta(P.fS) : "—", sub: `${esc(fmonth(P.ly))} vs ${esc(fmonth(P.ply))}` })}
     </div>`;
@@ -8275,30 +8318,58 @@
       <tr><th class="zr-cat" rowspan="2">${zrSortHead(v.sp, "cat", "Category", "data-zrsp")}</th><th colspan="3" class="zr-g">Last year · ${esc(zrMon(P.ly))}</th><th colspan="3" class="zr-g">Last month · ${esc(zrMon(P.end))}</th><th colspan="3" class="zr-g zr-gp">Projected · ${esc(zrMon(P.target))}</th><th colspan="3" class="zr-g zr-gd">Growth / de-growth vs last year</th><th class="num" rowspan="2">${zrSortHead(v.sp, "con", "Con %", "data-zrsp")}</th></tr>
       <tr>${PC.map(([k, t]) => `<th class="num">${zrSortHead(v.sp, k, t, "data-zrsp")}</th>`).join("")}</tr></thead>
       <tbody>${pRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${PC.map(([k]) => `<td class="num ${dcls(k, r[k])}">${cell(r, k)}</td>`).join("")}<td class="num">${pct(r.con, 1)}</td></tr>`).join("")}</tbody></table></div>`;
-    NCSV.zrp = () => [`z_report_projected_${v.scope === "all" ? "all_outlets" : v.code}_${P.end}_to`, ["Category", ...PC.map(([k, t]) => `${{ ly: "Last year", lm: "Last month", p: "Projected", d: "Growth" }[k.replace(/[SFB]$/, "")]} ${t}`), "Con %"],
+    NCSV.zrp = () => [`z_report_projected_${all ? "all_outlets" : v.code}_${P.end}_to`, ["Category", ...PC.map(([k, t]) => `${{ ly: "Last year", lm: "Last month", p: "Projected", d: "Growth" }[k.replace(/[SFB]$/, "")]} ${t}`), "Con %"],
       pRows.map((r) => [r.label, ...PC.map(([k]) => (isNum(r[k]) ? (/B$/.test(k) ? +r[k].toFixed(2) : Math.round(r[k])) : "")), +(r.con * 100).toFixed(2)]), P.target];
-    const dash2 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 2 · Automated projected Z-Report</h2><p>${esc(scopeName)}${v.cat ? ` · ${esc(focus)}` : ""} · projected ${esc(fmonth(P.target))} = ${esc(fmonth(P.end))} × (1 + the network's change from ${esc(fmonth(P.ply))} to ${esc(fmonth(P.ly))}: sales ${isNum(P.fS) ? pct(P.fS, 1) : "n/a"}, FF ${isNum(P.fF) ? pct(P.fF, 1) : "n/a"}), split by ${esc(fmonth(P.end))}'s category mix.</p></div>
-      <div class="panel-tools"><select class="sel" data-zr="scope" aria-label="Projection scope"><option value="outlet" ${v.scope === "outlet" ? "selected" : ""}>Selected outlet</option>${d.summaries.length ? `<option value="all" ${v.scope === "all" ? "selected" : ""}>All outlets</option>` : ""}</select>
-      <select class="sel" data-zr="pm" aria-label="Last month">${act.map((m) => `<option value="${m}" ${m === v.pm ? "selected" : ""}>Last month ${esc(fmonth(m))}</option>`).join("")}</select>${csvBtn("zrp")}</div></div>
+    const dash2 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 2 · Automated projected Z-Report</h2><p>${esc(who)} · ${esc(focus)} · projected ${esc(fmonth(P.target))} = ${esc(fmonth(P.end))} × (1 + the network's change from ${esc(fmonth(P.ply))} to ${esc(fmonth(P.ly))}: sales ${isNum(P.fS) ? pct(P.fS, 1) : "n/a"}, FF ${isNum(P.fF) ? pct(P.fF, 1) : "n/a"}), split by ${esc(fmonth(P.end))}'s category mix.</p></div>
+      <div class="panel-tools"><label class="zr-inline"><span>Project from</span><select class="sel" data-zr="pm" aria-label="Project from month">${act.map((m) => `<option value="${m}" ${m === v.pm ? "selected" : ""}>${esc(fmonth(m))}</option>`).join("")}</select></label>${orderBtn(v.sp, "data-zrsp")}${csvBtn("zrp")}</div></div>
       <div class="panel-body">${kp2}</div>${tableP}</section>`;
-    AFTER.push(() => zrWire($("#view")));
     return `${controls}${dash1}${dash2}<p class="muted" style="font-size:12px">From ${esc(d.source?.file || "the Z-Report workbook")}${d.source?.modified ? ` (updated ${esc(d.source.modified)})` : ""}; actual months ${esc(fmonth(act[0]))} to ${esc(fmonth(act[act.length - 1]))}.</p>`;
   }
   function zrWire(root) {
-    const v = S.zrv, d = S.zrd;
+    const v = S.zrv, d = S.zrd, act = d.actual;
+    const pick = (code) => { v.code = code; v.mode = "outlet"; v.pm = v.end; changed(); };
     $$("[data-zr]", root).forEach((n) => (n.onchange = () => {
       const k = n.dataset.zr; v[k] = n.value;
-      // the projection follows the top controls, as in the workbook: a month summary projects all outlets from that month
-      if (k === "sum") { v.scope = n.value ? "all" : "outlet"; v.pm = n.value || v.end; }
-      if (k === "code") { v.scope = "outlet"; v.sum = ""; v.pm = v.end; }
-      if (k === "end") v.pm = n.value;
+      if (k === "rl") v.zn = "";
+      // a new RHO or zonal moves to its first trading outlet when the current one is outside it
+      if (k === "rl" || k === "zn") { const l = zrOutlets(d).filter((o) => (!v.rl || o.rl === v.rl) && (!v.zn || o.zn === v.zn)); if (l.length && !l.some((o) => o.c === v.code)) v.code = l[0].c; }
+      if (k === "end" || k === "start") { if (v.start > v.end) [v.start, v.end] = [v.end, v.start]; v.pm = v.end; }
       changed();
     }));
+    $$("[data-zrmode]", root).forEach((n) => (n.onclick = () => { v.mode = n.dataset.zrmode; changed(); }));
     $$("[data-zrm]", root).forEach((n) => (n.onclick = () => { v.metric = n.dataset.zrm; changed(); }));
-    $$("[data-zrq]", root).forEach((n) => (n.onclick = () => { const q = n.dataset.zrq; v.start = q === "all" ? d.actual[0] : d.actual[Math.max(0, d.actual.indexOf(v.end) - (+q - 1))]; v.pm = v.end; changed(); }));
+    $$("[data-zrq]", root).forEach((n) => (n.onclick = () => { const q = n.dataset.zrq; v.start = q === "all" ? act[0] : act[Math.max(0, act.indexOf(v.end) - (+q - 1))]; v.pm = v.end; changed(); }));
+    $$("[data-zrclear]", root).forEach((n) => (n.onclick = () => { v.cat = ""; changed(); }));
     $$("[data-zrreset]", root).forEach((n) => (n.onclick = () => { S.zrv = { code: v.code }; changed(); }));
-    const sorter = (attr, key) => $$(`[${attr}]`, root).forEach((n) => (n.onclick = () => { const k = n.getAttribute(attr), st = v[key]; if (st.k === k) st.dir = -st.dir; else { st.k = k; st.dir = k === "cat" ? 1 : -1; } changed(); }));
+    $$("[data-zrstep]", root).forEach((n) => (n.onclick = () => {
+      const l = zrOutlets(d).filter((o) => (!v.rl || o.rl === v.rl) && (!v.zn || o.zn === v.zn)), i = l.findIndex((o) => o.c === v.code), o = l[i + +n.dataset.zrstep];
+      if (o) pick(o.c);
+    }));
+    const sorter = (attr, key) => $$(`[${attr}]`, root).forEach((n) => (n.onclick = () => { const k = n.getAttribute(attr), st = v[key]; if (k === "order") { st.k = "order"; st.dir = 1; } else if (st.k === k) st.dir = -st.dir; else { st.k = k; st.dir = k === "cat" ? 1 : -1; } changed(); }));
     sorter("data-zrsa", "sa"); sorter("data-zrsp", "sp");
+    // outlet search: suggestions as you type; arrows, Enter and Escape work
+    const q = $("#zrQ", root), box = $("#zrSug", root);
+    if (!q || !box) return;
+    let hits = [], at = 0;
+    const show = () => {
+      const t = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const base = zrOutlets(d).filter((o) => (!v.rl || o.rl === v.rl) && (!v.zn || o.zn === v.zn));
+      hits = (t.length ? base.filter((o) => t.every((w) => o.hay.includes(w))) : base)
+        .sort((a, b) => { const qq = t.join(" "), s = (o) => (o.c.toLowerCase() === qq ? 0 : o.c.toLowerCase().startsWith(qq) ? 1 : o.nm.toLowerCase().startsWith(qq) ? 2 : 3); return s(a) - s(b) || (b.live - a.live); }).slice(0, 40);
+      at = Math.min(at, Math.max(0, hits.length - 1));
+      box.innerHTML = hits.length ? hits.map((o, i) => `<button type="button" role="option" class="zr-opt${i === at ? " on" : ""}${o.c === v.code ? " cur" : ""}" data-c="${esc(o.c)}" aria-selected="${i === at}"><b>${esc(o.c)}</b><span>${esc(o.nm)}</span><small>${esc([o.zn, o.rl].filter(Boolean).join(" · "))}${o.live ? "" : `${o.zn || o.rl ? " · " : ""}no sales since ${esc(fmonth(o.lm))}`}</small></button>`).join("")
+        : `<p class="muted zr-none">No outlet matches${v.rl || v.zn ? " in this RHO / zonal" : ""}.</p>`;
+      box.hidden = false;
+      $$(".zr-opt", box).forEach((b) => (b.onmousedown = (e) => { e.preventDefault(); pick(b.dataset.c); }));
+    };
+    q.onfocus = () => { q.select(); at = 0; q.dataset.typed = ""; show(); };
+    q.oninput = () => { at = 0; q.dataset.typed = "1"; show(); };
+    q.onblur = () => setTimeout(() => { box.hidden = true; const s = zrOutlets(d).find((o) => o.c === v.code); q.value = s ? `${s.c} · ${s.nm}` : v.code; }, 120);
+    q.onkeydown = (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (box.hidden) show(); at = Math.max(0, Math.min(hits.length - 1, at + (e.key === "ArrowDown" ? 1 : -1))); $$(".zr-opt", box).forEach((b, i) => { b.classList.toggle("on", i === at); b.setAttribute("aria-selected", i === at); if (i === at) b.scrollIntoView({ block: "nearest" }); }); }
+      else if (e.key === "Enter") { e.preventDefault(); if (hits[at]) pick(hits[at].c); }
+      else if (e.key === "Escape") { box.hidden = true; q.blur(); }
+    };
   }
 
   function pageIPO() {
