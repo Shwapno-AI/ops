@@ -4169,201 +4169,114 @@
     const type = S.avv.type, scan = avScan(type);
     return `${avBar()}${avSkuTable("av-sku", scan, "SKU wise availability", type, 50, avSeg("type", AV_TYPES, "SKU type"))}`;
   }
-  // ---- By division, zonal and outlet: a full analysis of the scope in view (every outlet in the filters, or the
-  // group drilled into). Every figure counts outlet × SKU pairs at the chosen days of cover. "Sales at risk" is the
-  // average daily sales (60-day sales ÷ 60) of the pairs that sell but have no stock, in units per day.
+  // ---- By division, zonal and outlet: the outlets of the network with every figure, and an outlet × CAT3 matrix.
+  // Every figure counts outlet × SKU pairs at the chosen days of cover. "At risk/day" is the average daily sales
+  // (60-day sales ÷ 60) of the pairs that sell but have no stock, in units per day.
   const AV_HEX = ["#2f8f6f", "#7db88a", "#e0bf57", "#e5904f", "#c4533b"];
   const avHex = (r) => (isNum(r) ? AV_HEX[avBandIdx(r)] : "");
   const avUnits = (v) => (!isNum(v) ? "—" : v < 10 ? v.toFixed(1) : int(v));
   const avPp = (v) => (!isNum(v) ? "—" : `<span class="${v < -0.00005 ? "down" : v > 0.00005 ? "up" : "muted"}">${v > 0.00005 ? "+" : v < -0.00005 ? "−" : ""}${Math.abs(v * 100).toFixed(1)} pp</span>`);
-  // One pass over the pairs of the given outlets and SKUs: totals, per outlet, per SKU and the sales at risk.
-  function avScanOn(outs, skus) {
-    const d = S.av, days = avDays(), N = d.S;
-    const tot = avAcc(), byO = new Map(), byS = new Map(skus.map((s) => [s.i, avAcc()])), lostO = new Map(), lostS = new Map();
-    let lost = 0;
+  const avCell = (v, attr) => { const r = v && v[0] ? v[1] / v[0] : null; return isNum(r) ? `<span class="avo-c" ${attr} tabindex="0" role="button" style="background:${avHex(r)};color:${readableInk(avHex(r))}" title="${int(v[1])} of ${int(v[0])} SKUs available">${Math.round(r * 100)}%</span>` : '<span class="avo-c avo-c0">·</span>'; };
+  // One pass over the pairs in view: per outlet totals, sales at risk, and each outlet's CAT3 figures.
+  function avOutletCat(type) {
+    const d = S.av, days = avDays(), N = d.S, skus = avSkus(type), outs = avOutlets();
+    const tot = avAcc(), byO = new Map(), lostO = new Map(), cat = new Map(), catNet = new Map();
     for (const o of outs) {
-      const a = avAcc(), base = o.i * N;
+      const a = avAcc(), base = o.i * N, mc = new Map();
       let lo = 0;
       for (const s of skus) {
-        const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days);
-        avAdd(a, st, sl, days, k); avAdd(byS.get(s.i), st, sl, days, k);
-        if (k === 2) { const pd = sl / 60; lo += pd; lostS.set(s.i, (lostS.get(s.i) || 0) + pd); }
+        const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days), c = s.cat3 || "—";
+        avAdd(a, st, sl, days, k);
+        if (k === 2) lo += sl / 60;
+        const x = mc.get(c) || [0, 0]; x[0]++; if (AV_OK[k]) x[1]++; mc.set(c, x);
+        const y = catNet.get(c) || [0, 0]; y[0]++; if (AV_OK[k]) y[1]++; catNet.set(c, y);
       }
-      byO.set(o.i, a); lostO.set(o.i, lo); lost += lo;
-      tot.slots += a.slots; tot.ok += a.ok; a.st.forEach((x, i) => (tot.st[i] += x)); tot.stock += a.stock; tot.perDay += a.perDay; tot.short += a.short;
+      byO.set(o.i, a); lostO.set(o.i, lo); cat.set(o.i, mc);
+      tot.slots += a.slots; tot.ok += a.ok; a.st.forEach((x, i) => (tot.st[i] += x));
     }
-    return { tot, byO, byS, outs, skus, lostO, lostS, lost };
+    return { tot, byO, lostO, cat, catNet, outs, skus };
   }
-  // Availability of every (row, column) cell, e.g. zonal × product division.
-  function avCross(sc, rowOf, colOf) {
-    const d = S.av, days = avDays(), N = d.S, m = new Map(), cols = new Map(), rowT = new Map();
-    const bump = (map, k, ok) => { const x = map.get(k) || [0, 0]; x[0]++; if (ok) x[1]++; map.set(k, x); };
-    for (const o of sc.outs) {
-      const base = o.i * N;
-      for (const s of sc.skus) {
-        const ok = AV_OK[avStatus(d.stock[base + s.i], d.sales60[base + s.i], days)], r = rowOf(o, s), c = colOf(o, s);
-        let row = m.get(r); if (!row) m.set(r, (row = new Map()));
-        bump(row, c, ok); bump(cols, c, ok); bump(rowT, r, ok);
-      }
-    }
-    return { m, cols, rowT };
-  }
-  const avAddAcc = (x, a) => { x.slots += a.slots; x.ok += a.ok; a.st.forEach((v, i) => (x.st[i] += v)); x.stock += a.stock; x.perDay += a.perDay; x.short += a.short; };
 
   function pageAVB() {
     const g = avGuard(); if (g) return g;
-    // Drill path: RHO > zonal > outlet, product division > CAT3 > SKU, zonal > outlet, CAT3 > SKU.
-    const type = S.avv.type, level = S.avv.level, stamp = S.av.generatedAt.slice(0, 10), SUB = { rl: "zn", nd: "cat3" };
-    const gd = gdrill("av-b", level);
-    let gd2 = gd && SUB[level] ? gdrill("av-b2", SUB[level]) : null;
-    const outAxis = level === "zn" || level === "rl" || level === "outlet";
-    const net = avScanOn(avOutlets(), avSkus(type));
-    const keepO = (o) => !outAxis || ((!gd || o.dim[level] === gd.key) && (!gd2 || o.dim[gd2.level] === gd2.key));
-    const keepS = (s) => outAxis || ((!gd || (s[level] || "—") === gd.key) && (!gd2 || (s[gd2.level] || "—") === gd2.key));
-    if (gd2 && !(outAxis ? net.outs.some(keepO) : net.skus.some(keepS))) { delete S.gdrill["av-b2"]; gd2 = null; } // left over from another group
-    const sc = !gd ? net : avScanOn(net.outs.filter(keepO), net.skus.filter(keepS));
-    const r0 = avRate(sc.tot), rN = avRate(net.tot), T = sc.tot;
-    const gLevel = gd ? (SUB[level] && !gd2 ? SUB[level] : null) : level === "outlet" ? null : level, tid = gd ? "av-b2" : "av-b";
-    const scopeName = gd ? `${AV_LEVELS[level]} ${avUnassigned(gd.key)}${gd2 ? ` › ${AV_LEVELS[gd2.level]} ${avUnassigned(gd2.key)}` : ""}` : "the network";
-    const typeName = AV_TYPES.find((t) => t[0] === type)[1];
-    const unit = !gLevel ? (outAxis ? "outlet" : "sku") : outAxis ? "ogroup" : "sgroup";
-    const oRate = (o) => avRate(sc.byO.get(o.i) || avAcc());
-    const lowOut = (os) => os.filter((o) => { const r = oRate(o); return isNum(r) && avBandIdx(r) >= 3; }).length;
-    const half = Math.max(1, sc.outs.length / 2);
+    const type = S.avv.type, stamp = S.av.generatedAt.slice(0, 10), X = avOutletCat(type), rN = avRate(X.tot);
+    const v = (x) => (x && x !== NET_MISS ? x : "—");
+    const rows = X.outs.map((o) => {
+      const a = X.byO.get(o.i), mc = X.cat.get(o.i), cats = [...mc].filter(([, c]) => c[0]).map(([k, c]) => ({ k, r: c[1] / c[0], n: c[0] }));
+      const worst = cats.filter((c) => c.n >= 3).sort((p, q) => p.r - q.r)[0];
+      return { ...a, o, key: o.c, rate: avRate(a), lost: X.lostO.get(o.i) || 0, mc, worst, low: cats.filter((c) => avBandIdx(c.r) >= 3).length, ncat: cats.length };
+    }).filter((x) => x.slots);
+    const ranked = rows.slice().sort((p, q) => q.rate - p.rate);
+    ranked.forEach((x, i) => (x.rank = i + 1));
+    rows.forEach((x) => (x.gap = isNum(x.rate) && isNum(rN) ? x.rate - rN : null));
+    const oAttr = (x) => `data-avoutlet="${esc(x.key)}" data-avtype="${type}"`;
+    const info = (k, label, get, hide) => ({ k, label, val: (x) => get(x.o), fmt: (x) => esc(v(get(x.o))), csv: (x) => v(get(x.o)), ...(hide ? { hide: 1 } : {}) });
+    const outletCol = { k: "name", label: "Outlet", val: (x) => x.key, fmt: (x) => `<span class="cell-primary">${esc(x.o.c)} · ${esc(x.o.n)}</span><span class="cell-secondary">${esc(v(x.o.dim.zn))} · ${esc(v(x.o.dim.rl))}</span>`, csv: (x) => `${x.o.c} ${x.o.n}` };
+    const outT = mountTable("av-out", { title: "Outlets of the network", file: `availability_outlets_${type}`, stamp, pageSize: 50,
+      desc: (n) => `${int(n)} outlets, lowest availability first. Network ${pct(rN, 2)} at ${avDays()} day${avDays() === 1 ? "" : "s"} of cover. "vs network" is the gap in percentage points; at risk/day is the daily sales of the items that sell but have no stock. Use Columns to show more. Click an outlet for its missing items.`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.o.c} ${x.o.n} ${x.o.dim.zn} ${x.o.dim.rl} ${x.o.dim.div} ${x.o.dim.dis} ${x.o.dim.fmt}`, defaultSort: "rate", defaultDir: "asc",
+      rowAttr: (x) => `${oAttr(x)} tabindex="0"`,
+      cols: [outletCol,
+        info("rl", "RHO", (o) => o.dim.rl), info("zn", "Zonal", (o) => o.dim.zn),
+        info("div", "Division", (o) => o.dim.div, 1), info("dis", "District", (o) => o.dim.dis, 1), info("area", "Area", (o) => o.dim.area, 1),
+        info("fmt", "Format", (o) => o.dim.fmt), info("own", "Ownership", (o) => o.dim.own, 1), info("pnp", "PNP", (o) => o.dim.pnp, 1), info("loc", "Location type", (o) => o.dim.loc, 1),
+        { k: "kvi", label: "KVI outlet", val: (x) => (x.o.kvi ? 1 : 0), fmt: (x) => (x.o.kvi ? "Yes" : "—"), csv: (x) => (x.o.kvi ? "Yes" : ""), hide: 1 },
+        { k: "ecom", label: "E-Com outlet", val: (x) => (x.o.ecom ? 1 : 0), fmt: (x) => (x.o.ecom ? "Yes" : "—"), csv: (x) => (x.o.ecom ? "Yes" : ""), hide: 1 },
+        { k: "slots", label: "SKUs", num: 1, fmt: (x) => int(x.slots) },
+        { k: "rate", label: "Availability", num: 1, firstDir: "asc", val: (x) => x.rate, fmt: (x) => `<span class="rate-pair"><strong>${pct(x.rate, 2)}</strong>${chip(avBand(x.rate))}</span>`, csv: (x) => (isNum(x.rate) ? (x.rate * 100).toFixed(2) : "") },
+        { k: "rank", label: "Rank", num: 1, fmt: (x) => `${int(x.rank)} <small class="muted">of ${int(rows.length)}</small>`, csv: (x) => x.rank },
+        { k: "gap", label: "vs network", num: 1, firstDir: "asc", val: (x) => x.gap, fmt: (x) => avPp(x.gap), csv: (x) => (isNum(x.gap) ? (x.gap * 100).toFixed(2) : "") },
+        { k: "ok", label: "Available", num: 1, fmt: (x) => int(x.ok) },
+        { k: "oos", label: "Out of stock", num: 1, val: (x) => x.st[2], fmt: (x) => `${int(x.st[2])} <small class="muted">${pct(x.st[2] / x.slots, 0)}</small>`, csv: (x) => x.st[2] },
+        { k: "below", label: "Below cover", num: 1, val: (x) => x.st[1], fmt: (x) => int(x.st[1]), csv: (x) => x.st[1] },
+        { k: "nsin", label: "No sales, in stock", num: 1, val: (x) => x.st[3], fmt: (x) => int(x.st[3]), csv: (x) => x.st[3], hide: 1 },
+        { k: "nsout", label: "No sales, no stock", num: 1, val: (x) => x.st[4], fmt: (x) => int(x.st[4]), csv: (x) => x.st[4] },
+        { k: "lost", label: "At risk/day", num: 1, val: (x) => x.lost, fmt: (x) => avUnits(x.lost), csv: (x) => x.lost.toFixed(2) },
+        { k: "short", label: "Shortfall (units)", num: 1, fmt: (x) => int(x.short), csv: (x) => Math.round(x.short), hide: 1 },
+        { k: "stock", label: "Stock (units)", num: 1, fmt: (x) => int(x.stock), csv: (x) => Math.round(x.stock), hide: 1 },
+        { k: "perDay", label: "Sales per day", num: 1, fmt: (x) => avUnits(x.perDay), csv: (x) => x.perDay.toFixed(2), hide: 1 },
+        { k: "low", label: "CAT3 at 70% or below", num: 1, fmt: (x) => (x.low ? `<span class="down">${int(x.low)}</span> <small class="muted">of ${int(x.ncat)}</small>` : `0 <small class="muted">of ${int(x.ncat)}</small>`), csv: (x) => x.low },
+        { k: "worst", label: "Weakest CAT3", val: (x) => (x.worst ? x.worst.r : null), fmt: (x) => (x.worst ? `${esc(x.worst.k)} <small class="muted">${pct(x.worst.r, 0)}</small>` : "—"), csv: (x) => (x.worst ? `${x.worst.k} ${(x.worst.r * 100).toFixed(1)}%` : "") }] });
 
-    // ---- rows of the main table
-    let rows;
-    if (unit === "outlet") {
-      rows = sc.outs.map((o) => ({ ...sc.byO.get(o.i), key: o.c, name: `${o.c} · ${o.n}`, sub: `${avUnassigned(o.dim.zn)} · ${avUnassigned(o.dim.rl)} · ${o.dim.fmt}`, lost: sc.lostO.get(o.i) || 0, attr: `data-avoutlet="${esc(o.c)}" data-avtype="${type}"` }));
-    } else if (unit === "sku") {
-      rows = sc.skus.map((s) => { const a = sc.byS.get(s.i); return { ...a, key: s.c, name: s.n, sub: `${s.c} · ${s.nd || "—"} · ${s.cat3 || "—"} · ${avTypeChips(s)}`, n: a.st[2], lost: sc.lostS.get(s.i) || 0, attr: `data-avsku="${esc(s.c)}" data-avtype="${type}"` }; });
-    } else {
-      const gm = new Map(), get = (k) => gm.get(k) || gm.set(k, { ...avAcc(), key: k, name: avUnassigned(k), n: 0, lost: 0, low: 0, mostly: 0, members: [] }).get(k);
-      if (unit === "ogroup") sc.outs.forEach((o) => { const x = get(o.dim[gLevel]); avAddAcc(x, sc.byO.get(o.i)); x.n++; x.lost += sc.lostO.get(o.i) || 0; x.members.push(o); });
-      else sc.skus.forEach((s) => { const x = get(s[gLevel] || "—"), a = sc.byS.get(s.i); avAddAcc(x, a); x.n++; x.lost += sc.lostS.get(s.i) || 0; if (a.st[2] > half) x.mostly++; });
-      rows = [...gm.values()];
-      if (unit === "ogroup") rows.forEach((x) => (x.low = lowOut(x.members)));
-      rows.forEach((x) => (x.attr = `data-gpick="${tid}" data-glevel="${gLevel}" data-gkey="${esc(x.key)}" title="Analyse ${esc(x.name)}"`));
+    // Outlet × CAT3: CAT3 columns weakest first across the network; click a cell for that outlet's SKUs in the CAT3.
+    const cats = [...X.catNet].filter(([, c]) => c[0]).sort((p, q) => p[1][1] / p[1][0] - q[1][1] / q[1][0]).map(([k]) => k);
+    const mxT = mountTable("av-ocat", { title: "Outlet × CAT3", file: `availability_outlet_by_cat3_${type}`, stamp, pageSize: 50,
+      desc: (n) => `${int(n)} outlets × ${int(cats.length)} CAT3. Each cell is the share of that CAT3's SKUs available at the outlet; CAT3 columns run weakest first across the network. Green 91%+, amber 71–80%, red 60% or below. Click a cell for its SKUs, or All SKUs for every missing item.`,
+      rows, key: (x) => x.key, searchText: (x) => `${x.o.c} ${x.o.n} ${x.o.dim.zn} ${x.o.dim.rl}`, defaultSort: "all", defaultDir: "asc",
+      cols: [outletCol,
+        { k: "all", label: "All SKUs", num: 1, firstDir: "asc", val: (x) => x.rate, fmt: (x) => avCell([x.slots, x.ok], oAttr(x)), csv: (x) => (isNum(x.rate) ? (x.rate * 100).toFixed(1) : "") },
+        ...cats.map((c, i) => ({ k: `c${i}`, label: c, num: 1, firstDir: "asc", val: (x) => { const y = x.mc.get(c); return y && y[0] ? y[1] / y[0] : null; },
+          fmt: (x) => avCell(x.mc.get(c), `data-avocat="${esc(x.key)}" data-avcat="${esc(c)}" data-avtype="${type}"`),
+          csv: (x) => { const y = x.mc.get(c); return y && y[0] ? ((y[1] / y[0]) * 100).toFixed(1) : ""; } }))] });
+
+    return `${avBar()}<section class="panel"><div class="panel-head"><div><h2>SKU type</h2><p>Both tables cover the outlets in the sidebar filters and the division and CAT3 picked above.</p></div><div class="panel-tools">${avSeg("type", AV_TYPES, "SKU type")}</div></div></section>
+      ${outT}
+      <div class="avo-mx">${mxT}</div>`;
+  }
+  // One outlet's SKUs in one CAT3, missing first.
+  function openAvOutletCat(code, cat, type) {
+    const d = S.av, o = d.byCode.get(code);
+    if (!o) return;
+    S.lastFocus = document.activeElement;
+    const days = avDays(), base = o.i * d.S, a = avAcc(), rows = [];
+    for (const s of avSkus(type).filter((x) => (x.cat3 || "—") === cat)) {
+      const st = d.stock[base + s.i], sl = d.sales60[base + s.i], k = avStatus(st, sl, days), pd = sl > 0 ? sl / 60 : 0;
+      avAdd(a, st, sl, days, k);
+      rows.push({ k, st, pd, need: sl > 0 ? Math.max(0, pd * days - st) : 0, name: s.n, sub: `${s.c} · ${s.nd || "—"} · ${avTypeChips(s)}` });
     }
-    rows = rows.filter((x) => x.slots);
-    rows.forEach((x) => { x.rate = avRate(x); x.gap = isNum(x.rate) && isNum(r0) ? x.rate - r0 : null; x.share = T.st[2] ? x.st[2] / T.st[2] : 0; });
-    const byRate = rows.slice().sort((a, b) => a.rate - b.rate);
-    const rowWord = { outlet: "outlet", sku: "SKU", ogroup: gLevel === "rl" ? "RHO" : (AV_LEVELS[gLevel] || "").toLowerCase(), sgroup: gLevel === "cat3" ? "CAT3" : "product division" }[unit];
-
-    // ---- KPIs
-    const outsBelow = lowOut(sc.outs);
-    const skuRates = sc.skus.map((s) => sc.byS.get(s.i)).filter((a) => a.slots);
-    const skuMostly = sc.skus.filter((s) => sc.byS.get(s.i).st[2] > half).length;
-    const b0 = avBand(r0);
-    const kpis = `<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
-      ${kpi({ hero: true, label: `${esc(typeName)} availability, ${gd ? esc(scopeName) : "all outlets in view"}`, value: avPct(T), accent: "var(--series-2)",
-        sub: `${chip(b0)}<span>${int(T.ok)} of ${int(T.slots)} pairs</span>`,
-        foot: `<div class="bar" style="flex:1 1 100%;margin:2px 0 6px"><i style="width:${Math.min(1, r0 || 0) * 100}%;background:var(--${b0.cls})"></i></div>${gd ? `<span>Network ${pct(rN, 2)} · ${avPp(r0 - rN)}</span>` : `<span>${avDays()} day${avDays() === 1 ? "" : "s"} of cover</span>`}` })}
-      ${kpi({ label: "Out of stock", value: int(T.st[2]), accent: "var(--bad)", sub: `<span>${pct(T.slots ? T.st[2] / T.slots : null, 1)} of pairs sell but have no stock</span>`, foot: `<span>No sales, no stock ${int(T.st[4])}</span>` })}
-      ${kpi({ label: "Below cover", value: int(T.st[1]), accent: "var(--warn)", sub: `<span>${pct(T.slots ? T.st[1] / T.slots : null, 1)} of pairs in stock but short of ${avDays()} day${avDays() === 1 ? "" : "s"}</span>`, foot: `<span>Shortfall ${int(T.short)} units</span>` })}
-      ${kpi({ label: "Sales at risk per day", value: avUnits(sc.lost), accent: "var(--crit, var(--bad))", sub: `<span>units/day on out-of-stock pairs</span>`, foot: `<span>${T.perDay ? pct(sc.lost / T.perDay, 1) : "—"} of the scope's daily sales</span>` })}
-      ${kpi({ label: "Outlets at 70% or below", value: int(outsBelow), accent: "var(--warn)", sub: `<span>of ${int(sc.outs.length)} outlets</span>`, foot: `<span>${sc.outs.length ? pct(outsBelow / sc.outs.length, 1) : "—"} of outlets</span>` })}
-      ${kpi({ label: "SKUs out in most outlets", value: int(skuMostly), accent: "var(--bad)", sub: `<span>of ${int(skuRates.length)} SKUs are out of stock in more than half the outlets</span>` })}
-    </div>`;
-
-    // ---- automatic findings
-    const fx = [];
-    const tip = (cls, text) => fx.push(`<li class="avb-f ${cls}">${text}</li>`);
-    if (byRate.length > 1) {
-      const lo = byRate[0], hi = byRate[byRate.length - 1];
-      tip("bad", `Weakest ${rowWord}: <b>${esc(lo.name)}</b> at ${pct(lo.rate, 1)} (${avPp(lo.gap)} against ${esc(scopeName)}); strongest: <b>${esc(hi.name)}</b> at ${pct(hi.rate, 1)}. The spread is ${((hi.rate - lo.rate) * 100).toFixed(1)} pp.`);
-      const below = byRate.filter((x) => x.gap < 0).length;
-      tip("info", `${int(below)} of ${int(byRate.length)} ${rowWord === "SKU" || rowWord === "outlet" ? rowWord + "s" : "groups"} are below the average of ${pct(r0, 1)}${gd ? ` for ${esc(scopeName)}` : ""}.`);
-    }
-    if (T.st[2]) {
-      const top = rows.slice().sort((a, b) => b.st[2] - a.st[2]).slice(0, 3);
-      tip("warn", `${top.map((x) => `<b>${esc(x.name)}</b>`).join(", ")} hold ${pct(top.reduce((s, x) => s + x.share, 0), 1)} of all out-of-stock pairs here.`);
-      const skuOos = sc.skus.map((s) => sc.byS.get(s.i).st[2]).sort((a, b) => b - a), top20 = skuOos.slice(0, 20).reduce((s, v) => s + v, 0);
-      if (sc.skus.length > 20) tip("info", `The 20 most-missed SKUs make up ${pct(top20 / T.st[2], 1)} of out-of-stock pairs${top20 / T.st[2] > 0.4 ? ", so fixing a short list moves the whole figure" : ", so the gaps are spread widely"}.`);
-    }
-    if (skuMostly) tip("bad", `${int(skuMostly)} SKU${skuMostly === 1 ? " is" : "s are"} out of stock in more than half of the ${int(sc.outs.length)} outlets: likely a supply or listing problem rather than an outlet one.`);
-    if (T.st[1]) tip("warn", `${int(T.st[1])} pairs (${pct(T.st[1] / T.slots, 1)}) have stock but less than ${avDays()} day${avDays() === 1 ? "" : "s"} of sales: replenishing them adds up to ${pct(T.st[1] / T.slots, 1)} to availability without new listings.`);
-    if (sc.outs.length > 1) {
-      const wo = sc.outs.map((o) => ({ o, r: oRate(o) })).filter((x) => isNum(x.r)).sort((a, b) => a.r - b.r)[0];
-      if (wo) tip("bad", `${int(outsBelow)} outlet${outsBelow === 1 ? "" : "s"} at 70% or below; the lowest is <b>${esc(wo.o.c)} · ${esc(wo.o.n)}</b> at ${pct(wo.r, 1)}.`);
-    }
-    if (sc.lost > 0) tip("info", `Out-of-stock pairs would sell about ${avUnits(sc.lost)} units a day, ${T.perDay ? pct(sc.lost / T.perDay, 1) : "—"} of daily sales in this scope.`);
-    if (gd) tip(r0 >= rN ? "good" : "bad", `${esc(scopeName)} is ${avPp(r0 - rN)} against the network (${pct(rN, 1)}).`);
-
-    // ---- outlet distribution by band and the status mix
-    const bandN = [0, 0, 0, 0, 0];
-    sc.outs.forEach((o) => { const r = oRate(o); if (isNum(r)) bandN[avBandIdx(r)]++; });
-    const bandTot = bandN.reduce((a, b) => a + b, 0) || 1;
-    const dist = `<section class="panel"><div class="panel-head"><div><h2>Outlets by availability band</h2><p>${int(sc.outs.length)} outlets in ${esc(scopeName)}, each at its own availability.</p></div></div>
-      <div class="panel-body bands">${AV_BANDS.map((b, i) => `<div class="band-row"><span class="avb-dot" style="background:${AV_HEX[i]}"></span><span style="min-width:96px">${b}</span><div class="bar"><i style="width:${(bandN[i] / bandTot) * 100}%;background:${AV_HEX[i]}"></i></div><strong class="num" style="min-width:70px;text-align:right">${int(bandN[i])} <small class="muted">${pct(bandN[i] / bandTot, 0)}</small></strong></div>`).join("")}</div></section>`;
-    const mix = `<section class="panel"><div class="panel-head"><div><h2>Status of every pair</h2><p>Why pairs are not available, as a share of all ${int(T.slots)} pairs.</p></div></div>${avStrip(T)}
-      <div class="panel-body"><div class="avb-stack">${AV_ST.map((s, i) => (T.st[i] ? `<i title="${esc(s.label)}: ${int(T.st[i])}" style="width:${(T.st[i] / T.slots) * 100}%;background:var(--${s.cls})"></i>` : "")).join("")}</div></div></section>`;
-
-    // ---- ranked bars (groups, or the worst outlets / SKUs)
-    const rk = byRate.slice(0, 20);
-    const ranked = rk.length > 1 ? `<section class="panel"><div class="panel-head"><div><h2>${unit === "ogroup" || unit === "sgroup" || byRate.length <= 20 ? `Every ${esc(rowWord)}, weakest first` : `The 20 weakest of ${int(byRate.length)} ${esc(rowWord)}s`}</h2><p>Bar = availability; the line marks the average (${pct(r0, 1)}).${unit === "ogroup" || unit === "sgroup" ? " Click a bar to open it." : ""}</p></div></div>
-      <div class="panel-body avb-rank">${rk.map((x) => `<div class="avb-rrow"${unit === "ogroup" || unit === "sgroup" ? ` ${x.attr} tabindex="0" role="button"` : ` ${x.attr} tabindex="0"`}><span class="avb-rname" title="${esc(x.name)}">${esc(x.name)}</span><span class="avb-rbar"><i style="width:${(x.rate || 0) * 100}%;background:${avHex(x.rate)}"></i><b style="left:${(r0 || 0) * 100}%"></b></span><span class="avb-rval">${pct(x.rate, 1)}</span><span class="avb-rgap">${avPp(x.gap)}</span></div>`).join("")}</div></section>` : "";
-
-    // ---- heat map: rows are the groups (or worst outlets / SKUs), columns the other axis
-    const colKey = outAxis ? (S.avv.nd ? (o, s) => s.cat3 || "—" : (o, s) => s.nd || "—") : (o) => o.dim.rl;
-    const colName = outAxis ? (S.avv.nd ? "CAT3" : "product division") : "RHO";
-    const rowKey = unit === "outlet" ? (o) => o.c : unit === "ogroup" ? (o) => o.dim[gLevel] : unit === "sku" ? (o, s) => s.c : (o, s) => s[gLevel] || "—";
-    const rowLbl = (k) => (unit === "outlet" ? `${k} · ${S.av.byCode.get(k)?.n || ""}` : unit === "sku" ? S.av.skuByCode.get(k)?.n || k : avUnassigned(k));
-    const X = avCross(sc, rowKey, colKey);
-    const hRows = [...X.rowT].filter(([, v]) => v[0]).sort((a, b) => a[1][1] / a[1][0] - b[1][1] / b[1][0]).slice(0, 25).map(([k]) => k);
-    const hCols = [...X.cols].filter(([, v]) => v[0]).sort((a, b) => a[1][1] / a[1][0] - b[1][1] / b[1][0]).map(([k]) => k);
-    const cellR = (v) => (v && v[0] ? v[1] / v[0] : null);
-    const hcell = (v) => { const r = cellR(v); return isNum(r) ? `<td class="avb-h" style="background:${avHex(r)};color:${readableInk(avHex(r))}" title="${int(v[1])} of ${int(v[0])} pairs">${Math.round(r * 100)}</td>` : '<td class="avb-h avb-h0">·</td>'; };
-    const hTitle = unit === "sku" ? "SKU" : unit === "outlet" ? "Outlet" : AV_LEVELS[gLevel];
-    NCSV.avbheat = () => [`availability_${gLevel || unit}_by_${colName.replace(/ /g, "_")}`, [hTitle, "All", ...hCols.map(avUnassigned)],
-      hRows.map((k) => [rowLbl(k), (cellR(X.rowT.get(k)) * 100).toFixed(1), ...hCols.map((c) => { const r = cellR(X.m.get(k).get(c)); return isNum(r) ? (r * 100).toFixed(1) : ""; })]), stamp];
-    const heat = hRows.length && hCols.length > 1 ? `<section class="panel"><div class="panel-head"><div><h2>${esc(hTitle)} × ${esc(colName)}</h2><p>Availability % of each cell, weakest rows and columns first${X.rowT.size > 25 ? ` (the 25 weakest of ${int(X.rowT.size)} rows)` : ""}. Green 91%+, amber 71–80%, red 60% or below. Hover a cell for its pairs.</p></div><div class="panel-tools">${csvBtn("avbheat")}</div></div>
-      <div class="table-wrap avb-heat"><table><thead><tr><th>${esc(hTitle)}</th><th class="num">All</th>${hCols.map((c) => `<th class="avb-hc" title="${esc(avUnassigned(c))}"><span>${esc(avUnassigned(c))}</span></th>`).join("")}</tr></thead><tbody>
-        ${hRows.map((k) => `<tr><td class="cell-primary avb-hn" title="${esc(rowLbl(k))}">${esc(rowLbl(k))}</td><td class="num"><b>${pct(cellR(X.rowT.get(k)), 1)}</b></td>${hCols.map((c) => hcell(X.m.get(k).get(c))).join("")}</tr>`).join("")}
-        <tr class="avb-htot"><td><b>All</b></td><td class="num"><b>${pct(r0, 1)}</b></td>${hCols.map((c) => hcell(X.cols.get(c))).join("")}</tr>
-      </tbody></table></div></section>` : "";
-
-    // ---- top missing SKUs and lowest outlets in the scope
-    const topSku = sc.skus.map((s) => ({ s, a: sc.byS.get(s.i), l: sc.lostS.get(s.i) || 0 })).filter((x) => x.a.st[2]).sort((a, b) => b.a.st[2] - a.a.st[2] || b.l - a.l).slice(0, 10);
-    const lowO = sc.outs.map((o) => ({ o, a: sc.byO.get(o.i), l: sc.lostO.get(o.i) || 0 })).filter((x) => x.a.slots).sort((a, b) => avRate(a.a) - avRate(b.a)).slice(0, 10);
-    const mini = (title, note, head, body) => `<section class="panel"><div class="panel-head"><div><h2>${title}</h2><p>${note}</p></div></div><div class="table-wrap"><table class="compact"><thead><tr>${head}</tr></thead><tbody>${body || '<tr><td colspan="4" class="empty">Nothing here.</td></tr>'}</tbody></table></div></section>`;
-    const lists = `<div class="grid-h">${mini("Most-missed SKUs", `Out of stock in the most outlets of ${esc(scopeName)}. Click a SKU for its outlets.`, '<th>SKU</th><th class="num">Outlets out</th><th class="num">Availability</th><th class="num">At risk/day</th>',
-      topSku.map(({ s, a, l }) => `<tr data-avsku="${esc(s.c)}" data-avtype="${type}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(s.n)}</span><span class="cell-secondary">${esc(s.c)} · ${esc(s.cat3 || "—")}</span></td><td class="num">${int(a.st[2])} <small class="muted">of ${int(a.slots)}</small></td><td class="num">${avPct(a)}</td><td class="num">${avUnits(l)}</td></tr>`).join(""))}
-      ${mini("Lowest outlets", `Lowest availability in ${esc(scopeName)}. Click an outlet for the items it is missing.`, '<th>Outlet</th><th class="num">Availability</th><th class="num">Out of stock</th><th class="num">At risk/day</th>',
-      lowO.map(({ o, a, l }) => `<tr data-avoutlet="${esc(o.c)}" data-avtype="${type}" tabindex="0" class="k-click"><td><span class="cell-primary">${esc(o.c)} · ${esc(o.n)}</span><span class="cell-secondary">${esc(avUnassigned(o.dim.zn))} · ${esc(avUnassigned(o.dim.rl))}</span></td><td class="num"><span class="rate-pair"><strong>${avPct(a)}</strong>${chip(avBand(avRate(a)))}</span></td><td class="num">${int(a.st[2])}</td><td class="num">${avUnits(l)}</td></tr>`).join(""))}</div>`;
-
-    // ---- main table
-    const first = { k: "name", label: { outlet: "Outlet", sku: "SKU", ogroup: AV_LEVELS[gLevel], sgroup: AV_LEVELS[gLevel] }[unit], val: (x) => x.name,
-      fmt: (x) => `<span class="cell-primary">${esc(x.name)}</span>${x.sub ? `<span class="cell-secondary">${esc(x.sub)}</span>` : ""}`, csv: (x) => x.name };
-    const cols = [first,
-      ...(unit === "ogroup" ? [{ k: "n", label: "Outlets", num: 1, fmt: (x) => int(x.n) }] : unit === "sgroup" ? [{ k: "n", label: "SKUs", num: 1, fmt: (x) => int(x.n) }] : unit === "sku" ? [{ k: "n", label: "Outlets out", num: 1, fmt: (x) => int(x.n) }] : []),
-      { k: "rate", label: "Availability", num: 1, firstDir: "asc", val: (x) => x.rate, fmt: (x) => `<span class="rate-pair"><strong>${pct(x.rate, 2)}</strong>${chip(avBand(x.rate))}</span>`, csv: (x) => (isNum(x.rate) ? (x.rate * 100).toFixed(2) : "") },
-      { k: "gap", label: `vs ${gd ? "group" : "average"}`, num: 1, firstDir: "asc", val: (x) => x.gap, fmt: (x) => avPp(x.gap), csv: (x) => (isNum(x.gap) ? (x.gap * 100).toFixed(2) : "") },
-      { k: "ok", label: "Available", num: 1, fmt: (x) => int(x.ok) },
-      { k: "oos", label: "Out of stock", num: 1, val: (x) => x.st[2], fmt: (x) => `${int(x.st[2])} <small class="muted">${pct(x.slots ? x.st[2] / x.slots : null, 0)}</small>`, csv: (x) => x.st[2] },
-      { k: "share", label: "Share of all OOS", num: 1, val: (x) => x.share, fmt: (x) => `<span class="avb-sh"><i style="width:${Math.min(100, x.share * 100 * 3)}%"></i>${pct(x.share, 1)}</span>`, csv: (x) => (x.share * 100).toFixed(2) },
-      { k: "below", label: "Below cover", num: 1, val: (x) => x.st[1], fmt: (x) => int(x.st[1]), csv: (x) => x.st[1] },
-      { k: "lost", label: "At risk/day", num: 1, val: (x) => x.lost, fmt: (x) => avUnits(x.lost), csv: (x) => x.lost.toFixed(2) },
-      ...(unit === "ogroup" ? [{ k: "low", label: "Outlets ≤70%", num: 1, fmt: (x) => (x.low ? `<span class="down">${int(x.low)}</span>` : "0") }] : []),
-      ...(unit === "sgroup" ? [{ k: "mostly", label: "SKUs out in most outlets", num: 1, fmt: (x) => (x.mostly ? `<span class="down">${int(x.mostly)}</span>` : "0") }] : []),
-      { k: "nsout", label: "No sales, no stock", num: 1, val: (x) => x.st[4], fmt: (x) => int(x.st[4]), csv: (x) => x.st[4], hide: 1 },
-      { k: "short", label: "Shortfall (units)", num: 1, fmt: (x) => int(x.short), csv: (x) => Math.round(x.short), hide: 1 },
-      { k: "stock", label: "Stock (units)", num: 1, fmt: (x) => int(x.stock), csv: (x) => Math.round(x.stock), hide: 1 },
-      { k: "perDay", label: "Sales per day", num: 1, fmt: (x) => avUnits(x.perDay), csv: (x) => x.perDay.toFixed(2), hide: 1 }];
-    const table = mountTable(unit === "outlet" || unit === "sku" ? "av-b-list" : tid, { title: unit === "outlet" ? `Outlets of ${scopeName}` : unit === "sku" ? `SKUs of ${scopeName}` : `Availability by ${rowWord}`, file: `availability_${gLevel || unit}${gd ? "_" + gd.key : ""}${gd2 ? "_" + gd2.key : ""}`, stamp,
-      desc: (n) => `${int(n)} ${unit === "ogroup" || unit === "sgroup" ? "groups" : rowWord + "s"}, lowest availability first. "vs" is the gap to ${scopeName} (${pct(r0, 1)}); share of all OOS is this row's part of the ${int(T.st[2])} out-of-stock pairs. ${unit === "ogroup" || unit === "sgroup" ? "Click a row to analyse it." : `Click a${unit === "outlet" ? "n outlet" : " SKU"} for the detail.`}`,
-      rows, key: (x) => x.key, searchText: (x) => `${x.name} ${x.sub || ""}`, defaultSort: "rate", defaultDir: "asc", pageSize: 50,
-      rowAttr: (x) => `${x.attr} tabindex="0"`, cols });
-
-    const tools = `${avSeg("level", Object.entries(AV_LEVELS), "Level")}${avSeg("type", AV_TYPES, "SKU type")}`;
-    return `${avBar()}<section class="panel"><div class="panel-head"><div><h2>View by</h2><p>Pick a level; click any group to analyse it on its own (everything below then covers that group and compares it with the network). Click an outlet or SKU for its detail.</p></div><div class="panel-tools">${tools}</div></div>${gd ? `<div class="drill-banner">Analysing <strong>${esc(scopeName)}</strong> within the sidebar filters. <button type="button" data-gclear="av-b">Back to all ${level === "rl" ? "RHOs" : esc(AV_LEVELS[level].toLowerCase())}${level === "rl" ? "" : "s"}</button>${gd2 ? ` <button type="button" data-gclear="av-b2">Back to ${esc(AV_LEVELS[level])} ${esc(avUnassigned(gd.key))}</button>` : ""}</div>` : ""}</section>
-      <section class="panel"><div class="panel-body">${kpis}</div></section>
-      ${fx.length ? `<section class="panel"><div class="panel-head"><div><h2>What stands out</h2><p>Worked out from the pairs in ${esc(scopeName)}.</p></div></div><div class="panel-body"><ul class="avb-fx">${fx.join("")}</ul></div></section>` : ""}
-      <div class="grid-h">${dist}${mix}</div>
-      ${ranked}
-      ${heat}
-      ${lists}
-      ${table}`;
+    rows.sort((p, q) => Number(AV_OK[p.k]) - Number(AV_OK[q.k]) || q.need - p.need || p.k - q.k);
+    NCSV.avocat = () => [`availability_${o.c}_${cat}`, ["Outlet code", "Outlet", "CAT3", "SKU", "Detail", "Status", "Stock", "Sales per day", `Needed for ${days} days`],
+      rows.map((x) => [o.c, o.n, cat, x.name, x.sub, AV_ST[x.k].label, x.st, x.pd.toFixed(2), Math.round(x.need)]), d.generatedAt.slice(0, 10)];
+    $("#drawerTitle").textContent = `${o.c} · ${cat}`;
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${esc(o.n)} · ${esc([o.dim.zn, o.dim.rl].filter((x) => x && x !== NET_MISS).join(" · "))}</p>
+      <div class="stat-grid three"><div class="stat"><small>Availability</small><strong>${avPct(a)}</strong><div style="font-size:12px">${int(a.ok)} of ${int(a.slots)} SKUs</div></div>
+        <div class="stat"><small>Out of stock</small><strong>${int(a.st[2])}</strong><div style="font-size:12px">below cover ${int(a.st[1])}</div></div>
+        <div class="stat"><small>No sales, no stock</small><strong>${int(a.st[4])}</strong><div style="font-size:12px">${days} day${days === 1 ? "" : "s"} of cover</div></div></div>
+      <div class="lr-dtools"><span class="muted">Every SKU of this CAT3 at the outlet, missing first.</span>${csvBtn("avocat")}</div>
+      <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>SKU</th><th>Status</th><th class="num">Stock</th><th class="num">Per day</th><th class="num">Needed</th></tr></thead><tbody>
+        ${rows.map((x) => `<tr><td><span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.sub)}</span></td><td>${chip(AV_ST[x.k])}</td><td class="num">${int(x.st)}</td><td class="num">${x.pd ? x.pd.toFixed(1) : "—"}</td><td class="num">${x.need ? int(x.need) : "—"}</td></tr>`).join("")}</tbody></table></div>`;
+    wireDyn($("#drawerBody"));
+    showDrawer();
   }
   function pageAVE() {
     const g = avGuard(); if (g) return g;
@@ -4492,6 +4405,7 @@
     const on = (sel, fn) => $$(sel, root).forEach((n) => { n.onclick = () => fn(n); n.onkeydown = (e) => { if (e.key === "Enter") fn(n); }; });
     on("[data-avoutlet]", (n) => openAvOutlet(n.dataset.avoutlet, n.dataset.avtype || "all"));
     on("[data-avsku]", (n) => openAvSku(n.dataset.avsku, n.dataset.avtype || "all"));
+    on("[data-avocat]", (n) => openAvOutletCat(n.dataset.avocat, n.dataset.avcat, n.dataset.avtype || "all"));
     on("[data-avecom]", (n) => openAvEcom(n.dataset.avecom));
     on("[data-avgrp]", (n) => openAvGroup(n.dataset.avgrp, n.dataset.avkey, n.dataset.avband != null ? Number(n.dataset.avband) : null, n.dataset.avtypekey || "all", n.dataset.avkvi === "yes"));
     on("[data-avecomband]", (n) => openAvEcomBand(Number(n.dataset.avecomband)));
