@@ -8549,13 +8549,15 @@
       rows, key: (x) => x.key, searchText: (x) => `${x.o.c} ${x.name} ${x.rl} ${x.zn} ${x.fmt} ${x.loc}`, defaultSort: "d", defaultDir: "asc", pageSize: 50,
       rowAttr: (x) => `data-ipout="${esc(x.o.c)}" tabindex="0" role="button"`,
       cols: [{ k: "name", label: "Outlet", fmt: (x) => `<span class="cell-primary">${esc(x.o.c)} ${esc(x.name)}</span><span class="cell-secondary">${x.o.ss ? "Same store" : "Not same store"}</span>`, csv: (x) => x.name, val: (x) => x.name },
-        { k: "code", label: "Outlet code", hide: 1, csv: (x) => x.o.c }, txt("rl", "Regional leader"), txt("zn", "Zonal"), txt("fmt", "Format"), txt("own", "Ownership"), txt("loc", "Location type"),
-        { k: "ss", label: "Same store", hide: 1, csv: (x) => (x.o.ss ? "Yes" : "No") },
+        { k: "code", label: "Outlet code", hide: 1, csv: (x) => x.o.c },
         { k: "a", label: `${lab} this year`, num: 1, fmt: (x) => f(x.a), csv: (x) => Math.round(x.a) },
         { k: "b", label: "Last year", num: 1, fmt: (x) => f(x.b), csv: (x) => Math.round(x.b) },
         { k: "d", label: "Difference", num: 1, fmt: (x) => `<span class="${x.d < 0 ? "down" : "up"}">${f(x.d)}</span>`, csv: (x) => Math.round(x.d) },
         { k: "g", label: "Growth", num: 1, fmt: (x) => delta(x.g), csv: (x) => pcsv(x.g) },
-        { k: "st", label: "Status", fmt: (x) => ipChip(x.st), csv: (x) => x.st, val: (x) => x.st }],
+        { k: "st", label: "Status", fmt: (x) => ipChip(x.st), csv: (x) => x.st, val: (x) => x.st },
+        // outlet details after the figures
+        txt("rl", "Regional leader"), txt("zn", "Zonal"), txt("fmt", "Format"), txt("own", "Ownership"), txt("loc", "Location type"),
+        { k: "ss", label: "Same store", hide: 1, csv: (x) => (x.o.ss ? "Yes" : "No") }],
     });
     return `${ipHead()}${ipCards(list)}${table}`;
   }
