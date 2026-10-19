@@ -5698,24 +5698,28 @@
   const ecMonthSet = (d, months) => new Set(months.map((m) => d.months.indexOf(m)).filter((i) => i >= 0));
   function ecWhyBy(d, on, mi) { // reason -> [customer, back office, not given]
     const g = new Map();
-    d.why.r.forEach(([o, m, r, w, n]) => { if (m !== mi || !on[o]) return; const a = g.get(r) || [0, 0, 0]; a[w] += n; g.set(r, a); });
+    const hit = ecHit(mi);
+    d.why.r.forEach(([o, m, r, w, n]) => { if (!hit(m) || !on[o]) return; const a = g.get(r) || [0, 0, 0]; a[w] += n; g.set(r, a); });
     return g;
   }
   // edit reason -> sub-orders; the free-text "Other: …" reasons are merged regardless of case
   function ecEditBy(d, on, mi) {
     const g = new Map(), key = (k) => (/^other:/i.test(k) ? `Other: ${k.replace(/^other:\s*/i, "").toLowerCase()}` : k);
-    d.edits.r.forEach(([o, m, e, n]) => { if (m === mi && on[o]) { const k = key(d.edits.list[e]); g.set(k, (g.get(k) || 0) + n); } });
+    const hit = ecHit(mi);
+    d.edits.r.forEach(([o, m, e, n]) => { if (hit(m) && on[o]) { const k = key(d.edits.list[e]); g.set(k, (g.get(k) || 0) + n); } });
     return g;
   }
   function ecSlotBy(d, on, mi) { // slot -> weekday -> [n, cancelled, delivered, late]
     const g = d.slots.list.map(() => Array.from({ length: 7 }, () => [0, 0, 0, 0]));
-    d.slots.r.forEach(([o, m, s, wd, n, c, dv, lt]) => { if (m !== mi || !on[o]) return; const x = g[s][wd]; x[0] += n; x[1] += c; x[2] += dv; x[3] += lt; });
+    const hit = ecHit(mi);
+    d.slots.r.forEach(([o, m, s, wd, n, c, dv, lt]) => { if (!hit(m) || !on[o]) return; const x = g[s][wd]; x[0] += n; x[1] += c; x[2] += dv; x[3] += lt; });
     return g;
   }
   const ecAdd4 = (a, x) => [a[0] + x[0], a[1] + x[1], a[2] + x[2], a[3] + x[3]];
   // complaints in scope for the selected month; when the complaints file has no such month, all of its months
   function ecCompScope(d, sc, m) {
-    const has = d.cmonths.includes(m), months = has ? [m] : d.cmonths, set = new Set(months), rows = [];
+    const want = Array.isArray(m) ? m.filter((x) => d.cmonths.includes(x)) : null;
+    const has = want ? want.length > 0 : d.cmonths.includes(m), months = has ? (want || [m]) : d.cmonths, set = new Set(months), rows = [];
     d.complaints.forEach((c, i) => { if (sc.on[c[3]] && set.has(c[0])) rows.push(i); });
     const label = !months.length ? "no months" : months.length === 1 ? fmonth(months[0]) : `${fmonth(months[0])} – ${fmonth(months[months.length - 1])}`;
     return { has, months, rows, label };
@@ -5726,7 +5730,33 @@
   // (SPLM: 1–13 Oct against 1–13 Sep) and with the whole month before (MoM). Counts and amounts compare per day,
   // so periods of different length compare fairly; rates compare in percentage points.
   const ecPrevMonth = (m) => { const y = +m.slice(0, 4), k = +m.slice(5, 7); return k === 1 ? `${y - 1}-12` : `${y}-${String(k - 1).padStart(2, "0")}`; };
-  function ecPeriods(d, mi) {
+  // The period picked: a month, or a rolling window of the last 90 / 180 days of data (worked out here from the
+  // daily figures already loaded, so the windows add nothing to the download). Breakdowns kept only by month in the
+  // data file (slots, order hours, slot moves, districts, complaints) use the whole months the window touches.
+  const EC_WIN = { last90: 90, last180: 180 };
+  function ecSel(d) {
+    const win = EC_WIN[S.ecomM] || 0;
+    return { win, mi: !win && d.months.includes(S.ecomM) ? d.months.indexOf(S.ecomM) : d.months.length - 1 };
+  }
+  const ecHit = (mk) => (mk instanceof Set ? (m) => mk.has(m) : (m) => m === mk);
+  function ecWinPeriods(d, win) {
+    const L = d.days.length, n = Math.min(win, L), cur = [], before = [];
+    for (let i = L - n; i < L; i++) cur.push(i);
+    for (let i = Math.max(0, L - 2 * n); i < L - n; i++) before.push(i);
+    const span = (idx) => (idx.length ? `${fdate(d.days[idx[0]], true)} – ${fdate(d.days[idx[idx.length - 1]])}` : "");
+    const whole = before.length === n, m = d.months[d.dm[L - 1]], pm = ecPrevMonth(m), hasPm = d.months.includes(pm);
+    const P = { m, pm: hasPm ? pm : null, win, cur, mom: whole ? before : [], splm: whole ? before : [], from: 1, to: n, full: true,
+      pcur: d.days.map((x, i) => (x.startsWith(m) ? i : -1)).filter((i) => i >= 0), pmom: hasPm ? d.days.map((x, i) => (x.startsWith(pm) ? i : -1)).filter((i) => i >= 0) : [],
+      curLabel: `Last ${win} days (${span(cur)})`, short: n < win ? `The data starts on ${fdate(d.days[0])}, so this shows ${int(n)} of ${win} days until older exports are added.` : "",
+      splmLabel: whole ? `the ${win} days before (${span(before)})` : "", momLabel: whole ? `the ${win} days before (${span(before)})` : "" };
+    P.cmpKey = S.ecomCmp === "mom" ? "mom" : "splm";
+    P.cmp = P[P.cmpKey];
+    P.cmpLabel = P.splmLabel;
+    P.cmpName = `the ${win} days before`;
+    return P;
+  }
+  function ecPeriods(d, mi, win) {
+    if (win) return ecWinPeriods(d, win);
     const m = d.months[mi], pm = ecPrevMonth(m), has = d.months.includes(pm), cur = [], mom = [];
     d.days.forEach((x, i) => { if (x.startsWith(m)) cur.push(i); else if (has && x.startsWith(pm)) mom.push(i); });
     const from = cur.length ? d.dom[cur[0]] : 1, to = cur.length ? d.dom[cur[cur.length - 1]] : 1;
@@ -5887,9 +5917,9 @@
   function ecKpiM(C, k, daily, valueOverride) {
     const m = EC_MK[k], { P, T, Ts, Tm, d } = C, v = valueOverride !== undefined ? valueOverride : m.v(T);
     const perDay = m.kind === "amt" || m.kind === "cnt";
-    const l1 = P.splm.length ? ecChgHtml(m, ecChg(m, T, Ts), `vs ${P.splmLabel}`) : `<span>No ${esc(P.pm ? fmonth(P.pm) : "earlier month")} in the data</span>`;
+    const l1 = P.splm.length ? ecChgHtml(m, ecChg(m, T, Ts), `vs ${P.splmLabel}`) : `<span>No ${esc(P.win ? `earlier ${P.win} days` : P.pm ? fmonth(P.pm) : "earlier month")} in the data</span>`;
     const l2 = !P.mom.length ? "" : m.same && Tm && Tm.days !== T.days ? `<span>vs ${esc(P.momLabel)}: ${m.fmt(m.v(Tm))} (longer period, not compared)</span>` : ecChgHtml(m, ecChg(m, T, Tm), `vs ${P.momLabel}${perDay ? ", a day" : ""}`);
-    const sp = daily ? ecSpark2(ecByDom(d, P.cur, daily), ecByDom(d, P.splm, daily), P.to) : "";
+    const sp = !daily ? "" : P.win ? ecSpark2(P.cur.map(daily), P.splm.map(daily), P.cur.length) : ecSpark2(ecByDom(d, P.cur, daily), ecByDom(d, P.splm, daily), P.to);
     return `<div class="ec-kpi" ${m.note ? `title="${esc(m.note)}"` : ""}><span class="l">${esc(m.label)}</span><span class="v">${m.fmt(v)}</span><span class="d">${l1}</span>${l2 ? `<span class="d">${l2}</span>` : ""}${sp}</div>`;
   }
 
@@ -5944,7 +5974,7 @@
       }
       return out;
     };
-    return { cur: run(P.cur), prev: run(P.mom), fmt, rate: !!den };
+    return { cur: run(P.pcur || P.cur), prev: run(P.pmom || P.mom), fmt, rate: !!den };
   }
   function ecPace(host, C, k, cum) {
     if (!host) return;
@@ -6024,8 +6054,8 @@
     const X = (i) => ml + (L > 1 ? (i / (L - 1)) * (W - ml - mr) : 0), Y = (v) => mt + (1 - v / top) * (H - mt - mb);
     let g = "";
     for (let k = 0; k <= 4; k++) { const v = (top * k) / 4, y = Y(v).toFixed(1); g += `<line x1="${ml}" x2="${W - mr}" y1="${y}" y2="${y}" style="stroke:var(--grid)"/><text x="${ml - 6}" y="${+y + 3.5}" text-anchor="end" class="cw-axis">${fmt(v)}</text>`; }
-    const sel = d.dm.map((m, i) => (m === mi ? i : -1)).filter((i) => i >= 0);
-    if (sel.length && mi >= 0) g += `<rect x="${X(sel[0]) - 3}" y="${mt}" width="${X(sel[sel.length - 1]) - X(sel[0]) + 6}" height="${H - mt - mb}" style="fill:var(--ec-1);opacity:.09"/>`;
+    const sel = Array.isArray(mi) ? mi : d.dm.map((m, i) => (m === mi ? i : -1)).filter((i) => i >= 0);
+    if (sel.length && (Array.isArray(mi) || mi >= 0)) g += `<rect x="${X(sel[0]) - 3}" y="${mt}" width="${X(sel[sel.length - 1]) - X(sel[0]) + 6}" height="${H - mt - mb}" style="fill:var(--ec-1);opacity:.09"/>`;
     d.months.forEach((m, k) => { const i = d.dm.indexOf(k); if (i >= 0) g += `<line x1="${X(i)}" x2="${X(i)}" y1="${H - mb}" y2="${H - mb + 5}" style="stroke:var(--line)"/><text x="${X(i) + 4}" y="${H - 8}" class="cw-axis">${esc(fmonth(m))}</text>`; });
     let p = "", pen = false;
     series.forEach((v, i) => { if (!isNum(v)) { pen = false; return; } p += `${pen ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`; pen = true; });
@@ -6128,7 +6158,7 @@
     return `<section class="panel ec-head"><div class="ec-head-l"><b title="${esc(`Sub-orders to ${fdate(d.source.asOf.slice(0, 10))}, ${d.source.asOf.slice(11)} · complaints ${cm}`)}">${esc(sc.label)}${sc.zn && sc.rl ? ` <span class="muted">· ${esc(sc.rl)}</span>` : ""}</b>
         <div class="ec-tabs">${seg("ecomTab", EC_TABS, "E-Commerce view")}</div></div>
       <div class="ec-filters">
-        <select class="sel" data-sel="ecomM" aria-label="Month">${d.months.slice().reverse().map((x) => opt(x, ecMonthName(d, x), m)).join("")}</select>
+        <select class="sel" data-sel="ecomM" aria-label="Period">${d.months.slice().reverse().map((x) => opt(x, ecMonthName(d, x), C.win ? "" : m)).join("")}<option disabled>──────────</option>${Object.keys(EC_WIN).map((k) => opt(k, `Last ${EC_WIN[k]} days`, C.win ? S.ecomM : "")).join("")}</select>
         <select class="sel" data-sel="ecomRho" aria-label="Regional leader">${opt("", "All RHOs", sc.rl)}${d.rls.map((x) => opt(x, x, sc.rl)).join("")}</select>
         <select class="sel" data-sel="ecomZn" aria-label="Zonal">${opt("", sc.rl ? "All their zonals" : "All zonals", sc.zn)}${zns.map((x) => opt(x, x, sc.zn)).join("")}</select>
         <select class="sel" data-sel="ecomOutlet" aria-label="Outlet">${opt("", "All outlets in scope", sc.outlet)}${outlets.map((o) => opt(o.c, `${o.c} ${o.n}`, sc.outlet)).join("")}</select>
@@ -6167,30 +6197,30 @@
     }
     const cr = ecDiv(t.canc, t.n), pr = p ? ecDiv(p.canc, p.n) : null;
     if (isNum(cr) && t.canc) {
-      const why = [...ecWhyBy(d, sc.on, mi).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1])[0];
+      const why = [...ecWhyBy(d, sc.on, C.mk).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1])[0];
       const change = isNum(pr) ? ` (${cr >= pr ? "+" : "−"}${Math.abs((cr - pr) * 100).toFixed(1)} pts vs ${pm})` : "";
       add(isNum(pr) && cr - pr >= 0.01 ? 2 : cr >= 0.12 ? 1 : 0, `${ecPct(cr)} of sub-orders cancelled${change}`, why ? `Top reason: ${ecWhyName(why[0])}, ${ecPct(why[1] / t.canc)} of the cancellations.` : "", `data-ec-tab="cancel"`);
     }
-    const sl = ecSlotBy(d, sc.on, mi).map((wd, s) => ({ s, t: wd.reduce(ecAdd4, [0, 0, 0, 0]) })).filter((x) => x.t[2] >= Math.max(30, t.deliv * 0.03));
+    const sl = ecSlotBy(d, sc.on, C.mk).map((wd, s) => ({ s, t: wd.reduce(ecAdd4, [0, 0, 0, 0]) })).filter((x) => x.t[2] >= Math.max(30, t.deliv * 0.03));
     const worst = sl.sort((a, b) => b.t[3] / b.t[2] - a.t[3] / a.t[2])[0];
     if (worst && worst.t[3]) {
       const r = worst.t[3] / worst.t[2];
       add(r >= 0.1 ? 2 : r >= 0.05 ? 1 : 0, `${ecPct(r)} delivered late in the ${d.slots.list[worst.s][0]} slot`, `${int(worst.t[3])} of ${int(worst.t[2])} deliveries in that slot came after it ended; ${ecPct(ecDiv(t.late, t.deliv))} late across all slots.`, `data-ec-tab="slots"`);
     }
-    const bo = [...ecByOutlet(d, sc.on, mi).values()];
+    const bo = [...(C.win ? ecByOutletIdx(d, sc.on, C.P.cur) : ecByOutlet(d, sc.on, mi)).values()];
     const lateO = bo.filter((x) => x.deliv >= 50).sort((a, b) => b.late - a.late)[0];
     if (lateO && lateO.late) { const r = lateO.late / lateO.deliv; add(r >= 0.2 ? 2 : 1, `${lateO.o.c} ${lateO.o.n}: ${ecPct(r)} delivered late`, `${int(lateO.late)} late deliveries, the most of any outlet in view. ${lateO.o.zn} · ${lateO.o.rl}.`, `data-ec-outlet="${lateO.o.i}"`); }
     const cancO = bo.filter((x) => x.n >= 100).sort((a, b) => b.canc / b.n - a.canc / a.n)[0];
     if (cancO && cancO.canc && cancO.o !== lateO?.o) { const r = cancO.canc / cancO.n; add(isNum(cr) && r >= cr + 0.08 ? 2 : 1, `${cancO.o.c} ${cancO.o.n}: ${ecPct(r)} of sub-orders cancelled`, `The highest cancellation share of the outlets in view with 100+ sub-orders (${int(cancO.canc)} of ${int(cancO.n)}).`, `data-ec-outlet="${cancO.o.i}"`); }
     const open = d.open.filter((r) => sc.on[r[2]]), old = open.filter((r) => r[9] > 2);
     if (old.length) add(2, `${int(old.length)} orders open for more than 2 days`, `Still pending or processing in the latest export; the oldest was placed ${int(Math.max(...old.map((r) => r[9])))} days ago.`, `data-ec-tab="open"`);
-    const cs = ecCompScope(d, sc, m);
+    const cs = ecCompScope(d, sc, C.cm);
     if (cs.rows.length) {
       const cats = new Map(); cs.rows.forEach((i) => { const k = d.lists.cat[d.complaints[i][4]]; cats.set(k, (cats.get(k) || 0) + 1); });
       const [cat, n] = [...cats.entries()].sort((a, b) => b[1] - a[1])[0];
       add(1, `${cat} are ${ecPct(n / cs.rows.length, 0)} of complaints`, `${int(cs.rows.length)} complaints in ${cs.label}${cs.has ? "" : ` (the complaints file has no ${fmonth(m)} yet)`}.`, `data-ec-tab="comp"`);
     }
-    const oos = ecEditBy(d, sc.on, mi).get("Out of Stock") || 0;
+    const oos = ecEditBy(d, sc.on, C.mk).get("Out of Stock") || 0;
     if (oos) add(oos / t.n >= 0.1 ? 1 : 0, `Item out of stock on ${ecPct(oos / t.n)} of sub-orders`, `${int(oos)} sub-orders were edited because an item was out of stock.`, `data-ec-tab="cancel"`);
     out.sort((a, b) => b.lvl - a.lvl);
     const chip = [["info", "Note"], ["warn", "Watch"], ["bad", "Act"]];
@@ -6217,8 +6247,8 @@
       d.whyD.r.forEach(([o, dd, r, w, n]) => { if (!mask[dd] || !sc.on[o]) return; const a = g.get(r) || [0, 0, 0]; a[w] += n; g.set(r, a); });
       return g;
     }
-    const mi = which === "cur" ? C.mi : P.cmpKey === "mom" ? C.pmi : -1;
-    return mi >= 0 ? ecWhyBy(d, sc.on, mi) : null;
+    const mi = which === "cur" ? C.mk : P.cmpKey === "mom" ? C.pmi : -1;
+    return mi instanceof Set || mi >= 0 ? ecWhyBy(d, sc.on, mi) : null;
   }
   function ecEditFor(C, which) {
     const { d, sc, P } = C, idx = which === "cur" ? P.cur : P.cmp;
@@ -6227,8 +6257,8 @@
       d.editsD.r.forEach(([o, dd, e, n]) => { if (mask[dd] && sc.on[o]) { const k = key(d.edits.list[e]); g.set(k, (g.get(k) || 0) + n); } });
       return g;
     }
-    const mi = which === "cur" ? C.mi : P.cmpKey === "mom" ? C.pmi : -1;
-    return mi >= 0 ? ecEditBy(d, sc.on, mi) : null;
+    const mi = which === "cur" ? C.mk : P.cmpKey === "mom" ? C.pmi : -1;
+    return mi instanceof Set || mi >= 0 ? ecEditBy(d, sc.on, mi) : null;
   }
   // a categorical column (schema 4 dims) for a set of days: value index -> [sub-orders, net]
   function ecDimFor(C, name, idx) {
@@ -6254,8 +6284,8 @@
   // ---- Overview
   function ecOverview(C) {
     const { d, mi, m, sc, days, P } = C;
-    const cs = ecCompScope(d, sc, m), cOrders = [...ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)).values()].reduce((a, x) => a + x.n, 0);
-    const pcm = ecPrevMonth(m), pcs = cs.has && d.cmonths.includes(pcm) ? ecCompScope(d, sc, pcm) : null;
+    const cs = ecCompScope(d, sc, C.cm), cOrders = [...ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)).values()].reduce((a, x) => a + x.n, 0);
+    const pcm = C.win ? null : ecPrevMonth(m), pcs = pcm && cs.has && d.cmonths.includes(pcm) ? ecCompScope(d, sc, pcm) : null;
     const pOrders = pcs ? [...ecByOutlet(d, sc.on, ecMonthSet(d, [pcm])).values()].reduce((a, x) => a + x.n, 0) : 0;
     const per1k = cs.rows.length ? ecDiv(cs.rows.length * 1000, cOrders) : null, pPer1k = pcs && pOrders ? ecDiv(pcs.rows.length * 1000, pOrders) : null;
     const kpis = `<div class="ec-kpis ec-kpis-8" aria-live="polite">
@@ -6311,7 +6341,7 @@
     const { d, mi, m, sc, P, T } = C;
     const by = S.ecomBy || "o";
     const cur = [...ecByOutletIdx(d, sc.on, P.cur).values()], cmp = P.cmp.length ? [...ecByOutletIdx(d, sc.on, P.cmp).values()] : [];
-    const cs = ecCompScope(d, sc, m), cOrd = ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)), comp = new Map();
+    const cs = ecCompScope(d, sc, C.cm), cOrd = ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)), comp = new Map();
     cs.rows.forEach((i) => { const o = d.complaints[i][3]; comp.set(o, (comp.get(o) || 0) + 1); });
     const open = new Map(); d.open.forEach((r) => { if (sc.on[r[2]]) open.set(r[2], (open.get(r[2]) || 0) + 1); });
     const key = (o) => (by === "o" ? o.i : by === "zn" ? o.zn : o.rl);
@@ -6383,19 +6413,25 @@
     const ym = S.ecomY;
     const pts = cur.filter((x) => x.n >= 30 && (ym !== "late" || x.deliv >= 20)).map((x) => ({ o: x.o, x: x.n / (P.cur.length || 1), y: ym === "late" ? x.late / x.deliv : ym === "slotch" ? (x.slotch || 0) / x.n : x.canc / x.n }));
     AFTER.push(() => ecScatter($("#ecScatter"), pts, ym));
-    const pr = d.products[m] || [], pp = (P.pm && d.products[P.pm]) || [], ppAt = new Map(pp.map((x) => [x[0], x]));
-    const itemsTop = d.items?.months?.includes(m) ? [...ecItemsFor(C, P.cur).entries()].sort((a2, b2) => b2[1].amt - a2[1].amt).slice(0, 10) : null;
+    const pr = C.win ? ecProdMerge(d, C.mk) : d.products[m] || [], pp = (!C.win && P.pm && d.products[P.pm]) || [], ppAt = new Map(pp.map((x) => [x[0], x]));
+    const itemsTop = (C.win ? C.itemIdx.length : d.items?.months?.includes(m)) ? [...ecItemsFor(C, C.win ? C.itemIdx : P.cur).entries()].sort((a2, b2) => b2[1].amt - a2[1].amt).slice(0, 10) : null;
     const prod = itemsTop ? `${ecBars(itemsTop.map(([k, x]) => ({ label: d.items.list[k][0], parts: [[x.amt, "var(--ec-1)"]], val: bdt(x.amt), attr: `data-ec-prod="${k}"` })))}<p style="margin:12px 0 0"><button class="btn" type="button" data-ec-tab="prod">See all products</button></p>`
       : pr.length ? ecBars(pr.slice(0, 30).map(([name, lines, orders, amount]) => { const q = ppAt.get(name); return { label: name, parts: [[amount, "var(--ec-1)"]], val: `${bdt(amount)}${q ? ecPctTxt(amount / d.mdays[m], q[3] / d.mdays[P.pm]) : ""}`, tip: `<strong>${esc(name)}</strong><dl><dt>Amount</dt><dd>${bdt(amount)}</dd><dt>Product lines</dt><dd>${int(lines)}</dd><dt>Sub-orders</dt><dd>${int(orders)}</dd>${q ? `<dt>${esc(fmonth(P.pm))}</dt><dd>${bdt(q[3])}</dd>` : ""}</dl>` }; }))
       : `<p class="ec-note">Product detail is not in the ${esc(fmonth(m))} export. Products are read only from exports with one row per product whose amounts add up to the sub-order totals (so far, ${esc(Object.keys(d.products).map(fmonth).join(", ") || "none")}).</p>`;
     return `${lead}${movers}
       <div class="ec-row wide">
         ${ecPanel(`Volume against ${ym === "late" ? "late delivery" : ym === "slotch" ? "slot changes" : "cancellation"}`, `Each dot is an outlet with 30 or more sub-orders in ${esc(P.curLabel)}: busier to the right, worse higher up. Click a dot for the outlet.`, `<div class="ec-chart" id="ecScatter"></div>`, seg("ecomY", yOpts, "Vertical measure"))}
-        ${itemsTop ? ecPanel("Top 10 products", `By amount, ${esc(P.curLabel)}, ${esc(sc.label)}. Every product, with quantities, discounts and stock-outs, is on the Products tab.`, prod) : ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled, all outlets (the export does not split products by outlet).${pp.length ? ` The change is a day against ${esc(fmonth(P.pm))}.` : " No product detail for last month, so there is no change to show."}` : "", prod)}
+        ${itemsTop ? ecPanel("Top 10 products", `By amount, ${esc(C.itemLabel)}, ${esc(sc.label)}. Every product, with quantities, discounts and stock-outs, is on the Products tab.`, prod) : ecPanel("Top 30 products", pr.length ? `By amount, ${esc(ecMonthName(d, m))}, not cancelled, all outlets (the export does not split products by outlet).${pp.length ? ` The change is a day against ${esc(fmonth(P.pm))}.` : " No product detail for last month, so there is no change to show."}` : "", prod)}
       </div>`;
   }
 
   // ---- Products: every product line of the exports that list products (one row per product), by outlet and day
+  // one product list for the months a window touches (amounts and counts added up)
+  function ecProdMerge(d, mk) {
+    const g = new Map();
+    d.months.forEach((m, i) => { if (!mk.has(i)) return; (d.products[m] || []).forEach((r) => { const x = g.get(r[0]); if (x) for (let j = 1; j < r.length; j++) x[j] += r[j] || 0; else g.set(r[0], r.slice()); }); });
+    return [...g.values()].sort((a, b) => b[3] - a[3]);
+  }
   function ecItemsFor(C, idx) {
     const { d, sc } = C, g = new Map();
     if (!d.items) return g;
@@ -6411,14 +6447,14 @@
   }
   function ecProducts(C) {
     const { d, m, sc, P, T } = C;
-    if (!d.items || !d.items.months.includes(m)) {
+    if (!d.items || (C.win ? !C.itemIdx.length : !d.items.months.includes(m))) {
       const have = d.items?.months?.length ? d.items.months.map(fmonth).join(", ") : Object.keys(d.products || {}).map(fmonth).join(", ");
       return ecPanel("Products", "", `<p class="ec-note" style="margin:0">${d.items ? `The ${esc(fmonth(m))} export has one row per sub-order, not one per product, so its products cannot be listed.` : "Product detail is added by the next data refresh."} Products are listed for the months whose export has one row per product${have ? ` (so far: ${esc(have)})` : ""}. Pick that month above.</p>`);
     }
-    const cur = ecItemsFor(C, P.cur), canCmp = P.cmp.length && P.pm && d.items.months.includes(P.pm), prev = canCmp ? ecItemsFor(C, P.cmp) : null;
+    const cur = ecItemsFor(C, C.win ? C.itemIdx : P.cur), canCmp = !C.win && P.cmp.length && P.pm && d.items.months.includes(P.pm), prev = canCmp ? ecItemsFor(C, P.cmp) : null;
     const total = [...cur.values()].reduce((a, x) => a + x.amt, 0) || 1, lines = [...cur.values()].reduce((a, x) => a + x.lines, 0);
     const units = [...cur.values()].reduce((a, x) => a + x.qty, 0), disc = [...cur.values()].reduce((a, x) => a + x.disc, 0), oos = [...cur.values()].reduce((a, x) => a + x.oos, 0);
-    const cdays = P.cur.length || 1, pdays = P.cmp.length || 1, subsAll = T.n - T.canc || 1;
+    const cdays = (C.win ? C.itemIdx.length : P.cur.length) || 1, pdays = P.cmp.length || 1, subsAll = T.n - T.canc || 1;
     const rows = [...cur.entries()].filter(([, x]) => x.lines || x.cl).map(([k, x]) => {
       const q = prev?.get(k), [name, sku] = d.items.list[k];
       return { k, name, sku: sku || "", amt: x.amt, share: x.amt / total, qty: x.qty, lines: x.lines, subs: x.subs, reach: x.subs / subsAll, outs: x.outs.size,
@@ -6474,7 +6510,7 @@
       const bars = (arr, col) => ecBars(arr.map((r) => ({ label: r.name, parts: [[Math.abs(r.d), col]], val: `${r.d >= 0 ? "+" : "−"}${bdt(Math.abs(r.d))}`, attr: `data-ec-prod="${r.k}"` })), { max: mx, empty: "Nothing to show." });
       return ecPanel("Biggest movers", `Change in sales at the same number of days against ${esc(P.cmpLabel)}.`, `<div class="ec-row">${`<div>${bars(mv.slice().reverse().filter((r) => r.d > 0).slice(0, 8), "var(--ec-3)")}</div><div>${bars(mv.filter((r) => r.d < 0).slice(0, 8), "var(--ec-2)")}</div>`}</div>`);
     })() : "";
-    return `${kpis}${table}
+    return `${C.win && C.itemLabel !== P.curLabel ? `<p class="ec-banner">Products: ${esc(C.itemLabel)}.</p>` : ""}${kpis}${table}
       <div class="ec-row">
         ${ecPanel("Sales lost to stock-outs", `Estimated sales opportunity lost, largest first: each product's out-of-stock lines at its average line value. ${bdt(lossAll)} in all; click one for the outlets.`, oosBars)}
         ${movers || ecPanel("Sales concentration", "How much of product sales the best sellers take.", ecBars([10, 50, 100, 500].filter((n) => n < rows.length).map((n) => { const v = rows.slice(0, n).reduce((a, r) => a + r.amt, 0); return { label: `Top ${n} products`, parts: [[v / total, "var(--ec-1)"]], val: ecPct(v / total) }; }), { max: 1 }))}
@@ -6507,7 +6543,7 @@
     showDrawer();
     // only the days of months that list products
     const keep = [...itemDays].sort((a, b) => a - b), d2 = { dm: keep.map((i) => d.dm[i]), months: d.months }, s2 = keep.map((i) => series[i] || 0);
-    requestAnimationFrame(() => ecTrend($("#ecProdTrend"), d2, s2, C.mi, bdt, `Daily sales of ${name}`, (j) => `<strong>${esc(fdate(d.days[keep[j]]))}</strong>${bdt(s2[j])}`));
+    requestAnimationFrame(() => ecTrend($("#ecProdTrend"), d2, s2, C.win ? -1 : C.mi, bdt, `Daily sales of ${name}`, (j) => `<strong>${esc(fdate(d.days[keep[j]]))}</strong>${bdt(s2[j])}`));
     ecWire($("#drawerBody"));
   }
 
@@ -6560,7 +6596,8 @@
     // rows are [outlet, month, weekday, hour, all orders, delivered orders]; an older file has all orders only
     S.ecomPl = S.ecomPl === "all" ? "all" : "done";
     const done = S.ecomPl === "done" && d.placed.r[0]?.length > 5;
-    d.placed.r.forEach(([o, m, wd, h, n, nd]) => { if (m === mi && sc.on[o]) g[row(h)][wd] += done ? nd : n; });
+    const hit = ecHit(C.mk);
+    d.placed.r.forEach(([o, m, wd, h, n, nd]) => { if (hit(m) && sc.on[o]) g[row(h)][wd] += done ? nd : n; });
     const hl = (i) => (i === 0 ? "8 PM – 8 AM" : ecHour(i + 7));
     const hours = g.map((r, i) => ({ h: i, r, t: r.reduce((a, v) => a + v, 0) })).filter((x) => x.t);
     if (!hours.length) return `<p class="ec-note">No orders for this selection.</p>`;
@@ -6581,7 +6618,7 @@
       ${ecKpiM(C, "same")}
       ${ecKpiM(C, "next")}
     </div>`;
-    const sl = ecSlotBy(d, sc.on, mi).map((wd, s) => ({ s, t: wd.reduce(ecAdd4, [0, 0, 0, 0]) }));
+    const sl = ecSlotBy(d, sc.on, C.mk).map((wd, s) => ({ s, t: wd.reduce(ecAdd4, [0, 0, 0, 0]) }));
     const slp = C.pmi >= 0 ? ecSlotBy(d, sc.on, C.pmi).map((wd) => wd.reduce(ecAdd4, [0, 0, 0, 0])) : null;
     const slotBars = ecBars(sl.filter((x) => x.t[0]).map((x) => { const q = slp?.[x.s]; return { label: d.slots.list[x.s][0], parts: [[x.t[0], "var(--ec-1)"]], val: `${int(x.t[0])} · ${ecPct(ecDiv(x.t[3], x.t[2]), 0)} late${q && q[2] ? ecPtsTxt(ecDiv(x.t[3], x.t[2]), ecDiv(q[3], q[2]), 0) : ""}`,
       tip: `<strong>${esc(d.slots.list[x.s][0])}</strong><dl><dt>Sub-orders</dt><dd>${int(x.t[0])}</dd><dt>Late</dt><dd>${int(x.t[3])} (${ecPct(ecDiv(x.t[3], x.t[2]))})</dd><dt>Cancelled</dt><dd>${int(x.t[1])} (${ecPct(ecDiv(x.t[1], x.t[0]))})</dd>${q ? `<dt>${esc(fmonth(P.pm))}, late</dt><dd>${ecPct(ecDiv(q[3], q[2]))}</dd>` : ""}</dl>` }; }));
@@ -6595,12 +6632,12 @@
     const leadPanel = `${ecPanel("How far ahead customers book", `Days from placing the order to its delivery slot, sub-orders not cancelled${hp ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}.`, hc ? ecBars(leadRows) : `<p class="ec-note">Needs the customer history in the data file.</p>`)}`;
     return `${kpis}
       ${ecSlotChange(C, whyN, leadPanel)}
-      ${ecPanel("Late deliveries by slot and weekday", `Share of deliveries that arrived after their slot ended, ${esc(ecMonthName(d, m))}. Darker is later; hover a cell for the counts.`, ecHeat(d, sc, mi))}
+      ${ecPanel("Late deliveries by slot and weekday", `Share of deliveries that arrived after their slot ended, ${esc(C.mkLabel)}. Darker is later; hover a cell for the counts.`, ecHeat(d, sc, C.mk))}
       <div class="ec-row">
         ${ecPanel("Orders by slot", `Sub-orders booked into each delivery slot, with the late share${slp ? ` and its change in points against ${esc(fmonth(P.pm))} (slots are by month)` : ""}.`, slotBars)}
         ${ecPanel("Most late deliveries", `Outlets with the most deliveries after the slot ended${lateP ? `; ▲▼ is the late share against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, lateBars)}
       </div>
-      ${ecPanel("When customers order", `${S.ecomPl === "all" ? "All sub-orders (any status)" : "Delivered sub-orders"} of ${esc(ecMonthName(d, m))} by the hour and weekday they were placed (CreatedOn); 8 PM to 8 AM is one row at the top.`, ecPlacedHeat(C), d.placed?.r[0]?.length > 5 ? seg("ecomPl", [["done", "Delivered orders"], ["all", "All orders"]], "Which orders") : "")}
+      ${ecPanel("When customers order", `${S.ecomPl === "all" ? "All sub-orders (any status)" : "Delivered sub-orders"} of ${esc(C.mkLabel)} by the hour and weekday they were placed (CreatedOn); 8 PM to 8 AM is one row at the top.`, ecPlacedHeat(C), d.placed?.r[0]?.length > 5 ? seg("ecomPl", [["done", "Delivered orders"], ["all", "All orders"]], "Which orders") : "")}
 `;
   }
 
@@ -6626,7 +6663,8 @@
     </div>`;
     const name = (k) => (k < 0 ? "Not recorded" : d.slots.list[k][0]);
     const mv = new Map(), mp = new Map();
-    d.slotChange.r.forEach(([o, m, a, b, n, h]) => { if (!sc.on[o]) return; const g = m === mi ? mv : m === C.pmi ? mp : null; if (!g) return; const k = `${a}>${b}`, x = g.get(k) || { a, b, n: 0, h: 0 }; x.n += n; x.h += h; g.set(k, x); });
+    const hitM = ecHit(C.mk);
+    d.slotChange.r.forEach(([o, m, a, b, n, h]) => { if (!sc.on[o]) return; const g = hitM(m) ? mv : m === C.pmi ? mp : null; if (!g) return; const k = `${a}>${b}`, x = g.get(k) || { a, b, n: 0, h: 0 }; x.n += n; x.h += h; g.set(k, x); });
     const tot = [...mv.values()].reduce((s2, x) => s2 + x.n, 0) || 1;
     const shift = (x) => (x.a < 0 ? null : d.slots.list[x.b][1] - d.slots.list[x.a][1]);
     const moves = ecBars([...mv.values()].sort((x, y) => y.n - x.n).slice(0, 15).map((x) => {
@@ -6645,10 +6683,10 @@
     return `<section class="ec-sub"><h2 class="ec-sub-h">Slot changes</h2><p class="ec-note" style="margin:0 0 10px">Sub-orders delivered in a different slot from the one the customer chose. On time against the moved slot, they never count as late; the ones that arrived after the customer's own slot are added back in "Late for the customer". Found from: ${esc(d.slotChange.sources.map((x) => (x === "exports" ? "the same sub-order with different slots in two exports" : `the ${x} column`)).join("; "))}.</p>
       ${kpis}
       <div class="ec-row">
-        ${ecPanel("From the customer's slot to the delivery slot", `The most common moves in ${esc(ecMonthName(d, d.months[mi]))}, with the hours moved.`, `${legend}${moves}`)}
+        ${ecPanel("From the customer's slot to the delivery slot", `The most common moves in ${esc(C.mkLabel)}, with the hours moved.`, `${legend}${moves}`)}
         ${ecPanel("Outlets that change the most slots", `Share of their sub-orders moved${prev ? `; ▲▼ against ${esc(P.cmpLabel)}` : ""}. Click one for its details.`, `${legend}${outs}`)}
       </div>
-      ${ecPanel("Which way slots move", `Sub-orders moved in ${esc(ecMonthName(d, d.months[mi]))}, by direction.`, dirBars)}
+      ${ecPanel("Which way slots move", `Sub-orders moved in ${esc(C.mkLabel)}, by direction.`, dirBars)}
       ${after}</section>`;
   }
 
@@ -6698,7 +6736,8 @@
     if (d.dims?.["Delivery district"]) { list = d.dims["Delivery district"].list; cur = ecDimFor(C, "Delivery district", P.cur); prev = P.cmp.length ? ecDimFor(C, "Delivery district", P.cmp) : null; }
     else {
       list = d.dists.list; cur = new Map(); prev = C.pmi >= 0 && P.cmpKey === "mom" ? new Map() : null;
-      d.dists.r.forEach(([o, mm, k, n, net]) => { if (!sc.on[o]) return; const g = mm === mi ? cur : mm === C.pmi && prev ? prev : null; if (!g) return; const a = g.get(k) || [0, 0]; a[0] += n; a[1] += net; g.set(k, a); });
+      const hitD = ecHit(C.mk);
+      d.dists.r.forEach(([o, mm, k, n, net]) => { if (!sc.on[o]) return; const g = hitD(mm) ? cur : mm === C.pmi && prev ? prev : null; if (!g) return; const a = g.get(k) || [0, 0]; a[0] += n; a[1] += net; g.set(k, a); });
     }
     const cd = P.cur.length || 1, pdys = (prev === null ? 1 : (d.dims?.["Delivery district"] ? P.cmp.length : (C.pmi >= 0 ? d.mdays[P.pm] : 1))) || 1;
     const rows = [...cur.entries()].sort((a, b) => b[1][0] - a[1][0]).slice(0, 15);
@@ -6710,7 +6749,7 @@
     C.customerAnalysis = globalThis.EcomCustomerAnalysis?.analyze(d, sc.on, m) || null;
     S.ecomCustomerAnalysis = C.customerAnalysis;
     const tot = d.months.map((_, i) => ecMonth(d, days, i));
-    const cs = ecCompScope(d, sc, m), src = new Map(); cs.rows.forEach((i) => { const k = d.lists.src[d.complaints[i][1]] || "Not recorded"; src.set(k, (src.get(k) || 0) + 1); });
+    const cs = ecCompScope(d, sc, C.cm), src = new Map(); cs.rows.forEach((i) => { const k = d.lists.src[d.complaints[i][1]] || "Not recorded"; src.set(k, (src.get(k) || 0) + 1); });
     const srcBars = ecBars([...src.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ label: k, parts: [[n, "var(--ec-1)"]], val: `${int(n)} · ${ecPct(n / cs.rows.length, 0)}` })), { empty: "No complaints for this selection." });
     const actRow = (label, fn, fmt) => `<tr><td class="cell-primary">${label}</td>${d.months.map((_, i) => `<td class="num${i === mi ? " ec-on" : ""}">${fmt(fn(i))}</td>`).join("")}</tr>`;
     const MT = d.months.map((_, i) => C.monthTotals(i));
@@ -6963,13 +7002,13 @@
       ${rows.map(([k, a]) => `<tr><td class="cell-primary">${esc(k)}</td>${a.map(cellv).join("")}${chgCell(a)}</tr>`).join("")}</tbody></table></div>`);
   }
   function ecComplaintsTab(C) {
-    const { d, m, sc } = C, cs = ecCompScope(d, sc, m), rows = cs.rows.map((i) => d.complaints[i]);
+    const { d, m, sc } = C, cs = ecCompScope(d, sc, C.cm), rows = cs.rows.map((i) => d.complaints[i]);
     if (!d.cmonths.length) return ecPanel("Complaints", "", `<p class="ec-note">The complaints file has no rows yet.</p>`);
     const ords = ecByOutlet(d, sc.on, ecMonthSet(d, cs.months)), orders = [...ords.values()].reduce((a, x) => a + x.n, 0);
     const n = rows.length, catN = [0, 0, 0, 0]; rows.forEach((c) => catN[ecCatOf(d, c)]++);
-    const banner = cs.has ? "" : `<p class="ec-banner">The complaints file has no ${esc(fmonth(m))} yet, so this tab shows ${esc(cs.label)}.</p>`;
+    const banner = C.win ? `<p class="ec-banner">Complaints are kept by month, so ${esc(C.P.curLabel)} shows the complaints of ${esc(cs.label)}.</p>` : cs.has ? "" : `<p class="ec-banner">The complaints file has no ${esc(fmonth(m))} yet, so this tab shows ${esc(cs.label)}.</p>`;
     // complaints are recorded by month, so they compare with the month before (MoM) only
-    const pcm = cs.months.length === 1 ? ecPrevMonth(cs.months[0]) : null, pcs = pcm && d.cmonths.includes(pcm) ? ecCompScope(d, sc, pcm) : null;
+    const pcm = !C.win && cs.months.length === 1 ? ecPrevMonth(cs.months[0]) : null, pcs = pcm && d.cmonths.includes(pcm) ? ecCompScope(d, sc, pcm) : null;
     const pOrd = pcs ? [...ecByOutlet(d, sc.on, ecMonthSet(d, [pcm])).values()].reduce((a, x) => a + x.n, 0) : 0;
     const per = n ? ecDiv(n * 1000, orders) : null, pPer = pcs && pOrd ? ecDiv(pcs.rows.length * 1000, pOrd) : null;
     const kpis = `<div class="ec-kpis">
@@ -7155,17 +7194,17 @@
   // ---- drawers: one outlet, one complaint
   function ecOpenOutlet(oi) {
     const d = S.ecom, o = d.O[oi]; if (!o) return;
-    const mi = d.months.includes(S.ecomM) ? d.months.indexOf(S.ecomM) : d.months.length - 1, m = d.months[mi];
-    const on = d.O.map((x) => x.i === oi), days = ecDays(d, on), t = ecMonth(d, days, mi);
-    const P = ecPeriods(d, mi), oc = { d, sc: { on, key: `o${oi}` }, days }, T = ecTotals(oc, P.cur), Tp = P.cmp.length ? ecTotals(oc, P.cmp) : null;
+    const { win, mi } = ecSel(d), m = d.months[mi];
+    const on = d.O.map((x) => x.i === oi), days = ecDays(d, on), P = ecPeriods(d, mi, win), t = win ? ecSum(days, P.cur) : ecMonth(d, days, mi);
+    const oc = { d, sc: { on, key: `o${oi}` }, days }, T = ecTotals(oc, P.cur), Tp = P.cmp.length ? ecTotals(oc, P.cmp) : null;
     const vsRow = Tp ? `<h3 class="ec-dh">Against ${esc(P.cmpLabel)} <span class="muted">(${esc(P.cmpName)})</span></h3><div class="stat-grid three">${["net", "n", "cust", "aov", "canc", "ontime"].map((k) => { const m2 = EC_MK[k]; return `<div class="stat"><small>${esc(m2.label)}</small><strong>${m2.fmt(m2.v(T))}</strong><span class="ec-stat-d">${ecChgHtml(m2, ecChg(m2, T, Tp), `vs ${m2.fmt(m2.v(Tp))}`)}</span></div>`; }).join("")}</div>` : "";
     const comps = d.complaints.map((c, i) => [c, i]).filter(([c]) => c[3] === oi).sort((a, b) => b[0][0].localeCompare(a[0][0]));
     const open = d.open.filter((r) => r[2] === oi);
-    const why = [...ecWhyBy(d, on, mi).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const why = [...ecWhyBy(d, on, win ? new Set(P.cur.map((i) => d.dm[i])) : mi).entries()].map(([r, a]) => [d.why.list[r], a[0] + a[1] + a[2]]).sort((a, b) => b[1] - a[1]).slice(0, 6);
     const stat = (label, value) => `<div class="stat"><small>${label}</small><strong>${value}</strong></div>`;
     S.lastFocus = document.activeElement;
     $("#drawerTitle").textContent = `${o.c} ${o.n}`;
-    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${esc(o.zn)} · ${esc(o.rl)} · ${esc(ecMonthName(d, m))}</p>
+    $("#drawerBody").innerHTML = `<p class="muted" style="margin:0">${esc(o.zn)} · ${esc(o.rl)} · ${esc(win ? P.curLabel : ecMonthName(d, m))}</p>
       <div class="stat-grid three">${stat("Sub-orders", int(t.n))}${stat("Net sales", bdt(t.net))}${stat("Average order", bdt(ecDiv(t.net, t.n - t.canc)))}${stat("Cancelled", ecPct(ecDiv(t.canc, t.n)))}${stat("Delivered late", ecPct(ecDiv(t.late, t.deliv)))}${stat("Open now", int(open.length))}</div>
       ${vsRow}
       <h3 class="ec-dh">Sub-orders a day</h3><div class="ec-chart" id="ecOutTrend"></div>
@@ -7175,7 +7214,7 @@
       <h3 class="ec-dh">Open orders <span class="muted">(${int(open.length)})</span></h3>
       ${open.length ? `<div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Order</th><th>Status</th><th>Placed</th><th class="num">Amount</th><th class="num">Days</th></tr></thead><tbody>${open.slice(0, 15).map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[3])}</td><td>${esc(r[4])}</td><td class="num">${bdt(r[8])}</td><td class="num">${int(r[9])}</td></tr>`).join("")}</tbody></table></div>` : `<p class="ec-note">Nothing open.</p>`}`;
     showDrawer();
-    requestAnimationFrame(() => ecTrend($("#ecOutTrend"), d, Array.from({ length: d.days.length }, (_, i) => days.n[i]), mi, int, `Sub-orders a day, ${o.c}`,
+    requestAnimationFrame(() => ecTrend($("#ecOutTrend"), d, Array.from({ length: d.days.length }, (_, i) => days.n[i]), win ? P.cur : mi, int, `Sub-orders a day, ${o.c}`,
       (i) => `<strong>${esc(fdate(d.days[i]))}</strong><dl><dt>Sub-orders</dt><dd>${int(days.n[i])}</dd><dt>Cancelled</dt><dd>${int(days.canc[i])}</dd><dt>Late</dt><dd>${int(days.late[i])}</dd></dl>`));
     ecWire($("#drawerBody"));
   }
@@ -7238,12 +7277,21 @@
     }
     const d = S.ecom;
     if (!EC_TABS.some(([k]) => k === S.ecomTab)) S.ecomTab = "over";
-    const mi = d.months.includes(S.ecomM) ? d.months.indexOf(S.ecomM) : d.months.length - 1, m = d.months[mi];
+    const { win, mi } = ecSel(d), m = d.months[mi];
     if (S.ecomRho && !d.rls.includes(S.ecomRho)) S.ecomRho = "";
     if (S.ecomZn && !d.O.some((o) => o.zn === S.ecomZn && (!S.ecomRho || o.rl === S.ecomRho))) S.ecomZn = "";
     if (S.ecomOutlet && !d.O.some((o) => o.c === S.ecomOutlet && (!S.ecomRho || o.rl === S.ecomRho) && (!S.ecomZn || o.zn === S.ecomZn))) S.ecomOutlet = "";
-    const sc = ecScope(d), days = ecDays(d, sc.on), cur = ecMonth(d, days, mi), prev = mi > 0 ? ecMonth(d, days, mi - 1) : null;
-    const P = ecPeriods(d, mi), C = { d, mi, m, sc, days, cur, prev, P, pmi: P.pm ? d.months.indexOf(P.pm) : -1 };
+    const sc = ecScope(d), days = ecDays(d, sc.on), P = ecPeriods(d, mi, win);
+    const cur = win ? ecSum(days, P.cur) : ecMonth(d, days, mi), prev = win ? (P.cmp.length ? ecSum(days, P.cmp) : null) : mi > 0 ? ecMonth(d, days, mi - 1) : null;
+    const C = { d, mi, m, sc, days, cur, prev, P, win, pmi: !win && P.pm ? d.months.indexOf(P.pm) : -1 };
+    // month-keyed breakdowns: the month picked, or every month the window touches
+    C.mk = win ? new Set(P.cur.map((i) => d.dm[i])) : mi;
+    const wm = win ? d.months.filter((_, i) => C.mk.has(i)) : [m];
+    C.cm = win ? wm : m;
+    C.mkLabel = win ? `${wm.length > 1 ? `${fmonth(wm[0])} – ${fmonth(wm[wm.length - 1])}` : fmonth(wm[0])} (whole months; this breakdown is kept by month)` : ecMonthName(d, m);
+    C.itemIdx = win && d.items?.months ? P.cur.filter((i) => d.items.months.includes(d.days[i].slice(0, 7))) : [];
+    // product lines exist only for some months: name the days they cover when that is less than the window
+    C.itemLabel = !win ? P.curLabel : C.itemIdx.length === P.cur.length ? P.curLabel : C.itemIdx.length ? `${fdate(d.days[C.itemIdx[0]], true)} – ${fdate(d.days[C.itemIdx[C.itemIdx.length - 1]])} (product lines exist only for ${d.items.months.map(fmonth).join(", ")})` : P.curLabel;
     C.T = ecTotals(C, P.cur);
     C.Ts = P.splm.length ? ecTotals(C, P.splm) : null;
     C.Tm = P.mom.length ? ecTotals(C, P.mom) : null;
@@ -7256,7 +7304,8 @@
       $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); ecClearData(); S.ecomBad = false; hideTip(); render(); }));
     });
     // the period compared, behind a "!" next to the switch
-    const cmpTxt = `${C.P.curLabel}${C.P.pm ? ` compared with ${C.P.cmpLabel} (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}`;
+    const cmpTxt = win ? `${C.P.curLabel}${C.P.cmp.length ? ` compared with ${C.P.cmpLabel}, a day.` : ` · there are not ${win} earlier days in the data to compare with.`}${C.P.short ? ` ${C.P.short}` : ""}`
+      : `${C.P.curLabel}${C.P.pm ? ` compared with ${C.P.cmpLabel} (${C.P.cmpKey === "mom" ? "MoM: the whole of last month, a day" : "SPLM: the same days of last month"}). KPI cards show both.` : " · no earlier month in the data to compare with."}`;
     const cmp = `${seg("ecomCmp", [["splm", "vs same period last month"], ["mom", "vs last month"]], "Compare with")}
       <button type="button" class="top-ec-i" aria-label="${esc(cmpTxt)}">!</button>`;
     AFTER.push(() => {
@@ -7265,7 +7314,9 @@
       const i = $(".top-ec-i", t), tip = () => `<strong>${esc(C.P.curLabel)}</strong>${esc(cmpTxt.replace(C.P.curLabel, ""))}`;
       attachTip(i, tip); i.onclick = (e) => showTip(e, tip()); i.onfocus = () => { const r = i.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.bottom }, tip()); }; i.onblur = hideTip;
     });
-    return `<div class="ec">${ecHead(C)}${body}</div>`;
+    // a window: say which parts follow it day by day and which stay monthly
+    const winNote = !win ? "" : `<p class="ec-banner">${esc(C.P.curLabel)}.${C.P.short ? ` ${esc(C.P.short)}` : ""} Cards, trends, outlets, cancellations and delivery follow these days exactly${C.P.cmp.length ? ` and compare with ${esc(C.P.cmpLabel)}` : ""}; ${S.ecomTab === "cust" ? `customers are analysed by delivery month, so this tab shows ${esc(fmonth(m))}` : "slots, order hours, slot moves, districts and complaints are kept by month in the data, so they cover the whole months the window touches"}.</p>`;
+    return `<div class="ec">${ecHead(C)}${winNote}${body}</div>`;
   }
 
   // ------------------------------------------------------------------ store assessment (data/sa.json)
