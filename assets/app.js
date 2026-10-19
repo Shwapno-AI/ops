@@ -8632,8 +8632,8 @@
         <div class="stat"><small>GP value</small><strong>${bdt(x.gs)}</strong><div style="font-size:12px">GP% ${pct(x.gpm)} (${delta(x.gpd, "pp")})</div></div><div class="stat"><small>Quantity</small><strong>${units(x.qs)}</strong><div style="font-size:12px">${delta(x.qg)} vs last year</div></div></div>
       <div class="lr-dtools"><span class="muted">${esc(o.dim.rl)} · ${esc(o.dim.zn)}${o.ss ? " · same store" : ""}</span>${csvBtn("ipout")}</div>
       ${skuTbl(drops, "Biggest declining SKUs")}${skuTbl(gains, "Biggest growing SKUs")}
-      <h3 style="font-size:14px;margin:0">By category (biggest decline first)</h3><div class="table-wrap" style="max-height:360px"><table class="compact"><thead><tr><th>Division · Cat 01</th><th class="num">Sales</th><th class="num">Growth</th><th class="num">Change</th></tr></thead><tbody>
-      ${catRows.map((c) => `<tr><td>${esc(c.k)}</td><td class="num">${bdt(c.ns)}</td><td class="num">${delta(c.gy)}</td><td class="num"><span class="${c.diff < 0 ? "down" : "up"}">${bdt(c.diff)}</span></td></tr>`).join("")}</tbody></table></div>
+      <div id="ipCat"><h3 style="font-size:14px;margin:0">By category (biggest decline first)</h3><p class="muted" style="margin:0;font-size:12px">Cat 01 until the outlet's SKU list loads; it then switches to Cat 03.</p><div class="table-wrap" style="max-height:360px"><table class="compact"><thead><tr><th>Division · Cat 01</th><th class="num">Sales</th><th class="num">Growth</th><th class="num">Change</th></tr></thead><tbody>
+      ${catRows.map((c) => `<tr><td>${esc(c.k)}</td><td class="num">${bdt(c.ns)}</td><td class="num">${delta(c.gy)}</td><td class="num"><span class="${c.diff < 0 ? "down" : "up"}">${bdt(c.diff)}</span></td></tr>`).join("")}</tbody></table></div></div>
       <h3 style="font-size:14px;margin:0">Every SKU of this outlet</h3><div id="ipAll" data-code="${esc(code)}"></div>`;
     wireDyn($("#drawerBody"));
     showDrawer();
@@ -8665,15 +8665,27 @@
       <p class="muted" id="ipAllN" style="margin:0;font-size:12px"></p>
       <div class="table-wrap" style="max-height:560px"><table class="compact"><thead><tr><th>SKU</th><th class="num">Sales</th><th class="num">Last year</th><th class="num">Change</th><th class="num">Growth</th><th class="num">GP%</th><th class="num">Qty</th><th>Status</th></tr></thead><tbody id="ipAllB"></tbody></table></div>`;
     const SORT = { dn: (a, b) => a.diff - b.diff, up: (a, b) => b.diff - a.diff, ns: (a, b) => b.ns - a.ns, gs: (a, b) => b.gs - a.gs, qs: (a, b) => b.qs - a.qs };
+    const c3Names = new Set(all.map((x) => (x.c3 || "").toLowerCase()).filter(Boolean));
     const draw = () => {
       const q = $("#ipAllQ").value.trim().toLowerCase(), st = $("#ipAllS").value;
-      const rows = all.filter((x) => (!st || x.st === st) && (!q || `${x.code} ${x.name} ${x.div} ${x.c1} ${x.c3}`.toLowerCase().includes(q))).sort(SORT[$("#ipAllO").value]);
+      const exact = c3Names.has(q); // a Cat 03 name (typed, or picked in the category table) lists exactly that Cat 03
+      const rows = all.filter((x) => (!st || x.st === st) && (!q || (exact ? (x.c3 || "").toLowerCase() === q : `${x.code} ${x.name} ${x.div} ${x.c1} ${x.c3}`.toLowerCase().includes(q)))).sort(SORT[$("#ipAllO").value]);
       $("#ipAllN").textContent = `${int(rows.length)} SKUs${rows.length > 300 ? ", first 300 shown (the CSV has all)" : ""}.`;
       $("#ipAllB").innerHTML = rows.slice(0, 300).map((x) => `<tr><td><span class="cell-primary">${esc(x.name)}</span><span class="cell-secondary">${esc(x.code)} · ${esc(x.c1)} · ${esc(x.c3)}</span></td><td class="num">${bdt(x.ns)}</td><td class="num">${bdt(x.nl)}</td><td class="num"><span class="${x.diff < 0 ? "down" : "up"}">${bdt(x.diff)}</span></td><td class="num">${delta(x.gy)}</td><td class="num">${pct(x.gpm)}</td><td class="num">${units(x.qs)}</td><td>${ipChip(x.st)}</td></tr>`).join("") || '<tr><td colspan="8" class="empty">No SKUs match.</td></tr>';
     };
     ["ipAllQ", "ipAllS", "ipAllO"].forEach((id) => ($("#" + id).oninput = draw));
     draw();
     wireDyn(box);
+    const cg = new Map();
+    c.forEach((r) => { const s = d.skus[d.skuIdx.get(r[0])], k = `${s ? s[2] : ""}${(s && s[4]) || "—"}`, g = cg.get(k); if (g) { ipAdd(g.t, r.slice(1)); g.n++; } else cg.set(k, { t: r.slice(1), n: 1 }); });
+    const c3Rows = [...cg].map(([k, g]) => { const [div, c3] = k.split(""); return { div, c3, n: g.n, ...ipRow(g.t) }; }).filter((x) => x.ns || x.nl).sort((a, b) => a.diff - b.diff);
+    const catBox = $("#ipCat");
+    if (catBox && c3Rows.length) {
+      catBox.innerHTML = `<h3 style="font-size:14px;margin:0">By category: Cat 03 (biggest decline first)</h3><p class="muted" style="margin:0;font-size:12px">${int(c3Rows.length)} Cat 03 from this outlet's own SKUs. Click one to list its SKUs below.</p>
+        <div class="table-wrap" style="max-height:360px"><table class="compact"><thead><tr><th>Division · Cat 03</th><th class="num">SKUs</th><th class="num">Sales</th><th class="num">Last year</th><th class="num">Growth</th><th class="num">Change</th></tr></thead><tbody>
+        ${c3Rows.map((x) => `<tr class="k-click" data-ipc3f="${esc(x.c3)}" tabindex="0" title="List the ${esc(x.c3)} SKUs"><td><span class="cell-primary">${esc(x.c3)}</span><span class="cell-secondary">${esc(x.div)}</span></td><td class="num">${int(x.n)}</td><td class="num">${bdt(x.ns)}</td><td class="num">${bdt(x.nl)}</td><td class="num">${delta(x.gy)}</td><td class="num"><span class="${x.diff < 0 ? "down" : "up"}">${bdt(x.diff)}</span></td></tr>`).join("")}</tbody></table></div>`;
+      $$("[data-ipc3f]", catBox).forEach((tr) => { const go = () => { $("#ipAllQ").value = tr.dataset.ipc3f; $("#ipAllS").value = ""; draw(); $("#ipAllQ").scrollIntoView({ behavior: "smooth", block: "start" }); }; tr.onclick = go; tr.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    }
   }
   function openIpCategory(c3) {
     const d = S.sku, sc = ipSame() ? "same" : "all", c1 = c3;
