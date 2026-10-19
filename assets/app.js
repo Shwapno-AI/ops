@@ -9255,8 +9255,13 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
   }
 
   function route() {
-    const h = location.hash.slice(1);
+    const h = location.hash.slice(1), prev = S.page;
     S.page = TITLES[h] ? h : "overview";
+    // Sales growth and the Store level report (SKU) pages open on Same store. The store picked on the other Sales
+    // pages comes back on leaving Sales growth; a change made while on these pages holds until you leave them.
+    if (S.page === "growth" && prev !== "growth") { S.scopeBack = S.scope; S.scope = "same"; }
+    else if (prev === "growth" && S.page !== "growth" && S.scopeBack) { S.scope = S.scopeBack; S.scopeBack = null; }
+    if (IP_PAGES.has(S.page) && !IP_PAGES.has(prev)) { S.ipv.scope = "same"; if (S.ipv.sku === "all") S.ipv.sku = "same"; }
     if (S.page !== "dq") S.dqOk = false; // leaving Data quality locks it again
     const grp = NAV.find((g) => g.items.some(([k]) => k === S.page))?.group;
     if (grp && UI.navOpen?.[grp] === false) { UI.navOpen = { ...UI.navOpen }; delete UI.navOpen[grp]; saveUI(); }
