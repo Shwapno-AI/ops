@@ -303,6 +303,7 @@ tr.sg-tot td{font-weight:650;background:var(--surface-2)}
 .ec-head p{margin:3px 0 0;font-size:12px;color:var(--ink-3)}
 .ec-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0}
 .ec-filters select.sel{max-width:100%;padding:6px 8px}
+.ec-filters .ec-find{width:220px;max-width:100%}
 .ec-tabs{overflow-x:auto;margin-top:-4px}
 .ec-tabs .seg{flex-wrap:nowrap}
 .ec-tabs .seg button{white-space:nowrap}

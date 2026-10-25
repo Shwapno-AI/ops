@@ -5648,7 +5648,9 @@
   }
   function ecPrep(d) {
     const none = "Not in outlet register";
-    d.O = d.outlets.map(([c, n, rl, zn], i) => ({ i, c, n, rl: rl || none, zn: zn || none }));
+    // code "?" collects the records whose source rows give no outlet code in DarkStore (complaints, customers):
+    // it stays selectable under its own name, listed after the real outlets
+    d.O = d.outlets.map(([c, n, rl, zn], i) => (c === "?" ? { i, c: "—", n: "No outlet code in DarkStore", rl: rl || none, zn: zn || none, unk: true } : { i, c, n, rl: rl || none, zn: zn || none }));
     d.dm = d.days.map((x) => d.months.indexOf(x.slice(0, 7)));
     d.dom = d.days.map((x) => +x.slice(8, 10));
     d.hasSlotCh = !!(d.slotChange?.sources?.length && d.daily.slotch);
@@ -5665,7 +5667,7 @@
   function ecScope(d) {
     const rl = S.ecomRho || "", zn = S.ecomZn || "", outlet = S.ecomOutlet || "";
     const selected = d.O.find((o) => o.c === outlet);
-    return { rl, zn, outlet, key: `${rl}|${zn}|${outlet}`, on: d.O.map((o) => (!rl || o.rl === rl) && (!zn || o.zn === zn) && (!outlet || o.c === outlet)), label: selected ? `${selected.c} ${selected.n}` : zn || rl || "All outlets" };
+    return { rl, zn, outlet, key: `${rl}|${zn}|${outlet}`, on: d.O.map((o) => (!rl || o.rl === rl) && (!zn || o.zn === zn) && (!outlet || o.c === outlet)), label: selected ? (selected.unk ? selected.n : `${selected.c} ${selected.n}`) : zn || rl || "All outlets" };
   }
   // per-day sums for the outlets in scope
   function ecDays(d, on) {
@@ -6145,6 +6147,12 @@
     const rho = $('[data-sel="ecomRho"]', root), zonal = $('[data-sel="ecomZn"]', root);
     if (rho) rho.onchange = () => { S.ecomRho = rho.value; S.ecomZn = ""; S.ecomOutlet = ""; changed(); };
     if (zonal) zonal.onchange = () => { S.ecomZn = zonal.value; S.ecomOutlet = ""; changed(); };
+    const find = $("[data-ec-find]", root);
+    if (find) find.onchange = () => {
+      const v = find.value.trim().toLowerCase(), O = S.ecom?.O || [], name = (o) => (o.unk ? o.n : `${o.c} ${o.n}`).toLowerCase();
+      const o = O.find((x) => name(x) === v) || O.find((x) => !x.unk && x.c.toLowerCase() === v.split(" ")[0]) || (v.length >= 3 ? O.filter((x) => name(x).includes(v)) : []).find((x, _, all) => all.length === 1);
+      if (o) { S.ecomOutlet = o.c; changed(); }
+    };
   }
 
   // ---- the page's tabs
@@ -6153,7 +6161,9 @@
     S.ecomCmp = S.ecomCmp === "mom" ? "mom" : "splm";
     const opt = (v, t, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`;
     const zns = [...new Set(d.O.filter((o) => !sc.rl || o.rl === sc.rl).map((o) => o.zn))].sort();
-    const outlets = d.O.filter((o) => (!sc.rl || o.rl === sc.rl) && (!sc.zn || o.zn === sc.zn)).sort((a, b) => a.c.localeCompare(b.c));
+    const inSc = (o) => (!sc.rl || o.rl === sc.rl) && (!sc.zn || o.zn === sc.zn);
+    const outlets = d.O.filter((o) => !o.unk && inSc(o)).sort((a, b) => a.c.localeCompare(b.c)), unk = d.O.filter((o) => o.unk && inSc(o));
+    const oName = (o) => (o.unk ? o.n : `${o.c} ${o.n}`);
     const cm = d.cmonths.length ? `${fmonth(d.cmonths[0])} – ${fmonth(d.cmonths[d.cmonths.length - 1])}` : "none yet";
     return `<section class="panel ec-head"><div class="ec-head-l"><b title="${esc(`Sub-orders to ${fdate(d.source.asOf.slice(0, 10))}, ${d.source.asOf.slice(11)} · complaints ${cm}`)}">${esc(sc.label)}${sc.zn && sc.rl ? ` <span class="muted">· ${esc(sc.rl)}</span>` : ""}</b>
         <div class="ec-tabs">${seg("ecomTab", EC_TABS, "E-Commerce view")}</div></div>
@@ -6161,7 +6171,9 @@
         <select class="sel" data-sel="ecomM" aria-label="Period">${d.months.slice().reverse().map((x) => opt(x, ecMonthName(d, x), C.win ? "" : m)).join("")}<option disabled>──────────</option>${Object.keys(EC_WIN).map((k) => opt(k, `Last ${EC_WIN[k]} days`, C.win ? S.ecomM : "")).join("")}</select>
         <select class="sel" data-sel="ecomRho" aria-label="Regional leader">${opt("", "All RHOs", sc.rl)}${d.rls.map((x) => opt(x, x, sc.rl)).join("")}</select>
         <select class="sel" data-sel="ecomZn" aria-label="Zonal">${opt("", sc.rl ? "All their zonals" : "All zonals", sc.zn)}${zns.map((x) => opt(x, x, sc.zn)).join("")}</select>
-        <select class="sel" data-sel="ecomOutlet" aria-label="Outlet">${opt("", "All outlets in scope", sc.outlet)}${outlets.map((o) => opt(o.c, `${o.c} ${o.n}`, sc.outlet)).join("")}</select>
+        <select class="sel" data-sel="ecomOutlet" aria-label="Outlet">${opt("", "All outlets in scope", sc.outlet)}${outlets.map((o) => opt(o.c, oName(o), sc.outlet)).join("")}${unk.length ? `<option disabled>──────────</option>${unk.map((o) => opt(o.c, oName(o), sc.outlet)).join("")}` : ""}</select>
+        <input class="search ec-find" type="search" list="ecOutletList" data-ec-find placeholder="Find outlet: code or name" aria-label="Find an outlet">
+        <datalist id="ecOutletList">${[...outlets, ...unk].map((o) => `<option value="${esc(oName(o))}"></option>`).join("")}</datalist>
         ${sc.rl || sc.zn || sc.outlet ? `<button class="btn" type="button" data-ec-clear>Clear</button>` : ""}<button class="btn" type="button" data-ec-lock>Lock</button>
       </div>
 </section>`;
