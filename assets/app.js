@@ -8352,13 +8352,28 @@
     return v;
   }
   function zrProject(d, v, outRows) {
-    const end = v.pm, ly = zrShift(end, -12), ply = zrShift(ly, -1), target = zrShift(end, 1);
+    // as the workbook's AUTOMATED PROJECTED ZREPORT: next month = last month × (1 + last year's change from the same
+    // month to the month after it, All Year row 38). One outlet uses its own change, the network's when it has none.
+    // and the month after that ("THIS YEAR Next Month (Projected)"): the first projection × (1 + last year's change
+    // over the following month), split by the first projection's category mix.
+    const end = v.pm, ly = zrShift(end, -12), tly = zrShift(ly, 1), tly2 = zrShift(ly, 2), target = zrShift(end, 1), target2 = zrShift(end, 2);
     const sum = (m) => d.summaries.find((x) => x.month === m);
     const at = (m) => (v.mode === "all" ? (sum(m) ? zrRows(d.rows, sum(m).sales, sum(m).ff) : zrRows(d.rows)) : outRows(m));
     const LY = at(ly), LM = at(end), gi = d.grand;
-    const nLY = d.network[ly] || [0, 0], nP = d.network[ply] || [0, 0];
-    const fS = nP[0] ? nLY[0] / nP[0] - 1 : null, fF = nP[1] ? nLY[1] / nP[1] - 1 : null;
+    const nLY = d.network[ly] || [0, 0], nT = d.network[tly] || [0, 0];
+    let fS = nLY[0] && nT[0] ? nT[0] / nLY[0] - 1 : null, fF = nLY[1] && nT[1] ? nT[1] / nLY[1] - 1 : null, src = "network";
+    if (v.mode !== "all") {
+      const a = outRows(ly), b = outRows(tly), s0 = a.sales[gi] || 0, s1 = b.sales[gi] || 0, f0 = a.ff[gi] || 0, f1 = b.ff[gi] || 0;
+      if (s0 > 0 && s1 > 0) { fS = s1 / s0 - 1; fF = f0 > 0 && f1 > 0 ? f1 / f0 - 1 : fF; src = "outlet"; }
+    }
+    const nT2 = d.network[tly2] || [0, 0];
+    let f2S = nT[0] && nT2[0] ? nT2[0] / nT[0] - 1 : null, f2F = nT[1] && nT2[1] ? nT2[1] / nT[1] - 1 : null, src2 = "network";
+    if (v.mode !== "all") {
+      const a = outRows(tly), b = outRows(tly2), s0 = a.sales[gi] || 0, s1 = b.sales[gi] || 0, f0 = a.ff[gi] || 0, f1 = b.ff[gi] || 0;
+      if (s0 > 0 && s1 > 0) { f2S = s1 / s0 - 1; f2F = f0 > 0 && f1 > 0 ? f1 / f0 - 1 : f2F; src2 = "outlet"; }
+    }
     const gS = LM.sales[gi] || 0, gF = LM.ff[gi] || 0, pGS = fS === null ? 0 : gS * (1 + fS), pGF = fF === null ? 0 : gF * (1 + fF);
+    const p2GS = f2S === null ? 0 : pGS * (1 + f2S), p2GF = f2F === null ? 0 : pGF * (1 + f2F);
     const byLabel = new Map(d.rows.map((r, i) => [zrNorm(r[0]), i]));
     const out = [];
     d.projRows.forEach(([label, di, deps]) => {
@@ -8368,18 +8383,19 @@
         const g = (o, k) => (i === undefined ? 0 : o[k][i] || 0);
         x = { lyS: g(LY, "sales"), lyF: g(LY, "ff"), lmS: g(LM, "sales"), lmF: g(LM, "ff") };
         x.pS = gS ? (x.lmS / gS) * pGS : 0; x.pF = gF ? (x.lmF / gF) * pGF : 0;
+        x.p2S = pGS ? (x.pS / pGS) * p2GS : 0; x.p2F = pGF ? (x.pF / pGF) * p2GF : 0;
       } else {
         const ds = deps.map((j) => out[j]).filter(Boolean), t = (k) => ds.reduce((a, r) => a + r[k], 0);
-        x = { lyS: t("lyS"), lyF: t("lyF"), lmS: t("lmS"), lmF: t("lmF"), pS: t("pS"), pF: t("pF") };
+        x = { lyS: t("lyS"), lyF: t("lyF"), lmS: t("lmS"), lmF: t("lmF"), pS: t("pS"), pF: t("pF"), p2S: t("p2S"), p2F: t("p2F") };
       }
       const b = (s, f) => (f ? s / f : null);
-      x.lyB = b(x.lyS, x.lyF); x.lmB = b(x.lmS, x.lmF); x.pB = b(x.pS, x.pF);
+      x.lyB = b(x.lyS, x.lyF); x.lmB = b(x.lmS, x.lmF); x.pB = b(x.pS, x.pF); x.p2B = b(x.p2S, x.p2F);
       x.dS = x.pS - x.lyS; x.dF = x.pF - x.lyF; x.dB = x.pB === null || x.lyB === null ? null : x.pB - x.lyB;
       x.con = gS ? x.lmS / gS : 0;
       out.push({ label, total: di === null, ...x });
     });
     const grand = out.find((r) => zrNorm(r.label) === "grand total") || out[out.length - 1];
-    return { rows: out, grand, ly, ply, end, target, fS, fF };
+    return { rows: out, grand, ly, tly, tly2, end, target, target2, fS, fF, src, f2S, f2F, src2 };
   }
   const zrSortHead = (st, key, label, attr, extra = "") => `<button class="sort-button${st.k === key ? " active" : ""}" ${attr}="${esc(key)}">${esc(label)}<span>${st.k === key ? (st.dir === 1 ? "▲" : "▼") : "↕"}</span></button>${extra}`;
   const zrCmp = (a, b) => (typeof a === "number" && typeof b === "number" ? a - b : a === null || a === undefined ? -1 : b === null || b === undefined ? 1 : String(a).localeCompare(String(b), undefined, { numeric: true }));
@@ -8504,21 +8520,23 @@
       ${kpi({ label: "Last year sales", value: bdt(fr.lyS), sub: `${esc(focus)} · ${esc(fmonth(P.ly))}` })}
       ${kpi({ label: "Last month sales", value: bdt(fr.lmS), sub: `${esc(focus)} · ${esc(fmonth(P.end))}` })}
       ${kpi({ label: "Projected sales", value: bdt(fr.pS), sub: `${esc(focus)} · ${esc(fmonth(P.target))}`, accent: "var(--good)" })}
+      ${kpi({ label: "Projected sales, next month", value: bdt(fr.p2S), sub: `${esc(focus)} · ${esc(fmonth(P.target2))} · ${isNum(P.f2S) ? `${delta(P.f2S)} (${esc(fmonth(P.tly2))} vs ${esc(fmonth(P.tly))}, ${P.src2 === "outlet" ? "outlet" : "network"})` : "no change data"}`, accent: "var(--good)" })}
       ${kpi({ label: "Projected vs last year", value: delta(yoy), sub: `vs ${esc(fmonth(P.ly))}`, accent: isNum(yoy) && yoy < 0 ? "var(--bad)" : "var(--good)" })}
       ${kpi({ label: "Projected vs last month", value: delta(pmom), sub: `vs ${esc(fmonth(P.end))}`, accent: isNum(pmom) && pmom < 0 ? "var(--bad)" : "var(--good)" })}
-      ${kpi({ label: "Network seasonal factor", value: isNum(P.fS) ? delta(P.fS) : "—", sub: `${esc(fmonth(P.ly))} vs ${esc(fmonth(P.ply))}` })}
+      ${kpi({ label: `${P.src === "outlet" ? "Outlet" : "Network"} seasonal factor`, value: isNum(P.fS) ? delta(P.fS) : "—", sub: `${esc(fmonth(P.tly))} vs ${esc(fmonth(P.ly))}${v.mode !== "all" && P.src !== "outlet" ? " · network (no outlet data)" : ""}` })}
     </div>`;
     const PC = [["lyS", "Sales"], ["lyF", "FF"], ["lyB", "Basket"], ["lmS", "Sales"], ["lmF", "FF"], ["lmB", "Basket"], ["pS", "Sales"], ["pF", "FF"], ["pB", "Basket"], ["dS", "Δ Sales"], ["dF", "Δ FF"], ["dB", "Δ Basket"]];
+    const PC2 = [["p2S", "Sales"], ["p2F", "FF"], ["p2B", "Basket"]];
     const cell = (r, k) => { const x = r[k]; if (/B$/.test(k)) return x === null ? "—" : x.toFixed(1); if (/F$/.test(k)) return int(x); return bdt(x); };
     const dcls = (k, x) => (/^d/.test(k) && isNum(x) ? (x > 0 ? "up" : x < 0 ? "down" : "") : "");
     const pRows = zrSort(P.rows.filter((r) => !v.cat || zrNorm(r.label) === zrNorm(v.cat)), v.sp, (r, k) => (k === "cat" ? r.label : r[k]));
     const tableP = `<div class="table-wrap zr-wrap"><table class="compact zr-table"><thead>
-      <tr><th class="zr-cat" rowspan="2">${zrSortHead(v.sp, "cat", "Category", "data-zrsp")}</th><th colspan="3" class="zr-g">Last year · ${esc(zrMon(P.ly))}</th><th colspan="3" class="zr-g">Last month · ${esc(zrMon(P.end))}</th><th colspan="3" class="zr-g zr-gp">Projected · ${esc(zrMon(P.target))}</th><th colspan="3" class="zr-g zr-gd">Growth / de-growth vs last year</th><th class="num" rowspan="2">${zrSortHead(v.sp, "con", "Con %", "data-zrsp")}</th></tr>
-      <tr>${PC.map(([k, t]) => `<th class="num">${zrSortHead(v.sp, k, t, "data-zrsp")}</th>`).join("")}</tr></thead>
-      <tbody>${pRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${PC.map(([k]) => `<td class="num ${dcls(k, r[k])}">${cell(r, k)}</td>`).join("")}<td class="num">${pct(r.con, 1)}</td></tr>`).join("")}</tbody></table></div>`;
-    NCSV.zrp = () => [`z_report_projected_${all ? "all_outlets" : v.code}_${P.end}_to`, ["Category", ...PC.map(([k, t]) => `${{ ly: "Last year", lm: "Last month", p: "Projected", d: "Growth" }[k.replace(/[SFB]$/, "")]} ${t}`), "Con %"],
-      pRows.map((r) => [r.label, ...PC.map(([k]) => (isNum(r[k]) ? (/B$/.test(k) ? +r[k].toFixed(2) : Math.round(r[k])) : "")), +(r.con * 100).toFixed(2)]), P.target];
-    const dash2 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 2 · Automated projected Z-Report</h2><p>${esc(who)} · ${esc(focus)} · projected ${esc(fmonth(P.target))} = ${esc(fmonth(P.end))} × (1 + the network's change from ${esc(fmonth(P.ply))} to ${esc(fmonth(P.ly))}: sales ${isNum(P.fS) ? pct(P.fS, 1) : "n/a"}, FF ${isNum(P.fF) ? pct(P.fF, 1) : "n/a"}), split by ${esc(fmonth(P.end))}'s category mix.</p></div>
+      <tr><th class="zr-cat" rowspan="2">${zrSortHead(v.sp, "cat", "Category", "data-zrsp")}</th><th colspan="3" class="zr-g">LAST YEAR ${esc(fmonth(P.ly))}</th><th colspan="3" class="zr-g">LAST MONTH ${esc(fmonth(P.end))}</th><th colspan="3" class="zr-g zr-gp">THIS YEAR ${esc(fmonth(P.target))} (Projected)</th><th colspan="3" class="zr-g zr-gd">GROWTH / DE-GROWTH vs last year</th><th class="num" rowspan="2">${zrSortHead(v.sp, "con", "Con %", "data-zrsp")}</th><th colspan="3" class="zr-g zr-gp">THIS YEAR ${esc(fmonth(P.target2))} (Projected)</th></tr>
+      <tr>${PC.map(([k, t]) => `<th class="num">${zrSortHead(v.sp, k, t, "data-zrsp")}</th>`).join("")}${PC2.map(([k, t]) => `<th class="num">${zrSortHead(v.sp, k, t, "data-zrsp")}</th>`).join("")}</tr></thead>
+      <tbody>${pRows.map((r) => `<tr class="${rowCls(r)}"><td class="zr-cat">${esc(r.label)}</td>${PC.map(([k]) => `<td class="num ${dcls(k, r[k])}">${cell(r, k)}</td>`).join("")}<td class="num">${pct(r.con, 1)}</td>${PC2.map(([k]) => `<td class="num">${cell(r, k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    NCSV.zrp = () => [`z_report_projected_${all ? "all_outlets" : v.code}_${P.end}_to`, ["Category", ...PC.map(([k, t]) => `${{ ly: `Last year ${fmonth(P.ly)}`, lm: `Last month ${fmonth(P.end)}`, p: `This year ${fmonth(P.target)} (projected)`, d: "Growth" }[k.replace(/[SFB]$/, "")]} ${t}`), "Con %", ...PC2.map(([, t]) => `This year ${fmonth(P.target2)} (projected) ${t}`)],
+      pRows.map((r) => [r.label, ...PC.map(([k]) => (isNum(r[k]) ? (/B$/.test(k) ? +r[k].toFixed(2) : Math.round(r[k])) : "")), +(r.con * 100).toFixed(2), ...PC2.map(([k]) => (isNum(r[k]) ? (/B$/.test(k) ? +r[k].toFixed(2) : Math.round(r[k])) : ""))]), P.target];
+    const dash2 = `<section class="panel"><div class="panel-head"><div><h2>Dashboard 2 · Automated projected Z-Report</h2><p>${esc(who)} · ${esc(focus)} · projected ${esc(fmonth(P.target))} = ${esc(fmonth(P.end))} × (1 + ${P.src === "outlet" ? "the outlet's" : "the network's"} change from ${esc(fmonth(P.ly))} to ${esc(fmonth(P.tly))}: sales ${isNum(P.fS) ? pct(P.fS, 1) : "n/a"}, FF ${isNum(P.fF) ? pct(P.fF, 1) : "n/a"}), split by ${esc(fmonth(P.end))}'s category mix.</p></div>
       <div class="panel-tools"><label class="zr-inline"><span>Project from</span><select class="sel" data-zr="pm" aria-label="Project from month">${act.map((m) => `<option value="${m}" ${m === v.pm ? "selected" : ""}>${esc(fmonth(m))}</option>`).join("")}</select></label>${orderBtn(v.sp, "data-zrsp")}${csvBtn("zrp")}</div></div>
       <div class="panel-body">${kp2}</div>${tableP}</section>`;
     return `${controls}${dash1}${dash2}<p class="muted" style="font-size:12px">From ${esc(d.source?.file || "the Z-Report workbook")}${d.source?.modified ? ` (updated ${esc(d.source.modified)})` : ""}; actual months ${esc(fmonth(act[0]))} to ${esc(fmonth(act[act.length - 1]))}.</p>`;
