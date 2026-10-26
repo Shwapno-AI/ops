@@ -8516,11 +8516,11 @@
     // ---- Dashboard 2: projection, for what is shown above
     const P = zrProject(d, v, outRows), fr = v.cat ? P.rows.find((r) => zrNorm(r.label) === zrNorm(v.cat)) || P.grand : P.grand;
     const yoy = fr.lyS ? fr.pS / fr.lyS - 1 : null, pmom = fr.lmS ? fr.pS / fr.lmS - 1 : null;
-    const kp2 = `<div class="kpis">
+    const kp2 = `<div class="kpis zr-kp7">
       ${kpi({ label: "Last year sales", value: bdt(fr.lyS), sub: `${esc(focus)} · ${esc(fmonth(P.ly))}` })}
       ${kpi({ label: "Last month sales", value: bdt(fr.lmS), sub: `${esc(focus)} · ${esc(fmonth(P.end))}` })}
       ${kpi({ label: "Projected sales", value: bdt(fr.pS), sub: `${esc(focus)} · ${esc(fmonth(P.target))}`, accent: "var(--good)" })}
-      ${kpi({ label: "Projected sales, next month", value: bdt(fr.p2S), sub: `${esc(focus)} · ${esc(fmonth(P.target2))} · ${isNum(P.f2S) ? `${delta(P.f2S)} (${esc(fmonth(P.tly2))} vs ${esc(fmonth(P.tly))}, ${P.src2 === "outlet" ? "outlet" : "network"})` : "no change data"}`, accent: "var(--good)" })}
+      ${kpi({ label: "Next month projected", value: bdt(fr.p2S), sub: `${esc(fmonth(P.target2))} · ${isNum(P.f2S) ? `<span title="${esc(`${fmonth(P.tly2)} vs ${fmonth(P.tly)}, ${P.src2 === "outlet" ? "outlet" : "network"}`)}">${delta(P.f2S)}</span>` : "no change data"}`, accent: "var(--good)" })}
       ${kpi({ label: "Projected vs last year", value: delta(yoy), sub: `vs ${esc(fmonth(P.ly))}`, accent: isNum(yoy) && yoy < 0 ? "var(--bad)" : "var(--good)" })}
       ${kpi({ label: "Projected vs last month", value: delta(pmom), sub: `vs ${esc(fmonth(P.end))}`, accent: isNum(pmom) && pmom < 0 ? "var(--bad)" : "var(--good)" })}
       ${kpi({ label: `${P.src === "outlet" ? "Outlet" : "Network"} seasonal factor`, value: isNum(P.fS) ? delta(P.fS) : "—", sub: `${esc(fmonth(P.tly))} vs ${esc(fmonth(P.ly))}${v.mode !== "all" && P.src !== "outlet" ? " · network (no outlet data)" : ""}` })}
