@@ -94,12 +94,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/ecom.json data/pakhaqs.json && [ -z "$(git status --porcelain -- data/sales data/zr.json data/zr)" ]; then echo "No data changes."; exit 0; fi
+          if git diff --quiet -- data/data.json data/network.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/pakhaqs.json && [ -z "$(git status --porcelain -- data/sales data/zr.json data/zr 'data/ecom*.json')" ]; then echo "No data changes."; exit 0; fi
           git config user.name "ops-dashboard-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- data/sales 2>/dev/null || true  # monthly sales files; absent until a month is kept
           git add -A -- data/zr.json data/zr 2>/dev/null || true  # Z-Report; absent until the workbook is found
-          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/ecom.json data/pakhaqs.json
+          git add -A -- 'data/ecom*.json'  # E-Commerce: ecom.json and its part files (ecom-customers.json, ecom-items.json)
+          git add data/data.json data/network.json data/network-sync.json data/cw.json data/av.json data/rcv.json data/sku.json data/sku-rl.json data/sa.json data/sa-remarks.json data/ccv.json data/stockgap.json data/pakhaqs.json
           git commit -m "Refresh data $(date -u +'%Y-%m-%d %H:%M') UTC"
           # Someone may have pushed code or another data refresh while this run was busy: replay the data commit
           # on top and retry. The data files are whole snapshots and this run's are the newest, so a conflict on

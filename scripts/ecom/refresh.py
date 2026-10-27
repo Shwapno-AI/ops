@@ -13,8 +13,10 @@ e-mail addresses inside customer names or complaint text are masked. Contact col
 Product figures are only used for a month whose product lines add up to the
 sub-order totals (October); the other months' product columns do not reconcile.
 
-Output data/ecom.json (schema 10; fields are additive to schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
-leader, a zonal or one outlet. Aggregate amounts are whole taka; customer history keeps two decimal
+Output data/ecom.json (schema 11; fields are additive to schema 3). Every fact carries its outlet, so the page can narrow everything to a regional
+leader, a zonal or one outlet. The customers and items sections are written to data/ecom-customers.json and
+data/ecom-items.json; ecom.json names them in parts: {name: {file, v (content hash), bytes}}.
+Aggregate amounts are whole taka; customer history keeps two decimal
 places. Months are "YYYY-MM" and days "YYYY-MM-DD", both by delivery slot.
   months, mdays  the months and how many slot days each has
   days           the slot dates
@@ -84,6 +86,7 @@ Usage: python scripts/ecom/refresh.py [--local FOLDER]   (--local reads the work
 """
 import contextlib
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -101,7 +104,10 @@ from json_out import write_json  # noqa: E402
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
-SCHEMA = 10  # 10: actual delivery dates in private customer history; validated complete refreshes
+SCHEMA = 11  # 10: actual delivery dates in private customer history; validated complete refreshes; 11: split files
+# The two largest sections are kept in files of their own next to ecom.json (ecom-customers.json, ecom-items.json), so
+# the page shows the overview from the small main file first and a browser downloads only the parts that changed.
+PARTS = ("customers", "items")
 # columns read by the fields above; everything else in an export is classified for dims / nums
 KNOWN = {"OrderNumber", "SuborderNumber", "DeliveryTime", "CreatedOn", "SubordeStatus", "DarkStore", "Outlet Code",
          "Outlet Name", "DeliveryDistrict", "PaymentMethod", "SubOrderTotal", "DeliveredOn", "CancellationReason",
@@ -439,6 +445,32 @@ def regression_reason(previous, current):
     return ""
 
 
+def part_path(out, name):
+    return out.with_name(f"{out.stem}-{name}.json")
+
+
+def read_snapshot(out):
+    """The last snapshot as one document: ecom.json with its part files put back in place ({} when missing)."""
+    try:
+        snap = json.loads(out.read_text(encoding="utf-8"))
+        for name, ref in (snap.pop("parts", None) or {}).items():
+            snap[name] = json.loads((out.parent / ref["file"]).read_text(encoding="utf-8"))
+        return snap
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def write_snapshot(out, payload):
+    """Write the parts, then the main file that names them with a content version. True when anything changed."""
+    core, parts, wrote = {k: v for k, v in payload.items() if k not in PARTS}, {}, False
+    for name in PARTS:
+        text = json.dumps(payload[name], ensure_ascii=False, separators=(",", ":"))
+        wrote |= write_json(part_path(out, name), payload[name])
+        parts[name] = {"file": part_path(out, name).name, "v": hashlib.sha256(text.encode()).hexdigest()[:16], "bytes": len(text.encode())}
+    core["parts"] = parts
+    return write_json(out, core) or wrote
+
+
 def list_items(local_dir):
     """The workbooks to read: Drive items, or the files of a local folder (--local)."""
     if local_dir:
@@ -455,10 +487,7 @@ def main():
     if not items:
         log("No E-commerce workbooks in the Drive folder; ecom.json left as is.")
         return 0
-    try:
-        old = json.loads(OUT.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        old = {}
+    old = read_snapshot(OUT)
     previous_snapshot = old
     fkey = "|".join(f"{i['id']}:{i.get('modified', '')}" for i in sorted(items, key=lambda i: i["id"]))
     if (not local_dir and (old.get("source") or {}).get("key") == fkey
@@ -791,9 +820,9 @@ def main():
     if reason and os.environ.get("ECOM_ALLOW_REGRESSION") != "1":
         log(f"::error::Incomplete E-commerce refresh: {reason}; retaining the last complete snapshot.")
         return 1
-    if not write_json(OUT, payload):
+    if not write_snapshot(OUT, payload):
         return 0
-    log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(recs)} sub-orders, {len(outlets)} outlets, "
+    log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB, parts {', '.join(f'{part_path(OUT, n).name} {part_path(OUT, n).stat().st_size // 1024} KB' for n in PARTS)}): {len(recs)} sub-orders, {len(outlets)} outlets, "
         f"{len(complaint_rows)} complaints ({matched} matched to an order), {months[0]} to {months[-1]}, "
         f"data to {asof:%d %b %Y %H:%M}.")
     return 0
