@@ -37,6 +37,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: main
+          # full history without old file contents (commits and trees only): enough to date every file below
+          fetch-depth: 0
+          filter: blob:none
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Prepare the website
@@ -44,6 +47,15 @@ jobs:
           mkdir -p _site
           cp index.html .nojekyll _site/
           cp -R assets data _site/
+      - name: Date each file by its last change
+        # A fresh checkout stamps every file with the time of the run. Dating each file by the commit that last
+        # changed it keeps an unchanged file's Last-Modified (and the ETag built from it) the same across
+        # deploys, so browsers revalidate it with a 304 instead of downloading it again after every data refresh.
+        run: |
+          git -c core.quotepath=off log --format='@%ct' --name-only -- index.html assets data \
+            | awk '/^@/ { t = $0; next } NF && !($0 in seen) { seen[$0] = 1; print t "\t" $0 }' \
+            | while IFS="$(printf '\t')" read -r t f; do [ -f "_site/$f" ] && touch -d "$t" "_site/$f"; done
+          touch -d "$(git log -1 --format=@%ct -- .nojekyll)" _site/.nojekyll 2>/dev/null || true
       - name: Upload the website
         uses: actions/upload-pages-artifact@v4
         with:

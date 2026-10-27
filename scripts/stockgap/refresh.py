@@ -36,6 +36,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
+from json_out import write_json  # noqa: E402
 
 FOLDER = (os.environ.get("SG_FOLDER_ID") or os.environ.get("DATA_FOLDER_ID") or "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l").strip()
 OUT = Path(os.environ.get("SG_OUT") or ROOT / "data" / "stockgap.json")
@@ -175,10 +176,8 @@ def main():
         "r": {"s": [r[0] for r in rows], "m": [mi[r[1]] for r in rows], "c": [r[2] for r in rows],
               "n": [round(r[3]) for r in rows], "v": [round(r[4]) for r in rows]},
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, OUT)
+    if not write_json(OUT, payload):
+        return 0
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(rows)} rows, {len(got['sites'])} outlets, {len(got['cats'])} categories, "
         f"{got['months'][0]} to {got['months'][-1]}.")
     return 0

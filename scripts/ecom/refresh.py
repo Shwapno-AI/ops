@@ -96,6 +96,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
+from json_out import write_json  # noqa: E402
 
 FOLDER = (os.environ.get("ECOM_FOLDER_ID") or "1T73t5_KCNM7JdnuuklsbpzKvIwZ8cttn").strip()
 OUT = Path(os.environ.get("ECOM_OUT") or ROOT / "data" / "ecom.json")
@@ -790,11 +791,8 @@ def main():
     if reason and os.environ.get("ECOM_ALLOW_REGRESSION") != "1":
         log(f"::error::Incomplete E-commerce refresh: {reason}; retaining the last complete snapshot.")
         return 1
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    tmp.chmod(0o644)
-    os.replace(tmp, OUT)
+    if not write_json(OUT, payload):
+        return 0
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(recs)} sub-orders, {len(outlets)} outlets, "
         f"{len(complaint_rows)} complaints ({matched} matched to an order), {months[0]} to {months[-1]}, "
         f"data to {asof:%d %b %Y %H:%M}.")

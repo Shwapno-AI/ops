@@ -43,6 +43,7 @@ from posixpath import normpath
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
+from json_out import write_json  # noqa: E402
 
 FOLDER = (os.environ.get("ZR_FOLDER_ID") or "1oRRVEZ7A6AjrsXZ-wHx7JQrDh3FoB2eb").strip()
 OUT = Path(os.environ.get("ZR_OUT") or ROOT / "data" / "zr.json")
@@ -319,9 +320,8 @@ def build(path, meta):
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
-    t = OUT.with_suffix(".tmp")
-    t.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(t, OUT)
+    if not write_json(OUT, payload):
+        return
     log(f"Wrote {OUT}: {len(outlets)} outlets, {len(details)} categories, {len(defs)} rows, months {actual[0]} to {actual[-1]}, {len(summaries)} all-outlet month rows.")
 
 

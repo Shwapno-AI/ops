@@ -32,7 +32,6 @@ keeps showing the last good data.
 """
 import csv
 import io
-import json
 import os
 import re
 import sys
@@ -44,6 +43,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
 import fetch_drive_data as drive  # noqa: E402  (stdlib public-folder listing and download)
+from json_out import write_json  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
 
 FOLDER = (os.environ.get("AV_FOLDER_ID") or os.environ.get("DATA_FOLDER_ID") or "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l").strip()
@@ -353,7 +353,7 @@ def main():
             if not kind:
                 dest.unlink()
                 continue
-            found[kind].append({"path": dest, "name": item["path"], "modified": drive.modified_sort_key(item)})
+            found[kind].append({"path": dest, "name": item["path"], "modified": drive.modified_sort_key(item), "exact": "T" in item.get("modified", "")})
             log(f"  found {item['path']}  →  {kind}")
         need = [k for k in ("lists", "dos", "stock", "zones") if not found[k]]
         if need:
@@ -420,7 +420,10 @@ def main():
                    "cat3": (lists.get(a) or {}).get("cat3", "")} for a in e_skus]
 
     now = datetime.now(timezone.utc)
-    files = [{"kind": k, "name": v["name"], "modified": datetime.fromtimestamp(v["modified"], timezone.utc).isoformat() if v["modified"] else None} for k, v in pick.items()]
+    # The public Drive listing gives a time of day for files changed today and a date after that: keep only the
+    # day unless the time is exact (Drive API), so the stamp does not change on every run or the next morning.
+    stamp = lambda v: datetime.fromtimestamp(v["modified"], timezone.utc).replace(**({} if v["exact"] else {"hour": 0, "minute": 0, "second": 0, "microsecond": 0})).isoformat()  # noqa: E731
+    files = [{"kind": k, "name": v["name"], "modified": stamp(v) if v["modified"] else None} for k, v in pick.items()]
     payload = {
         "schema": 1,
         "generatedAt": now.replace(microsecond=0).isoformat(),
@@ -438,10 +441,8 @@ def main():
             "ecomListedNotInFile": sorted(ecom_listed - {a for _, a, *_ in ecom_pairs}),
         },
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, OUT)
+    if not write_json(OUT, payload):
+        return 0
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(outlets)} outlets counted, {len(excluded)} excluded, "
         f"{len(skus)} SKUs, {len(st_arr)} slots; E-Commerce {len(e_outlets)} outlets, {len(e_pairs)} YES pairs.")
     return 0
