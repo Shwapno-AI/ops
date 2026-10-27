@@ -3155,7 +3155,7 @@
       const pages = [...document.querySelectorAll("#reportSheet .report-page")], pageH = pages[0].offsetHeight, pageW = pages[0].offsetWidth;
       // Browsers cap canvases near 16384px a side, so scale to fit and split into parts if even 1x overflows.
       const MAX = 16000, scale = Math.max(1, Math.min(2, MAX / (pageH * pages.length))), perPart = Math.max(1, Math.floor(MAX / (pageH * scale))), shots = [];
-      for (const p of pages) shots.push(await window.html2canvas(p, { scale, backgroundColor: "#ffffff", logging: false, useCORS: true, windowWidth: pageW }));
+      for (const p of pages) shots.push(await window.html2canvas(p, { onclone: pdfLight, scale, backgroundColor: "#ffffff", logging: false, useCORS: true, windowWidth: pageW }));
       const parts = [];
       for (let i = 0; i < shots.length; i += perPart) parts.push(shots.slice(i, i + perPart));
       for (let pi = 0; pi < parts.length; pi++) {
@@ -5220,7 +5220,7 @@
 
     // 7-8. Credit card and DOS beside receiving in a row of three; skill gap beside the weakest leaders or zonals
     const ccc = arCcCard(arCc(rl), rl);
-    return `<article class="ar-page">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${ccc}${arDosCard(rl)}</div><div class="ar-bottom">${arWeakCard(rl)}${arSkillCard(rl)}</div>${arFoot(rl)}</article>`;
+    return `<article class="ar-page" data-theme="light">${arHead(rl, pageNo, pages)}${sales}<div class="ar-cols"><div>${loss}${avc}</div><div>${cwc}${sac}</div></div><div class="ar-row3">${rcc}${ccc}${arDosCard(rl)}</div><div class="ar-bottom">${arWeakCard(rl)}${arSkillCard(rl)}</div>${arFoot(rl)}</article>`;
   }
 
   // ---- weakest groups: regional leaders on National, a leader's zonals on their page. Ranked on the average of
@@ -5350,6 +5350,9 @@
   const arLeaderIdx = (rl) => (rl ? arRhos().indexOf(rl) + 1 : 0); // 0 = National
 
   // ---- PDF: each page as a JPEG, written into a minimal PDF (A4 portrait, one image per page)
+  // PDFs and report images are printed on white: the copy html2canvas draws is switched to the light theme, so a
+  // page open in dark mode does not paint dark table headers and cells into the file
+  const pdfLight = (doc) => { doc.documentElement.dataset.theme = "light"; };
   function arPdfBlob(imgs) {
     const enc = new TextEncoder(), parts = [], offs = [];
     let len = 0;
@@ -5385,7 +5388,7 @@
         host.innerHTML = arPage(list[i] || null, arLeaderIdx(list[i]) + 1, total);
         const page = host.firstElementChild;
         await arWaitImages(page);
-        const c = await window.html2canvas(page, { scale: 1.75, backgroundColor: "#ffffff", logging: false, useCORS: true, windowWidth: page.offsetWidth });
+        const c = await window.html2canvas(page, { onclone: pdfLight, scale: 1.75, backgroundColor: "#ffffff", logging: false, useCORS: true, windowWidth: page.offsetWidth });
         const b64 = c.toDataURL("image/jpeg", 0.86).split(",")[1], bin = atob(b64), bytes = new Uint8Array(bin.length);
         for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
         imgs.push({ bytes, w: c.width, h: c.height });
@@ -7185,7 +7188,7 @@
       for (let i = 0; i < pages.length; i++) {
         status.textContent = `Rendering page ${i + 1} of ${pages.length}…`;
         await arWaitImages(pages[i]);
-        const c = await window.html2canvas(pages[i], { scale: 1.6, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
+        const c = await window.html2canvas(pages[i], { onclone: pdfLight, scale: 1.6, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
         const bin = atob(c.toDataURL("image/jpeg", 0.82).split(",")[1]), bytes = new Uint8Array(bin.length);
         for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
         imgs.push({ bytes, w: c.width, h: c.height });
@@ -7712,7 +7715,7 @@
     const tdb = "border:1px solid #1d2a2e";
     const cell = (main, note, color) => `<td style="${tdb};text-align:center;padding:7px 4px"><div style="font-size:14px;font-weight:700;color:${color || "#1d2a2e"}">${main}</div><div style="font-size:10px;color:#6d888f;margin-top:2px">${note}</div></td>`;
     const grade = r.grade?.label || "";
-    return `<div class="sa-form" style="width:794px;height:1123px;box-sizing:border-box;padding:32px 46px;background:#fff;color:#1d2a2e;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.45">
+    return `<div class="sa-form" data-theme="light" style="width:794px;height:1123px;box-sizing:border-box;padding:32px 46px;background:#fff;color:#1d2a2e;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.45">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1c6b87;padding-bottom:10px">
         <div><div style="font-size:10px;letter-spacing:.1em;color:#6d888f;text-transform:uppercase">Shwapno · Outlet visit form</div>
           <div style="font-size:24px;font-weight:700;margin-top:2px">${e(code)} ${e(r.nm)}</div>
@@ -7765,7 +7768,7 @@
     try {
       await loadH2C();
       const page = host.firstElementChild;
-      const c = await window.html2canvas(page, { scale: 2, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
+      const c = await window.html2canvas(page, { onclone: pdfLight, scale: 2, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
       const bin = atob(c.toDataURL("image/jpeg", 0.9).split(",")[1]), bytes = new Uint8Array(bin.length);
       for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
       const blob = arPdfBlob([{ bytes, w: c.width, h: c.height }]), url = URL.createObjectURL(blob), a = document.createElement("a");
