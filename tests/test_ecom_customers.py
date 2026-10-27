@@ -50,7 +50,7 @@ class CustomerRankingTests(unittest.TestCase):
                 mock.patch.object(sys, "argv", [str(SOURCE), "--local", str(self.root)]), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(refresh.main(), 0)
-        return json.loads(output.read_text())
+        return refresh.read_snapshot(output)
 
     def test_products_suborders_and_exports_do_not_inflate_parent_orders(self):
         data = self.build({
@@ -228,7 +228,7 @@ class CustomerRankingTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(refresh.main(), 0)
             self.assertEqual(read.call_count, 1)
-            self.assertEqual(json.loads(output.read_text())["customers"]["historyVersion"], 1)
+            self.assertEqual(refresh.read_snapshot(output)["customers"]["historyVersion"], 1)
             self.assertEqual(refresh.main(), 0)
             self.assertEqual(read.call_count, 1)
 
@@ -285,6 +285,19 @@ class ExtraColumnTests(unittest.TestCase):
         self.assertEqual({(r[2], r[3]) for r in data["placed"]["r"]}, {(3, 9)})  # 1 Oct 2026 is a Thursday, 9 AM
 
 
+
+    def test_customers_and_items_are_split_into_versioned_part_files(self):
+        data = self.build({"orders.xlsx": [order("P1", "S1", "Synthetic Alpha")]})
+        main = json.loads((self.root / "result.json").read_text())
+        self.assertNotIn("customers", main)
+        self.assertNotIn("items", main)
+        for name in refresh.PARTS:
+            ref = main["parts"][name]
+            part = self.root / ref["file"]
+            self.assertEqual(ref["file"], f"result-{name}.json")
+            self.assertEqual(json.loads(part.read_text()), data[name])
+            self.assertEqual(ref["bytes"], part.stat().st_size)
+            self.assertEqual(part.stat().st_mode & 0o444, 0o444)
 
     def test_snapshot_is_readable_by_the_static_web_server(self):
         self.build({"orders.xlsx": [order("P1", "S1", "Synthetic Alpha")]})

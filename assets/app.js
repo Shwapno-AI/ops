@@ -5643,11 +5643,31 @@
     if (S.ecom || S.ecomLoading || S.ecomErr) return;
     const loadId = S.ecomLoadId || 0;
     S.ecomLoading = true; S.ecomErr = null;
-    fetch("data/ecom.json", { cache: "no-store", credentials: "same-origin" })
+    fetch("data/ecom.json", { cache: "no-cache", credentials: "same-origin" })
       .then((r) => { if (loadId !== (S.ecomLoadId || 0)) return null; if (!r.ok) throw new Error("The data is temporarily unavailable."); return r.json(); })
-      .then((d) => { if (loadId !== (S.ecomLoadId || 0) || !ecUnlocked()) return; if (!(d.schema >= 2)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; })
+      .then((d) => { if (loadId !== (S.ecomLoadId || 0) || !ecUnlocked()) return; if (!(d.schema >= 2)) throw new Error("the data file is from an older version and is rebuilt on the next refresh"); ecPrep(d); S.ecom = d; ecLoadParts(d); })
       .catch((e) => { if (loadId === (S.ecomLoadId || 0)) S.ecomErr = e.message; })
       .finally(() => { if (loadId === (S.ecomLoadId || 0)) S.ecomLoading = false; if (S.page === "ecom") render(); });
+  }
+  // Schema 11 keeps customers and items in their own files (data/ecom-customers.json, data/ecom-items.json): the page
+  // renders from the small main file, and each part fills in when it arrives. The ?v= content version changes only
+  // with the part, so a browser revalidates an unchanged part instead of downloading it again.
+  const EC_PART_NAMES = { customers: "customer and order history", items: "product lines" };
+  function ecLoadParts(d) {
+    d.pending = new Set(Object.keys(d.parts || {}));
+    d.partErr = {};
+    Object.entries(d.parts || {}).forEach(([name, ref]) => {
+      fetch(`data/${ref.file}?v=${encodeURIComponent(ref.v)}`, { cache: "no-cache", credentials: "same-origin" })
+        .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then((part) => { if (S.ecom !== d) return; d[name] = part; if (name === "customers") { delete d.H; delete d.HC; } })
+        .catch((e) => { if (S.ecom === d) d.partErr[name] = e.message; })
+        .finally(() => { if (S.ecom !== d) return; d.pending.delete(name); if (S.page === "ecom") render(); });
+    });
+  }
+  function ecPartNote(d) {
+    const wait = [...(d.pending || [])].map((k) => EC_PART_NAMES[k] || k), bad = Object.keys(d.partErr || {}).map((k) => EC_PART_NAMES[k] || k);
+    if (wait.length) return `<p class="ec-banner" role="status">Loading the ${esc(wait.join(" and "))}… Order, customer and product figures fill in when ${wait.length > 1 ? "they arrive" : "it arrives"}.</p>`;
+    return bad.length ? `<p class="ec-banner" role="alert">The ${esc(bad.join(" and "))} could not be loaded, so some figures show —. Reload the page to try again.</p>` : "";
   }
   function ecPrep(d) {
     const none = "Not in outlet register";
@@ -6432,6 +6452,7 @@
     const itemsTop = (C.win ? C.itemIdx.length : d.items?.months?.includes(m)) ? [...ecItemsFor(C, C.win ? C.itemIdx : P.cur).entries()].sort((a2, b2) => b2[1].amt - a2[1].amt).slice(0, 10) : null;
     const prod = itemsTop ? `${ecBars(itemsTop.map(([k, x]) => ({ label: d.items.list[k][0], parts: [[x.amt, "var(--ec-1)"]], val: bdt(x.amt), attr: `data-ec-prod="${k}"` })))}<p style="margin:12px 0 0"><button class="btn" type="button" data-ec-tab="prod">See all products</button></p>`
       : pr.length ? ecBars(pr.slice(0, 30).map(([name, lines, orders, amount]) => { const q = ppAt.get(name); return { label: name, parts: [[amount, "var(--ec-1)"]], val: `${bdt(amount)}${q ? ecPctTxt(amount / d.mdays[m], q[3] / d.mdays[P.pm]) : ""}`, tip: `<strong>${esc(name)}</strong><dl><dt>Amount</dt><dd>${bdt(amount)}</dd><dt>Product lines</dt><dd>${int(lines)}</dd><dt>Sub-orders</dt><dd>${int(orders)}</dd>${q ? `<dt>${esc(fmonth(P.pm))}</dt><dd>${bdt(q[3])}</dd>` : ""}</dl>` }; }))
+      : d.pending?.has("items") ? '<p class="ec-note">Loading product lines…</p>'
       : `<p class="ec-note">Product detail is not in the ${esc(fmonth(m))} export. Products are read only from exports with one row per product whose amounts add up to the sub-order totals (so far, ${esc(Object.keys(d.products).map(fmonth).join(", ") || "none")}).</p>`;
     return `${lead}${movers}
       <div class="ec-row wide">
@@ -7313,7 +7334,9 @@
     const mt = new Map();
     C.monthTotals = (i) => { if (!mt.has(i)) mt.set(i, ecTotals(C, d.days.map((_, k) => k).filter((k) => d.dm[k] === i))); return mt.get(i); };
     S.ecomC = C;
-    const body = { over: ecOverview, outlets: ecOutlets, prod: ecProducts, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
+    const need = { prod: "items", cust: "customers" }[S.ecomTab];
+    const body = need && d.pending?.has(need) ? ecPanel(EC_TABS.find(([k]) => k === S.ecomTab)[1], "", `<p class="ec-note" style="margin:0">Loading the ${EC_PART_NAMES[need]}…</p>`)
+      : { over: ecOverview, outlets: ecOutlets, prod: ecProducts, cancel: ecCancel, slots: ecSlots, cust: ecCustomers, comp: ecComplaintsTab, open: ecOpenTab, fields: ecFields }[S.ecomTab](C);
     AFTER.push(() => {
       ecWire($("#view"));
       $$("[data-ec-lock]").forEach((b) => (b.onclick = () => { closeDrawer(); $("#drawerBody").innerHTML = ""; ecSetLock(false); ecClearData(); S.ecomBad = false; hideTip(); render(); }));
@@ -7331,7 +7354,7 @@
     });
     // a window: say which parts follow it day by day and which stay monthly
     const winNote = !win ? "" : `<p class="ec-banner">${esc(C.P.curLabel)}.${C.P.short ? ` ${esc(C.P.short)}` : ""} Cards, trends, outlets, cancellations and delivery follow these days exactly${C.P.cmp.length ? ` and compare with ${esc(C.P.cmpLabel)}` : ""}; ${S.ecomTab === "cust" ? `customers are analysed by delivery month, so this tab shows ${esc(fmonth(m))}` : "slots, order hours, slot moves, districts and complaints are kept by month in the data, so they cover the whole months the window touches"}.</p>`;
-    return `<div class="ec">${ecHead(C)}${winNote}${body}</div>`;
+    return `<div class="ec">${ecHead(C)}${ecPartNote(d)}${winNote}${body}</div>`;
   }
 
   // ------------------------------------------------------------------ store assessment (data/sa.json)
