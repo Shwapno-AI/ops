@@ -22,7 +22,6 @@ keeps showing the last good data.
 """
 import csv
 import io
-import json
 import os
 import re
 import sys
@@ -37,6 +36,7 @@ sys.path.insert(0, str(HERE.parent / "network"))
 
 import build_data as bd  # noqa: E402
 import fetch_drive_data as drive  # noqa: E402  (stdlib public-folder listing and download)
+from json_out import write_json  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
 
 FOLDER = (os.environ.get("CW_FOLDER_ID") or os.environ.get("DATA_FOLDER_ID") or "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l").strip()
@@ -206,10 +206,8 @@ def main():
         except Exception as err:  # noqa: BLE001 - report and keep the last good file
             log(f"::error::Consumable & wastage build failed: {err}")
             return 1
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False), encoding="utf-8")
-    os.replace(tmp, OUT)
+    if not write_json(OUT, payload, allow_nan=False):
+        return 0
     al = payload["dataQuality"].get("periodAlignment") or {}
     log(f"Wrote {OUT}: {len(payload['outlets'])} outlets, {len(payload['daily'])} outlet-days, "
         f"{payload['dateRange']['min']} to {payload['dateRange']['max']}.")

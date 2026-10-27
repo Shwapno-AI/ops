@@ -35,6 +35,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
+from json_out import write_json  # noqa: E402
 
 FOLDER = (os.environ.get("PK_FOLDER_ID") or os.environ.get("SA_FOLDER_ID") or "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF").strip()
 OUT = Path(os.environ.get("PK_OUT") or ROOT / "data" / "pakhaqs.json")
@@ -174,10 +175,8 @@ def main():
               "s": [[rd(v) for v in r[5]] for r in rows], "a": [rd(r[6]) for r in rows]},
         "feedback": feedback,
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, OUT)
+    if not write_json(OUT, payload):
+        return 0
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(rows)} outlet-months, {len(outlets)} outlets, {months[0]} to {months[-1]}"
         f"{', feedback ' + str(len(feedback['rows'])) + ' categories' if feedback else ''}.")
     return 0

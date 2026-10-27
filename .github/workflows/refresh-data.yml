@@ -21,6 +21,10 @@ jobs:
       # One download of each Drive file, shared by the four builds and kept between runs.
       # Files are keyed by Drive id + last-modified, so only new or changed files are downloaded.
       DRIVE_CACHE: /tmp/drive-cache
+      # Optional repository secret. With a Drive API key the folders are listed with exact modified times, so a
+      # file is only downloaded and rebuilt when it really changed (the public listing turns "9:16 pm" into
+      # "Oct 25" the next day, which reads as a change). Without the secret the public listing is used.
+      GDRIVE_API_KEY: ${{ secrets.GDRIVE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

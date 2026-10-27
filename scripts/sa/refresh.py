@@ -43,6 +43,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "sku"))
 sys.path.insert(0, str(HERE.parent / "network"))
 import xlsx_stream  # noqa: E402
+from json_out import write_json  # noqa: E402
 
 FOLDER = (os.environ.get("SA_FOLDER_ID") or "1TJ_c7VVyg6Qa_o0c62_LsZkd0sBHDEHF").strip()
 CUR_FOLDER = os.environ.get("SA_CURRENT_FOLDER_ID", "16HTr8nfPz4P2PMr4QB0bjgwiD110Qd-0").strip()
@@ -350,11 +351,9 @@ def main():
         "visits": vis,
         "issues": issues,
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    for path, data in ((OUT_REM, remarks), (OUT, payload)):
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        os.replace(tmp, path)
+    wrote = [write_json(path, data) for path, data in ((OUT_REM, remarks), (OUT, payload))]
+    if not any(wrote):
+        return 0
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): {len(vis)} audits, {len(months)} months, {len(scored)} questions, {len(auditors)} auditors; remarks {OUT_REM.stat().st_size // 1024} KB.")
     return 0
 

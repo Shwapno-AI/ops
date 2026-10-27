@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from json_out import write_json
+
 # Outlet network data for the "Outlet network" and "Growth & momentum" pages.
 # NETWORK_WORK: folder holding the downloaded workbooks (set by refresh.py).
 # NETWORK_OUT:  where network.json is written (the Docker image points it at nginx).
@@ -600,11 +602,8 @@ def build() -> dict:
 
 def main() -> None:
     payload = build()
-    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Write then rename so nginx never serves a half-written file.
-    tmp = OUTPUT_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, OUTPUT_FILE)
+    if not write_json(OUTPUT_FILE, payload):
+        return
     last_month = payload["source"].get("lastMonth") or {}
     print(
         f"Wrote {OUTPUT_FILE} with {len(payload['rows'])} outlets; "

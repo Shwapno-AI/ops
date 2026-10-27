@@ -28,7 +28,6 @@ Usage: python scripts/ccv/refresh.py [--local DIR]   # DIR of .csv/.xlsx files i
 import csv
 import datetime as dt
 import io
-import json
 import os
 import re
 import sys
@@ -38,6 +37,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "network"))
+from json_out import write_json  # noqa: E402
 
 FOLDER = (os.environ.get("CCV_FOLDER_ID") or "16HTr8nfPz4P2PMr4QB0bjgwiD110Qd-0").strip()
 OUT = Path(os.environ.get("CCV_OUT") or ROOT / "data" / "ccv.json")
@@ -240,10 +240,8 @@ def main():
             payload["source"]["files"].append({**pl[1], "role": "visit plan"})
         else:
             log(f"::warning::No visit plan for {month}; planned visits are left out.")
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, OUT)
+    if not write_json(OUT, payload):
+        return 0
     v = payload.get("visit") or {}
     log(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB): credit card {len((payload.get('cc') or {}).get('rows') or [])} outlets; "
         f"visits {v.get('from', '')} to {v.get('to', '')}, {len(v.get('rows') or [])} outlets.")
