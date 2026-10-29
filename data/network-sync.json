@@ -2,7 +2,7 @@
   "folderId": "1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "folderUrl": "https://drive.google.com/drive/folders/1Te9stxbcBsIIO8bNElPuDXXPovkk4v1l",
   "method": "public-link",
-  "syncedAt": "2026-10-28T14:43:50Z",
+  "syncedAt": "2026-10-29T14:49:48Z",
   "files": {
     "outletMaster": {
       "driveName": "Daily/Renovation List & Tracking.xlsx",
@@ -19,11 +19,11 @@
       "sha256": "dcc99ec9cc315c97dbad068a376b29ddb8f47d780b344b6dc0243a3d5632b480"
     },
     "dayWiseSales": {
-      "driveName": "Daily/Article W Sales (7).xlsx",
-      "driveId": "1_rnqZQL9cJQ8ap-PZMiPk7zVU8DxezvZ",
-      "driveModified": "Oct 26",
-      "bytes": 1869573,
-      "sha256": "62c92a2059fa634bee69a28f6764f79cc111106a0d7a40e165a38ad25e9a88f1"
+      "driveName": "Daily/Article W Sales.xlsx",
+      "driveId": "1sEVgfCLqRRIb8bsnVS9NgUNTNBO5DUUa",
+      "driveModified": "3:57 am",
+      "bytes": 2012360,
+      "sha256": "45b25b7d262b66ae3ca3bd376cf4e5534934684772b1cadc138b65dcf0e5ee58"
     },
     "lastMonth": {
       "driveName": "Month-end/260930 Business Performance Report V 0- Till 30 Sep 2026.xlsx",
