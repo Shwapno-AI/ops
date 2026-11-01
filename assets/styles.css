@@ -595,3 +595,12 @@ tr.sv-cat.on td:first-child{box-shadow:inset 3px 0 0 var(--info)}
 .avo-mx td{padding:3px 4px}
 /* Z - REPORT Dashboard 2: the seven cards on one row on wide screens */
 @media (min-width:1080px){.kpis.zr-kp7{grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}.kpis.zr-kp7 .kpi{padding:12px 12px;min-width:0}.kpis.zr-kp7 .kpi .value{font-size:clamp(18px,1.9vw,26px);white-space:nowrap}.kpis.zr-kp7 .kpi .label,.kpis.zr-kp7 .kpi .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-wrap:nowrap}.kpis.zr-kp7 .kpi.hero{grid-column:auto;order:0}}
+/* Connected dashboards: the frame fills the page under the top bar; Full screen shows only the dashboard */
+.shell.embed-mode .view{padding:10px 12px 12px;gap:0}
+.shell.embed-mode .embed{min-height:0;height:calc(100vh - var(--topbar-h,74px) - 22px)}
+.shell.embed-mode .embed .panel-head{padding-top:8px;padding-bottom:8px}
+.shell.embed-mode .embed iframe{min-height:0;height:100%}
+.embed:fullscreen{border-radius:0;height:100vh;background:var(--surface)}
+.embed:fullscreen iframe{height:100%;min-height:0;border-radius:0}
+.embed-note p{margin:0 0 8px;max-width:80ch}
+.embed-note code{font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px}

@@ -15,7 +15,7 @@
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
     { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"], ["zr", "Z - REPORT"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
-    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"]] },
+    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["reno", "Outlet Projects Tracker"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
   const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" || t === "Z - REPORT" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
@@ -34,6 +34,9 @@
     gpva: { url: "https://outlet-wise-gpva.shwapno.app/", desc: "Outlet-wise GPVA% tracking." },
     cc: { url: "https://aftabz-lab.github.io/credit-card-extra-amount/", desc: "Credit card extra amount by outlet." },
     vc: { url: "https://aftabz-lab.github.io/visit-compliance-dashboard/", desc: "Outlet visit schedules and compliance." },
+    // renovation.shwapno.app sends X-Frame-Options: DENY and frame-ancestors 'none', so browsers refuse to show it in a
+    // frame; it opens in its own tab until that site allows https://ops.shwapno.app (then drop noFrame)
+    reno: { url: "https://renovation.shwapno.app/", desc: "Outlet renovation and project tracking.", noFrame: true },
   };
   // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.
   const MISS = "New/Closed outlets (Not Distributed)";
@@ -760,9 +763,13 @@
   const freshUrl = (u) => u + (u.includes("?") ? "&" : "?") + "_=" + Date.now();
   function pageEmbed(k) {
     const e = EMBEDS[k];
+    if (e.noFrame) return `<section class="panel embed"><div class="panel-head"><div><h2>${esc(TITLES[k])}</h2><p>${esc(e.desc)}</p></div>
+      <div class="panel-tools"><a class="btn primary" href="${e.url}" target="_blank" rel="noopener">Open ${esc(TITLES[k])}</a></div></div>
+      <div class="panel-body embed-note"><p><b>${esc(new URL(e.url).host)}</b> does not allow other sites to show it inside a frame (its server sends <code>X-Frame-Options: DENY</code> and <code>frame-ancestors 'none'</code>), so it opens in its own tab.</p>
+        <p class="muted">To show it here, its server needs <code>Content-Security-Policy: frame-ancestors https://ops.shwapno.app</code> and no <code>X-Frame-Options: DENY</code>. Once that is set, it can be shown full screen here like the other connected dashboards.</p></div></section>`;
     return `<section class="panel embed"><div class="panel-head"><div><h2>${esc(TITLES[k])}</h2><p>${esc(e.desc)}</p></div>
-      <div class="panel-tools"><button type="button" class="btn" data-embed-reload title="Load the latest version of this dashboard">Reload</button><a class="btn" href="${e.url}" target="_blank" rel="noopener">Open in new tab</a></div></div>
-      <iframe src="${freshUrl(e.url)}" title="${esc(TITLES[k])} dashboard" loading="lazy"></iframe></section>`;
+      <div class="panel-tools"><button type="button" class="btn" data-embed-full title="Show this dashboard on the whole screen (Esc to leave)">Full screen</button><button type="button" class="btn" data-embed-reload title="Load the latest version of this dashboard">Reload</button><a class="btn" href="${e.url}" target="_blank" rel="noopener">Open in new tab</a></div></div>
+      <iframe src="${freshUrl(e.url)}" title="${esc(TITLES[k])} dashboard" loading="lazy" allow="fullscreen"></iframe></section>`;
   }
 
   // ------------------------------------------------------------------ shared helpers (growth pages)
@@ -821,6 +828,7 @@
     $$("[data-set]", root).forEach((b) => (b.onclick = () => { S[b.dataset.set] = b.dataset.val; changed(); }));
     $$("[data-sel]", root).forEach((sel) => (sel.onchange = () => { S[sel.dataset.sel] = sel.value; changed(); }));
     wireRc(root); wireIp(root); wireSa(root);
+    $$("[data-embed-full]", root).forEach((b) => (b.onclick = () => { const f = b.closest(".embed"); if (document.fullscreenElement) document.exitFullscreen(); else f?.requestFullscreen?.(); }));
     $$("[data-embed-reload]", root).forEach((b) => (b.onclick = () => { const f = b.closest(".embed")?.querySelector("iframe"); if (f) f.src = freshUrl(EMBEDS[S.page]?.url || f.src.split(/[?&]_=/)[0]); }));
     $$("[data-go]", root).forEach((b) => { b.onclick = () => (location.hash = b.dataset.go); if (b.tagName !== "BUTTON") b.onkeydown = (e) => { if (e.key === "Enter") location.hash = b.dataset.go; }; });
     $$("[data-lpick]", root).forEach((tr) => {
@@ -9356,6 +9364,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     // keep embedded iframes alive when only filters change
     const view = $("#view");
     if (!(EMBEDS[p] && view.dataset.page === p)) view.innerHTML = html;
+    $(".shell").classList.toggle("embed-mode", !!EMBEDS[p]);
     view.dataset.page = p;
     Object.keys(S.tables).forEach((id) => $("#t-" + id) && drawTable(id));
     wireDyn(view);
@@ -9370,6 +9379,9 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     // pages comes back on leaving Sales growth; a change made while on these pages holds until you leave them.
     if (S.page === "growth" && prev !== "growth") { S.scopeBack = S.scope; S.scope = "same"; }
     else if (prev === "growth" && S.page !== "growth" && S.scopeBack) { S.scope = S.scopeBack; S.scopeBack = null; }
+    // connected dashboards get the whole width: the sidebar folds on the way in and comes back on the way out
+    if (EMBEDS[S.page] && !EMBEDS[prev]) { S.railBack = UI.railHidden; if (window.innerWidth > 1080 && !UI.railHidden) { UI.railHidden = true; applyRail(); } }
+    else if (!EMBEDS[S.page] && EMBEDS[prev] && S.railBack !== undefined) { if (UI.railHidden !== S.railBack) { UI.railHidden = S.railBack; applyRail(); } S.railBack = undefined; }
     if (IP_PAGES.has(S.page) && !IP_PAGES.has(prev)) { S.ipv.scope = "same"; if (S.ipv.sku === "all") S.ipv.sku = "same"; }
     if (S.page !== "dq") S.dqOk = false; // leaving Data quality locks it again
     const grp = NAV.find((g) => g.items.some(([k]) => k === S.page))?.group;
