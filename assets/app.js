@@ -15,7 +15,7 @@
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
     { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"], ["zr", "Z - REPORT"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
-    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["reno", "Outlet Projects Tracker"]] },
+    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["reno", "Outlet Projects Tracker"], ["bpr", "Shwapno BPR"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
   const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" || t === "Z - REPORT" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
@@ -37,6 +37,9 @@
     // renovation.shwapno.app sends X-Frame-Options: DENY and frame-ancestors 'none', so browsers refuse to show it in a
     // frame; it opens in its own tab until that site allows https://ops.shwapno.app (then drop noFrame)
     reno: { url: "https://renovation.shwapno.app/", desc: "Outlet renovation and project tracking.", noFrame: true },
+    // behind a password (SHA-256 of it kept here); the frame is only created after unlocking, and it locks again on
+    // leaving the page. This keeps casual visitors out; it is not server-side security.
+    bpr: { url: "https://kaziradin.github.io/SHWAPNO_SALES_REPORT/", desc: "Shwapno business performance report.", lockHash: "19581e27de7ced00ff1ce50b2047e7a567c76b1cbaebabe5ef03f7c3017bb5b7" },
   };
   // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.
   const MISS = "New/Closed outlets (Not Distributed)";
@@ -761,8 +764,26 @@
 
   // A fresh query string on each load, so the browser can't reuse an old cached copy of the connected dashboard.
   const freshUrl = (u) => u + (u.includes("?") ? "&" : "?") + "_=" + Date.now();
+  function embedLock(k) {
+    AFTER.push(() => {
+      const f = $("#embLock"); if (!f) return;
+      $("#embPw").focus();
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode($("#embPw").value));
+        const h = [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        if (h !== EMBEDS[k].lockHash) { $("#embMsg").textContent = "Wrong password. Try again."; $("#embPw").select(); return; }
+        S.embedOk = k; $("#view").dataset.page = ""; render();
+      };
+    });
+    return `<section class="panel dq-lock"><div class="panel-body"><form id="embLock" autocomplete="off">
+      <h2>${esc(TITLES[k])} is locked</h2><p class="muted">Enter the password to open this dashboard.</p>
+      <div class="dq-lock-row"><input id="embPw" type="password" class="sel" aria-label="Password" placeholder="Password"><button class="btn primary" type="submit">Unlock</button></div>
+      <p id="embMsg" class="dq-lock-msg" role="alert"></p></form></div></section>`;
+  }
   function pageEmbed(k) {
     const e = EMBEDS[k];
+    if (e.lockHash && S.embedOk !== k) return embedLock(k);
     if (e.noFrame) return `<section class="panel embed"><div class="panel-head"><div><h2>${esc(TITLES[k])}</h2><p>${esc(e.desc)}</p></div>
       <div class="panel-tools"><a class="btn primary" href="${e.url}" target="_blank" rel="noopener">Open ${esc(TITLES[k])}</a></div></div>
       <div class="panel-body embed-note"><p><b>${esc(new URL(e.url).host)}</b> does not allow other sites to show it inside a frame (its server sends <code>X-Frame-Options: DENY</code> and <code>frame-ancestors 'none'</code>), so it opens in its own tab.</p>
@@ -9379,6 +9400,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     // pages comes back on leaving Sales growth; a change made while on these pages holds until you leave them.
     if (S.page === "growth" && prev !== "growth") { S.scopeBack = S.scope; S.scope = "same"; }
     else if (prev === "growth" && S.page !== "growth" && S.scopeBack) { S.scope = S.scopeBack; S.scopeBack = null; }
+    if (S.embedOk && S.page !== S.embedOk) S.embedOk = null; // a password-locked dashboard locks again on leaving it
     // connected dashboards get the whole width: the sidebar folds on the way in and comes back on the way out
     if (EMBEDS[S.page] && !EMBEDS[prev]) { S.railBack = UI.railHidden; if (window.innerWidth > 1080 && !UI.railHidden) { UI.railHidden = true; applyRail(); } }
     else if (!EMBEDS[S.page] && EMBEDS[prev] && S.railBack !== undefined) { if (UI.railHidden !== S.railBack) { UI.railHidden = S.railBack; applyRail(); } S.railBack = undefined; }
