@@ -27,6 +27,10 @@ Environment:
   SA_OUT        output file (default: data/sa.json)
   DATA_OUT      data.json with the outlet master (default: data/data.json)
   DRIVE_CACHE   shared download cache (see scripts/network/fetch_drive_data.py)
+  SA_ARCHIVE    month-end archive (the server sets /archive/sa-months, a Coolify persistent volume). Every finished
+                month read from Drive is kept there as <YYYY-MM>/sa-month.json (audits with auditor names and question
+                ids, and remarks), never replaced by a version with fewer audits; a kept month that no Drive file covers
+                any more (the current-month file moved on) is added back, so the pages keep showing it.
 Usage: python scripts/sa/refresh.py [--local DIR]   # DIR of .xlsx files instead of Drive
 """
 import datetime as dt
@@ -50,6 +54,74 @@ CUR_FOLDER = os.environ.get("SA_CURRENT_FOLDER_ID", "16HTr8nfPz4P2PMr4QB0bjgwiD1
 CUR_PREFIX = (os.environ.get("SA_CURRENT_PREFIX") or "Store_Operations_Compliance_Audit_responses").strip().lower()
 OUT = Path(os.environ.get("SA_OUT") or ROOT / "data" / "sa.json")
 OUT_REM = OUT.with_name("sa-remarks.json")
+ARCHIVE = Path(os.environ["SA_ARCHIVE"]) if os.environ.get("SA_ARCHIVE") else None
+
+
+def this_month():
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=6)).strftime("%Y-%m")  # Dhaka
+
+
+def archive_write(visits, files_meta, auditors, remarks, scored, qinfo, cats):
+    """Keep every finished month read from Drive (not ones added back from the archive)."""
+    if not ARCHIVE:
+        return
+    now, by_m = this_month(), defaultdict(list)
+    for v in visits.values():
+        if not files_meta[v[1]].get("archive") and v[2][:7] < now:
+            by_m[v[2][:7]].append(v)
+    for m, rows in sorted(by_m.items()):
+        rows.sort(key=lambda v: (v[2], v[3], v[0]))
+        doc = {"month": m, "qids": scored,
+               "questions": {str(q): [qinfo[q]["cat"], qinfo[q]["title"], qinfo[q]["type"], qinfo[q]["max"]] for q in scored},
+               "visits": [[v[0], v[2], v[3], v[4], auditors[v[5]], v[6], v[7], v[8], v[9]] for v in rows],
+               "remarks": {str(v[0]): [[cats[c] if c < len(cats) else "", t] for c, t in remarks[str(v[0])]] for v in rows if str(v[0]) in remarks}}
+        dest = ARCHIVE / m / "sa-month.json"
+        text = json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
+        try:
+            kept = json.loads(dest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            kept = None
+        if kept is not None:
+            if json.dumps(kept, ensure_ascii=False, separators=(",", ":")) == text:
+                continue
+            if len(kept.get("visits") or []) > len(doc["visits"]):
+                log(f"  archive  {m}: kept {len(kept['visits'])} audits; this build has {len(doc['visits'])}, so the kept month stays")
+                continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, dest)
+        log(f"  archive  kept {m}: {len(doc['visits'])} audits in {dest}")
+
+
+def archive_merge(visits, files_meta, auditor, qpos, cats, remarks):
+    """Add back kept months that no Drive file covers any more."""
+    if not ARCHIVE or not ARCHIVE.is_dir():
+        return
+    have = {v[2][:7] for v in visits.values()}
+    for d in sorted(ARCHIVE.iterdir()):
+        f = d / "sa-month.json"
+        if not (re.fullmatch(r"\d{4}-\d{2}", d.name) and f.is_file()) or d.name in have:
+            continue
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as err:
+            log(f"::warning::Month-end archive {d.name} unreadable ({err})")
+            continue
+        fn = len(files_meta)
+        files_meta.append({"key": f"archive|{d.name}", "name": f"Month-end archive {d.name}", "archive": True, "modified": "", "modifiedIso": ""})
+        qids, n = doc.get("qids") or [], 0
+        for rid, date, time, site, aud, total, poss, ans, scores in doc.get("visits") or []:
+            qs = [None] * len(qpos)
+            for q, sc in zip(qids, scores):
+                if q in qpos:
+                    qs[qpos[q]] = sc
+            visits[rid] = [rid, fn, date, time, site, auditor(aud), total, poss, ans, qs]
+            n += 1
+        for rid, rs in (doc.get("remarks") or {}).items():
+            remarks[rid] = [[cats.index(c) if c in cats else 0, t] for c, t in rs]
+        files_meta[fn]["audits"] = n
+        log(f"  archive  added back {d.name}: {n} audits (no Drive file covers it any more)")
 MASTER = Path(os.environ.get("DATA_OUT") or ROOT / "data" / "data.json")
 
 
@@ -310,6 +382,12 @@ def main():
             m["audits"] = sum(1 for v in visits.values() if v[1] == fn)
             if fn not in cur_fn and not m["audits"] and gone.get(fn):
                 m["superseded"] = sorted(gone[fn])  # months it held, all taken from the current-month file
+    # month-end archive: keep the finished months read from Drive, then add back kept months Drive no longer covers
+    try:
+        archive_write(visits, files_meta, auditors, remarks, scored, qinfo, cats)
+        archive_merge(visits, files_meta, auditor, qpos, cats, remarks)
+    except OSError as err:
+        log(f"::warning::Month-end archive not used: {err}")
     vis = sorted(visits.values(), key=lambda v: (v[2], v[3], v[0]))
     # tidy numbers: whole points where possible
     for v in vis:

@@ -19,14 +19,15 @@ fi
 export DRIVE_CACHE=/tmp/drive-cache
 
 # Month-end archive: whole months of the Store level report (SKU), Consumable and wastage, Outlet network (also
-# Growth & momentum) and the month-end Availability snapshot are kept under /archive (scripts/sku/refresh.py and
+# Growth & momentum), Store assessment audits and the month-end Availability snapshot are kept under /archive (scripts/sku/refresh.py and
 # scripts/month_archive.py), so a new month's files do not wipe the last one. Put a Coolify Persistent Storage
 # volume on /archive so the kept months survive redeploys. Months shipped in the image (data/<kind>-months, seeds)
 # are copied in when the volume does not have them; nginx serves /archive/<kind>-months as /data/<kind>-months/.
 export MONTH_ARCHIVE=${MONTH_ARCHIVE:-/archive}
+export SA_ARCHIVE=${SA_ARCHIVE:-$MONTH_ARCHIVE/sa-months}   # store assessment: finished months of audits, added back when Drive drops them
 grep -qs " /archive " /proc/mounts || echo "WARNING: /archive is not a persistent volume; kept months are lost on the next redeploy. Add a Coolify Persistent Storage with destination /archive."
-for kind in sku cw network av; do
-  dest="$MONTH_ARCHIVE/$kind-months"; [ "$kind" = sku ] && [ -n "$SKU_ARCHIVE" ] && dest="$SKU_ARCHIVE"
+for kind in sku cw network av sa; do
+  dest="$MONTH_ARCHIVE/$kind-months"; [ "$kind" = sku ] && [ -n "$SKU_ARCHIVE" ] && dest="$SKU_ARCHIVE"; [ "$kind" = sa ] && dest="$SA_ARCHIVE"
   mkdir -p "$dest"
   for d in /usr/share/nginx/html/data/$kind-months/*/; do
     [ -d "$d" ] || continue
