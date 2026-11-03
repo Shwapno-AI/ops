@@ -62,7 +62,7 @@
 
   const S = { data: null, page: "overview", period: "tilldate", filters: {}, openDim: null, tables: {}, level: "rl", bands: new Set(), lastFocus: null,
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", prstat: "all", plevel: "rl", ageDrill: null,
-    net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
+    mon: {}, monIdx: {}, monLatest: {}, net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, dsv: { lvl: "rl", rl: null, zn: null }, pkv: { lvl: "rl", rl: null, zn: null }, pkm: null, cwh: { lvl: "rl", rl: null, zn: null },
     cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
@@ -2197,13 +2197,49 @@
     });
   }
 
+  // ---- month-end archive: the server keeps whole months (data/<kind>-months/<YYYY-MM>/, listed in index.json;
+  // scripts/month_archive.py). Each page group has a "Data month" picker; leaving the group goes back to the latest.
+  const MONTH_KINDS = { cw: { pages: CW_PAGES, name: "Consumable and wastage" }, network: { pages: NET_PAGES, name: "Outlet network" }, av: { pages: AV_PAGES, name: "Availability" } };
+  const monBase = (k) => (S.mon[k] ? `data/${k}-months/${S.mon[k]}/` : "data/");
+  const monKind = (page) => Object.keys(MONTH_KINDS).find((k) => MONTH_KINDS[k].pages.has(page));
+  // the stock date of an availability snapshot: "… 2.11.2026.csv", or the Unix time in "stock_extraction_report_1793075462"
+  function avStockDay(d) {
+    const f = (d.files || []).find((x) => x.kind === "stock"), n = f?.name || "";
+    const a = n.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/), t = n.match(/(?<!\d)(1[6-9]\d{8}|2[01]\d{8})(?!\d)/);
+    if (a) return `${a[3]}-${a[2].padStart(2, "0")}-${a[1].padStart(2, "0")}`;
+    if (t) return new Date((+t[1] + 6 * 3600) * 1000).toISOString().slice(0, 10);
+    return String(f?.modified || d.generatedAt || "").slice(0, 10);
+  }
+  function monClear(k) {
+    if (k === "cw") { S.cw = null; S.cwLoading = false; S.cwErr = null; }
+    if (k === "network") { S.net = null; S.netLoading = false; S.netErr = null; netCache = { key: null, rows: [] }; }
+    if (k === "av") { S.av = null; S.avLoading = false; S.avErr = null; }
+  }
+  function loadMonths(k) {
+    if (S.monIdx[k] !== undefined) return;
+    S.monIdx[k] = null;
+    fetch(`data/${k}-months/index.json`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : { months: [] }))
+      .then((x) => { S.monIdx[k] = Array.isArray(x.months) ? x.months : []; }).catch(() => { S.monIdx[k] = []; })
+      .finally(() => { if (monKind(S.page) === k) render(); });
+  }
+  function monthBar(k) {
+    loadMonths(k);
+    const kept = (S.monIdx[k] || []).filter((x) => x.month !== S.monLatest[k] || S.mon[k] === x.month).slice().reverse();
+    if (!kept.length && !S.mon[k]) return "";
+    AFTER.push(() => { const sel = $(`[data-monk="${k}"]`); if (sel) sel.onchange = () => { S.mon[k] = sel.value; monClear(k); render(); }; });
+    const lab = (x) => (k === "av" ? `${fmonth(x.month)} · stock ${x.period?.end ? fdate(x.period.end, true) : ""}` : `${fmonth(x.month)}${x.period ? ` (${fdate(x.period.start, true)} – ${fdate(x.period.end, true)})` : ""}`);
+    return `<section class="panel ui-slim mon-bar"><div class="panel-head"><div><h2>Data month</h2><p>${S.mon[k] ? `Showing the kept month ${esc(fmonth(S.mon[k]))}${k === "av" ? " (its month-end stock snapshot)" : ""}. Pick Latest to go back.` : `Latest data. Whole months are kept on the server when a new month's files arrive${k === "av" ? " (the last stock snapshot of each month)" : ""}.`}</p></div>
+      <div class="panel-tools"><select class="sel" data-monk="${k}" aria-label="Data month"><option value="" ${S.mon[k] ? "" : "selected"}>Latest${S.monLatest[k] ? ` (${esc(fmonth(S.monLatest[k]))})` : ""}</option>${kept.map((x) => `<option value="${esc(x.month)}" ${x.month === S.mon[k] ? "selected" : ""}>${esc(lab(x))} · kept</option>`).join("")}</select></div></div></section>`;
+  }
+
   // ---- data
   function loadNet() {
     if (S.net || S.netLoading) return;
     S.netLoading = true; S.netErr = null;
-    fetch("data/network.json", { cache: "no-cache" })
+    const want = S.mon.network || "";
+    fetch(`${monBase("network")}network.json`, { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { prepNet(d); S.net = d; })
+      .then((d) => { if ((S.mon.network || "") !== want) return; prepNet(d); S.net = d; if (!want) S.monLatest.network = d.source?.reportMonth || ""; })
       .catch((e) => { S.netErr = e.message; })
       .finally(() => { S.netLoading = false; if (NET_PAGES.has(S.page) || S.page === "dq") render(); });
   }
@@ -3280,9 +3316,10 @@
   function loadCw() {
     if (S.cw || S.cwLoading) return;
     S.cwLoading = true; S.cwErr = null;
-    fetch("data/cw.json", { cache: "no-cache" })
+    const want = S.mon.cw || "";
+    fetch(`${monBase("cw")}cw.json`, { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { prepCw(d); S.cw = d; })
+      .then((d) => { if ((S.mon.cw || "") !== want) return; prepCw(d); S.cw = d; if (!want) S.monLatest.cw = String(d.dateRange?.max || "").slice(0, 7); })
       .catch((e) => { S.cwErr = e.message; })
       .finally(() => { S.cwLoading = false; if (CW_PAGES.has(S.page) || S.page === "dq") render(); });
   }
@@ -3819,9 +3856,10 @@
   function loadAv() {
     if (S.av || S.avLoading) return;
     S.avLoading = true; S.avErr = null;
-    fetch("data/av.json", { cache: "no-cache" })
+    const want = S.mon.av || "";
+    fetch(`${monBase("av")}av.json`, { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { prepAv(d); S.av = d; })
+      .then((d) => { if ((S.mon.av || "") !== want) return; prepAv(d); S.av = d; if (!want) S.monLatest.av = avStockDay(d).slice(0, 7); })
       .catch((e) => { S.avErr = e.message; })
       .finally(() => { S.avLoading = false; if (AV_PAGES.has(S.page) || S.page === "dq") render(); });
   }
@@ -8245,12 +8283,23 @@
   // This year vs same period last year by outlet x SKU, from the Item Dashboard performance workbooks.
   // Sales = POS NSI, GP = POS GP value, Qty = POS sales quantity. Footfall and basket size are not
   // shown: in the source they are per SKU line and don't add up across SKUs.
+  // The latest data is data/sku.json; whole months kept by the server's month-end archive are under
+  // data/sku-months/<YYYY-MM>/ (listed in data/sku-months/index.json) and are picked in the page header.
+  const skuBase = () => (S.skuM ? `data/sku-months/${S.skuM}/` : "data/");
+  function loadSkuMonths() {
+    if (S.skuMonths !== undefined) return;
+    S.skuMonths = null;
+    fetch("data/sku-months/index.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : { months: [] }))
+      .then((x) => { S.skuMonths = Array.isArray(x.months) ? x.months : []; }).catch(() => { S.skuMonths = []; })
+      .finally(() => { if (IP_PAGES.has(S.page) && S.sku) render(); });
+  }
   function loadSku() {
+    loadSkuMonths();
     if (S.sku || S.skuLoading) return;
     S.skuLoading = true; S.skuErr = null;
-    fetch("data/sku.json", { cache: "no-cache" })
+    fetch(`${skuBase()}sku.json`, { cache: "no-cache" })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((d) => { skuPrep(d); S.sku = d; })
+      .then((d) => { skuPrep(d); S.sku = d; if (!S.skuM) S.skuLatest = d.period ? ipPeriod(d) : "Latest data"; })
       .catch((e) => { S.skuErr = e.message; })
       .finally(() => { S.skuLoading = false; if (IP_PAGES.has(S.page)) render(); });
   }
@@ -8267,7 +8316,7 @@
   function loadSkuRl() {
     if (S.sku.skuRl || S.skuRlLoading) return;
     S.skuRlLoading = true;
-    fetch("data/sku-rl.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    fetch(`${skuBase()}sku-rl.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then((x) => { S.sku.skuRl = x.skuRl; }).catch((e) => { S.skuErr = e.message; }).finally(() => { S.skuRlLoading = false; if (IP_PAGES.has(S.page)) render(); });
   }
   function skuGuard() {
@@ -8353,9 +8402,17 @@
     const txt = ys === ye && ms === me ? `${ds}–${de} ${MON[me - 1]} ${ye}` : `${fdate(p.start)} – ${fdate(p.end)}`;
     return `Data ${txt}${p.method.startsWith("estimated") ? " (estimated)" : ""}`;
   }
+  // month picker: the latest data, or a whole month kept by the server's month-end archive
+  function skuMonthSel() {
+    const ms = (S.skuMonths || []).slice().reverse();
+    if (!ms.length && !S.skuM) return "";
+    AFTER.push(() => { const sel = $("[data-skum]"); if (sel) sel.onchange = () => { S.skuM = sel.value; S.sku = null; S.skuOut = {}; S.skuErr = null; S.skuRlLoading = false; render(); }; });
+    const lab = (x) => `${fmonth(x.month)}${x.period ? ` (${fdate(x.period.start, true)} – ${fdate(x.period.end, true)})` : ""}`;
+    return `<label class="top-sel" style="display:inline-flex;margin-right:10px"><span class="top-sel-k">Data month</span><select class="sel" data-skum aria-label="Data month"><option value="" ${S.skuM ? "" : "selected"}>Latest${S.skuLatest ? `: ${esc(S.skuLatest)}` : ""}</option>${ms.map((x) => `<option value="${esc(x.month)}" ${x.month === S.skuM ? "selected" : ""}>${esc(lab(x))} · kept</option>`).join("")}</select></label>`;
+  }
   function ipHead() {
     const d = S.sku;
-    return `<p class="muted" style="margin:0">${d.period ? `<strong>${esc(ipPeriod(d))}</strong> vs the same days last year` : "This year vs the same period last year"}, from ${int(d.source.files.length)} item-performance workbooks (${int(d.source.rows)} outlet × SKU rows). Sales is POS NSI; GP is POS GP value.</p>`;
+    return `<p class="muted" style="margin:0;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${skuMonthSel()}<span>${S.skuM ? `<strong>Kept month ${esc(fmonth(S.skuM))}:</strong> ` : ""}${d.period ? `<strong>${esc(ipPeriod(d))}</strong> vs the same days last year` : "This year vs the same period last year"}, from ${int(d.source.files.length)} item-performance workbooks (${int(d.source.rows)} outlet × SKU rows). Sales is POS NSI; GP is POS GP value.</span></p>`;
   }
   // ---- Z - REPORT (data/zr.json + data/zr/<outlet>.json, from the Z-Report workbook): category-wise Sales, FF and
   // Basket by month for one outlet (or the workbook's all-outlet month rows), and the workbook's projection:
@@ -8784,12 +8841,12 @@
     // A missing file is asked for again after a minute (the server may still be building the lists).
     if (c === undefined || (c?.missing && Date.now() - c.missing > 60000)) {
       c = S.skuOut[code] = null;
-      fetch(`data/sku-outlet/${code.replace(/[^A-Za-z0-9_-]/g, "_")}.json?v=${encodeURIComponent(S.sku.fingerprint || "")}`, { cache: "no-cache" })
+      fetch(`${skuBase()}sku-outlet/${code.replace(/[^A-Za-z0-9_-]/g, "_")}.json?v=${encodeURIComponent(S.sku.fingerprint || "")}`, { cache: "no-cache" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
         .then((x) => { S.skuOut[code] = x.rows; }).catch(() => { S.skuOut[code] = { missing: Date.now() }; }).finally(() => ipOutletSkus(code));
     }
     if (!Array.isArray(c)) {
-      box.innerHTML = `<p class="muted" style="margin:0">${c?.missing ? "This outlet's full SKU list isn't ready yet. The server rebuilds the per-outlet lists after each update of the item-performance data (about 15 minutes after a deploy); open the outlet again in a few minutes. The biggest growing and declining SKUs above are already complete." : "Loading every SKU of this outlet…"}</p>`;
+      box.innerHTML = `<p class="muted" style="margin:0">${c?.missing && S.skuM ? "The full SKU list of each outlet was not kept for this month (only months archived on the server keep them)." : c?.missing ? "This outlet's full SKU list isn't ready yet. The server rebuilds the per-outlet lists after each update of the item-performance data (about 15 minutes after a deploy); open the outlet again in a few minutes. The biggest growing and declining SKUs above are already complete." : "Loading every SKU of this outlet…"}</p>`;
       return;
     }
     const d = S.sku; if (!d.skuIdx) d.skuIdx = new Map(d.skus.map((s, i) => [s[0], i]));
@@ -9381,7 +9438,8 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, dos: pageDOS, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
       rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, ecom: pageEcom, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, sapk: pageSAPK, ipo: pageIPO, ipt: pageIPT, zr: pageZR, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
-    const html = PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview();
+    const mk = monKind(p);
+    const html = (mk ? monthBar(mk) : "") + (PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview());
     // keep embedded iframes alive when only filters change
     const view = $("#view");
     if (!(EMBEDS[p] && view.dataset.page === p)) view.innerHTML = html;
@@ -9400,6 +9458,8 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     // pages comes back on leaving Sales growth; a change made while on these pages holds until you leave them.
     if (S.page === "growth" && prev !== "growth") { S.scopeBack = S.scope; S.scope = "same"; }
     else if (prev === "growth" && S.page !== "growth" && S.scopeBack) { S.scope = S.scopeBack; S.scopeBack = null; }
+    Object.keys(MONTH_KINDS).forEach((k) => { if (S.mon[k] && !MONTH_KINDS[k].pages.has(S.page)) { S.mon[k] = ""; monClear(k); } });
+    if (S.skuM && !IP_PAGES.has(S.page)) { S.skuM = ""; S.sku = null; S.skuOut = {}; S.skuErr = null; S.skuRlLoading = false; }
     if (S.embedOk && S.page !== S.embedOk) S.embedOk = null; // a password-locked dashboard locks again on leaving it
     // connected dashboards get the whole width: the sidebar folds on the way in and comes back on the way out
     if (EMBEDS[S.page] && !EMBEDS[prev]) { S.railBack = UI.railHidden; if (window.innerWidth > 1080 && !UI.railHidden) { UI.railHidden = true; applyRail(); } }

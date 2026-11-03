@@ -5,3 +5,5 @@ data/sku-outlet.tmp/
 data/rcv-drill/
 __pycache__/
 private/
+data/sku-months/*/sku-outlet/
+data/sku-months/*.tmp/

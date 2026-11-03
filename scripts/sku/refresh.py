@@ -19,7 +19,12 @@ Environment:
   SKU_OUT        output file (default: data/sku.json)
   DATA_OUT       data.json with the outlet master and the same-store list (default: data/data.json)
   DRIVE_CACHE    shared download cache (see scripts/network/fetch_drive_data.py)
+  SKU_ARCHIVE    month-end archive folder (the server sets /archive/sku-months, a Coolify persistent volume).
+                 Whenever the published data covers a whole month (1st to last day), sku.json, sku-rl.json and the
+                 per-outlet lists are copied to SKU_ARCHIVE/<YYYY-MM>/ before a newer month replaces them, and
+                 SKU_ARCHIVE/index.json lists the kept months. Unset (as in the GitHub workflow): no archive.
 Usage: python scripts/sku/refresh.py [--local DIR]   # DIR of .xlsx / .csv files instead of Drive
+       python scripts/sku/refresh.py --archive-index  # only rewrite SKU_ARCHIVE/index.json
 
 The workbooks may also come as CSV exports with the same columns (one file per regional leader).
 """
@@ -51,6 +56,69 @@ TOP = 15  # gaining / declining SKUs kept per outlet
 MISS = "New/Closed outlets (Not Distributed)"  # outlets not in the Zone Distribution
 OUTLET_DIR = OUT.parent / "sku-outlet"  # one file per outlet with its full SKU list (built on the server, not committed)
 OUTLET_FILES = os.environ.get("SKU_OUTLET_FILES", "1") != "0"  # the GitHub workflow turns them off (they are never committed)
+ARCHIVE = Path(os.environ["SKU_ARCHIVE"]) if os.environ.get("SKU_ARCHIVE") else None
+
+
+def full_month(per):
+    """True when a data period runs from the 1st to the last day of one month."""
+    try:
+        a, b = dt.date.fromisoformat(per["start"]), dt.date.fromisoformat(per["end"])
+    except (TypeError, KeyError, ValueError):
+        return False
+    nxt = (b.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+    return a.day == 1 and (a.year, a.month) == (b.year, b.month) and b == nxt - dt.timedelta(days=1)
+
+
+def archive_index():
+    if not ARCHIVE or not ARCHIVE.is_dir():
+        return
+    months = []
+    for d in sorted(ARCHIVE.iterdir()):
+        if not (re.fullmatch(r"\d{4}-\d{2}", d.name) and (d / "sku.json").is_file()):
+            continue
+        try:
+            doc = json.loads((d / "sku.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        months.append({"month": d.name, "period": doc.get("period"), "generatedAt": doc.get("generatedAt"),
+                       "fingerprint": doc.get("fingerprint"), "rl": (d / "sku-rl.json").is_file(), "outlets": (d / "sku-outlet").is_dir()})
+    tmp = ARCHIVE / "index.json.tmp"
+    tmp.write_text(json.dumps({"months": months}, separators=(",", ":")), encoding="utf-8")
+    os.replace(tmp, ARCHIVE / "index.json")
+
+
+def archive_current():
+    """Keep the published data in SKU_ARCHIVE/<month>/ when it is a whole month (run before and after a rebuild,
+    so a finished month is saved before the next month's workbooks replace it)."""
+    if not ARCHIVE or not OUT.is_file():
+        return
+    try:
+        doc = json.loads(OUT.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    per = doc.get("period")
+    if not full_month(per):
+        return
+    month, dest = per["start"][:7], ARCHIVE / per["start"][:7]
+    try:
+        kept = json.loads((dest / "sku.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = None
+    have_outlets = (dest / "sku-outlet").is_dir() or not OUTLET_DIR.is_dir()
+    if kept and kept.get("fingerprint") == doc.get("fingerprint") and kept.get("period") == per and have_outlets:
+        return  # this month is already kept as it is
+    tmp = ARCHIVE / f"{month}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    shutil.copy2(OUT, tmp / "sku.json")
+    if OUT_RL.is_file():
+        shutil.copy2(OUT_RL, tmp / "sku-rl.json")
+    if OUTLET_DIR.is_dir():
+        shutil.copytree(OUTLET_DIR, tmp / "sku-outlet")
+    shutil.rmtree(dest, ignore_errors=True)
+    os.replace(tmp, dest)
+    archive_index()
+    log(f"Kept {month} ({per['start']} to {per['end']}) in the month-end archive {dest}.")
 
 
 def outlet_file(code):
@@ -368,4 +436,16 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if "--archive-index" in sys.argv:
+        archive_index()
+        sys.exit(0)
+    try:
+        archive_current()  # a finished month is saved before this run can replace it
+    except OSError as e:
+        log(f"::warning::Month-end archive not written: {e}")
+    rc = main()
+    try:
+        archive_current()
+    except OSError as e:
+        log(f"::warning::Month-end archive not written: {e}")
+    sys.exit(rc)

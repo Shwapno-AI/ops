@@ -19,6 +19,7 @@ ENV TZ=Asia/Dhaka \
     AV_OUT=/usr/share/nginx/html/data/av.json \
     RCV_OUT=/usr/share/nginx/html/data/rcv.json \
     SKU_OUT=/usr/share/nginx/html/data/sku.json \
+    SKU_ARCHIVE=/archive/sku-months \
     SA_OUT=/usr/share/nginx/html/data/sa.json \
     CCV_OUT=/usr/share/nginx/html/data/ccv.json \
     SG_OUT=/usr/share/nginx/html/data/stockgap.json \

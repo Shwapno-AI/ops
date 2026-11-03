@@ -17,8 +17,28 @@ fi
 # The download cache is kept between runs (files are keyed by Drive id + last-modified), so only new
 # or changed files are downloaded; files a run did not use are dropped. A failed run keeps the last good data.
 export DRIVE_CACHE=/tmp/drive-cache
+
+# Month-end archive: whole months of the Store level report (SKU), Consumable and wastage, Outlet network (also
+# Growth & momentum) and the month-end Availability snapshot are kept under /archive (scripts/sku/refresh.py and
+# scripts/month_archive.py), so a new month's files do not wipe the last one. Put a Coolify Persistent Storage
+# volume on /archive so the kept months survive redeploys. Months shipped in the image (data/<kind>-months, seeds)
+# are copied in when the volume does not have them; nginx serves /archive/<kind>-months as /data/<kind>-months/.
+export MONTH_ARCHIVE=${MONTH_ARCHIVE:-/archive}
+grep -qs " /archive " /proc/mounts || echo "WARNING: /archive is not a persistent volume; kept months are lost on the next redeploy. Add a Coolify Persistent Storage with destination /archive."
+for kind in sku cw network av; do
+  dest="$MONTH_ARCHIVE/$kind-months"; [ "$kind" = sku ] && [ -n "$SKU_ARCHIVE" ] && dest="$SKU_ARCHIVE"
+  mkdir -p "$dest"
+  for d in /usr/share/nginx/html/data/$kind-months/*/; do
+    [ -d "$d" ] || continue
+    m=$(basename "$d"); [ -e "$dest/$m" ] || cp -r "$d" "$dest/$m"
+  done
+  rm -rf "/usr/share/nginx/html/data/$kind-months" && ln -s "$dest" "/usr/share/nginx/html/data/$kind-months"
+done
+python3 /app/scripts/sku/refresh.py --archive-index || echo "Could not index the SKU month archive."
+python3 /app/scripts/month_archive.py --index || echo "Could not index the month archive."
 refresh() {
   { mkdir -p "$DRIVE_CACHE" && touch /tmp/run-start && sleep 1; } || true
+  python3 /app/scripts/month_archive.py || true   # keep a finished month before this run can replace it
   python3 /app/scripts/build_data.py || echo "Refresh failed; keeping the last good data."
   python3 /app/scripts/network/refresh.py || echo "Outlet network refresh failed; keeping the last good data."
   python3 /app/scripts/cw/refresh.py || echo "Consumable and wastage refresh failed; keeping the last good data."
@@ -28,6 +48,7 @@ refresh() {
   python3 /app/scripts/ccv/refresh.py || echo "Credit card and visit refresh failed; keeping the last good data."
   python3 /app/scripts/stockgap/refresh.py || echo "Stock gap refresh failed; keeping the last good data."
   python3 /app/scripts/pakhaqs/refresh.py || echo "PAKHAQS refresh failed; keeping the last good data."
+  python3 /app/scripts/month_archive.py || true   # and keep the month this run completed
   python3 /app/scripts/zr/refresh.py || echo "Z-Report refresh failed; keeping the last good data."
   find "$DRIVE_CACHE" -type f ! -newer /tmp/run-start -delete 2>/dev/null || true
   echo "Refresh finished at $(date '+%d %b %H:%M')."
