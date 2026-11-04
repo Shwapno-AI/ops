@@ -15,6 +15,7 @@
     { group: "Consumable and wastage", items: [["cw", "Overview"], ["cwl", "League tables"], ["cwx", "Exceptions"], ["cwb", "Benchmarks"], ["cwm", "Materials"], ["cwo", "Outlet register"]] },
     { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"], ["zr", "Z - REPORT"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
+    { group: "Operational Control", items: [["oct", "Follow-up Tree"], ["okv", "KPI & Values"], ["osk", "Manager Skill Stack"]] },
     { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["reno", "Outlet Projects Tracker"], ["bpr", "Shwapno BPR"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
@@ -64,7 +65,7 @@
     cmp: "y", scope: "all", trend: "all", kp: null, kl: "rho", kv: "rank", krho: null, klh: null, kfocus: null, pm: null, pbasis: "before", lage: "all", pstat: "all", prstat: "all", plevel: "rl", ageDrill: null,
     mon: {}, monIdx: {}, monLatest: {}, net: null, netLoading: false, netErr: null, netMode: "through", netFrom: "", netTo: "",
     gdrill: {}, ov: { lvl: "rl", rl: null, zn: null }, lv: { lvl: "rl", rl: null, zn: null }, pv: { lvl: "rl", rl: null, zn: null }, dsv: { lvl: "rl", rl: null, zn: null }, pkv: { lvl: "rl", rl: null, zn: null }, pkm: null, cwh: { lvl: "rl", rl: null, zn: null },
-    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
+    cw: null, cwLoading: false, cwErr: null, cwCrit: null, rcv: null, rcLoading: false, rcErr: null, rcDraft: null, rcx: {}, sku: null, skuLoading: false, skuErr: null, ipv: { scope: "all", div: "", sku: "all", sdiv: "", sc1: "", m: "ns", st: "" }, skuOut: {}, ipd: { lvl: "rl", rl: null, zn: null }, sa: null, saLoading: false, saErr: null, sav: { m: null, view: "cat", qcat: "", vcat: "" }, arv: { rl: "" }, ocv: { rl: "", o: "" }, sad: { lvl: "rl", rl: null, zn: null }, savd: { lvl: "outlet", rl: null, zn: null }, sas: { lvl: "zn", rl: null, zn: null }, rcd: { lvl: "rl", rl: null, zn: null },
     av: null, avLoading: false, avErr: null, avv: { days: "2", nd: "", cat3: "", type: "all", level: "rl", kviOnly: "no", glevel: "zn", elevel: "outlet" },
     cwv: { from: "", to: "", compare: false, status: "all", statusMetric: "consumableRate", basis: "daily", rankDim: "zone", rankMetric: "consumableRate", moversMetric: "consumableRate", leagueDim: "zone", leagueMetric: "consumableRate", excMetric: "all", benchMetric: "consumableRate" },
     on: { league: "regionalHead", oversight: "regional", launch: "year", cols: "key", drill: null },
@@ -342,6 +343,7 @@
     "Consumable and wastage": '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/>',
     "Store level report (SKU)": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
     "Receiving": '<path d="M1 4h14v12H1z"/><path d="M15 9h4l4 4v3h-8z"/><circle cx="5.5" cy="18.5" r="1.8"/><circle cx="18.5" cy="18.5" r="1.8"/>',
+    "Operational Control": '<circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="19" r="2.2"/><circle cx="19" cy="19" r="2.2"/><path d="M12 7.2v4.3M12 11.5H5v5.3M12 11.5h7v5.3"/>',
     "Connected dashboards": '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     "System": '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/>',
   };
@@ -5496,6 +5498,342 @@
       <div class="panel-body"><p class="muted" id="arStatus" style="margin:0 0 10px">Page ${idx} of ${total}.</p><div class="ar-scroll"><div id="arPreview">${arPage(S.arv.rl || null, idx, total)}</div></div></div></section>`;
   }
 
+  // ------------------------------------------------------------------ operational control
+  // The operational follow-up tree, the KPI & values framework and the manager skill stack, read from the data the
+  // dashboard already has (same sources and rules as Priority Tasks). A point with no data source yet shows
+  // "Input needed"; those will come from an input sheet.
+  const OC_TONE = { pos: ["good", "On track"], warn: ["warn", "Watch"], neg: ["bad", "Off track"], none: ["idle", "Input needed"], link: ["info", "Open"] };
+  const ocTone = (p, hi = 0.85, mid = 0.7) => (!isNum(p) ? "none" : p >= hi ? "pos" : p >= mid ? "warn" : "neg");
+  const ocSigned = (v, d = 1) => (isNum(v) ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(d)}%` : "—");
+  const ocIt = (name, value, sub, tone, go) => ({ name, value, sub, tone, go });
+  const ocNeed = (name, sub = "From the input sheet (not set up yet)", go) => ocIt(name, "—", sub, "none", go);
+  function ocWait(page) {
+    const ready = arReady();
+    if (ready && S.ocv.rl && S.sku && !S.sku.skuRl && !S.skuErr) loadSkuRl(); // Cat 3 sales of one leader
+    if (ready && (!S.ocv.rl || !S.sku || S.sku.skuRl || S.skuErr)) return "";
+    setTimeout(() => S.page === page && render(), 600);
+    const got = [["Sales", S.data], ["Consumable and wastage", S.cw], ["Availability", S.av], ["Store assessment", S.sa], ["Item performance", S.sku], ["Receiving", S.rcv], ["Visits", S.ccv]];
+    return `<p class="empty">Loading the data… ${got.filter((x) => x[1]).length} of ${got.length} sources ready${S.sku && S.ocv.rl ? ", Cat 3 sales by leader still loading" : ""}.</p>`;
+  }
+  // National or one regional leader, shared by the three pages
+  function ocScope() {
+    const rhos = arRhos();
+    if (S.ocv.rl && !rhos.includes(S.ocv.rl)) S.ocv.rl = "";
+    AFTER.push(() => { const s = $("#ocSel"); if (s) s.onchange = (e) => { S.ocv.rl = e.target.value; S.ocv.o = ""; render(); }; });
+    const opts = [["", "National"], ...rhos.map((r) => [r, `${r} · ${(S.data.master.outlets.find((o) => o.rl === r) || {}).rh || ""}`])];
+    return `<select class="sel" id="ocSel" aria-label="Scope">${opts.map(([v, t]) => `<option value="${esc(v)}" ${S.ocv.rl === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+  }
+  const ocLegend = () => `<div class="oc-legend">${["pos", "warn", "neg", "none"].map((k) => `<span class="oc-it oc-${k}"><span class="oc-dot"></span>${OC_TONE[k][1]}</span>`).join("")}</div>`;
+  const ocItem = (x) => `<li class="oc-it oc-${x.tone}"${x.go ? ` data-go="${esc(x.go)}" tabindex="0" role="link"` : ""}><span class="oc-dot" title="${OC_TONE[x.tone][1]}"></span><span class="oc-nm">${esc(x.name)}<small>${x.sub}</small></span><b>${x.value}</b></li>`;
+  const ocLater = (names) => (names.length ? `<p class="oc-later"><span>To be captured:</span> ${names.map((n) => `<i>${esc(n)}</i>`).join("")}</p>` : "");
+
+  // ---- figures
+  // the scope's rows of the KPI performance file, latest month; on target = at or better than target, watch = within 5%
+  function ocKpis(rl) {
+    const K = S.data.kpi, m = K?.months?.[K.months.length - 1]; if (!m) return { m: null, rows: [] };
+    const rows = (K.rho || []).filter((r) => (rl ? kname(r.head) === kname(rl) : r.head === "National")).map((r) => {
+      const t = r.t?.[m], a = r.a?.[m], hi = r.dir !== "lower", ok = isNum(t) && isNum(a) ? (hi ? a >= t : a <= t) : null;
+      const near = ok === false && (hi ? a >= t * 0.95 : a <= t * 1.05);
+      return { ...r, m, tv: t, av: a, ok, tone: ok == null ? "none" : ok ? "pos" : near ? "warn" : "neg" };
+    });
+    return { m, months: K.months, rows };
+  }
+  const ocKfmt = (r, v) => (!isNum(v) ? "—" : /in cr/i.test(r.metric) ? `৳${v.toFixed(2)} Cr` : /expansion/i.test(r.metric) ? int(v) : /pakhaqs/i.test(r.metric) ? v.toFixed(2) : /on sales|of sales/i.test(r.metric) ? pct(v, 2) : pct(v, 1));
+  const ocKit = (ks, name, re, go = "performance") => { const r = ks.rows.find((x) => re.test(x.metric)); return r && isNum(r.av) ? ocIt(name, ocKfmt(r, r.av), `Target ${ocKfmt(r, r.tv)} · KPI ${esc(fmonth(ks.m))}`, r.tone, go) : ocNeed(name, "No KPI figure", go); };
+  // store assessment: the latest audit of each outlet over the last two months, so a month that has just begun still counts
+  let OC_SAL = null;
+  function ocSaLatest() {
+    const d = S.sa; if (!d) return null;
+    const ms = saMonths().slice(-2);
+    if (OC_SAL?.d === d && OC_SAL.key === ms.join()) return OC_SAL;
+    const by = new Map();
+    ms.forEach((m) => (d.byMonth.get(m)?.rows || []).forEach((r) => { const x = by.get(r.c); if (!x || `${r.v.date} ${r.v.time}` > `${x.v.date} ${x.v.time}`) by.set(r.c, r); }));
+    OC_SAL = { d, key: ms.join(), by, rows: [...by.values()], label: ms.length > 1 && ms[0].slice(0, 4) === ms[1].slice(0, 4) ? `${MON[+ms[0].slice(5) - 1]}–${fmonth(ms[1])}` : ms.map(fmonth).join(" – ") };
+    return OC_SAL;
+  }
+  const ocSaLabel = () => `latest audit, ${esc(ocSaLatest()?.label || "")}`;
+  // questions (by id) as a share of their maximum
+  const OC_QIX = new Map();
+  function ocQ(rl, ids, code) {
+    const d = S.sa; if (!d) return null;
+    const key = ids.join(",");
+    if (!OC_QIX.has(key) || OC_QIX.get(key).d !== d) OC_QIX.set(key, { d, ix: ids.map((id) => d.questions.findIndex((q) => q[0] === id)).filter((i) => i >= 0) });
+    const ix = OC_QIX.get(key).ix; if (!ix.length) return null;
+    const L = ocSaLatest(), rows = code ? [L.by.get(code)].filter(Boolean) : L.rows.filter(arIn(rl));
+    let s = 0, mx = 0;
+    rows.forEach((r) => ix.forEach((i) => { const v = r.v.q[i]; if (isNum(v)) { s += v; mx += d.questions[i][4]; } }));
+    return mx ? s / mx : null;
+  }
+  const ocQit = (rl, name, ids, go = "saq") => { const p = ocQ(rl, ids); return ocIt(name, pct(p, 1), `Store assessment ${ids.length > 1 ? "questions" : "question"} · ${ocSaLabel()}`, ocTone(p), go); };
+  const ocSaCat = (rl, re) => { const ci = S.sa ? S.sa.cats.findIndex((c) => re.test(c)) : -1; return ci < 0 ? null : saCatAvg(ocSaLatest().rows.filter(arIn(rl)), ci); };
+  // Item performance sales by Cat 3 (all outlets; a leader's from the SKU x leader file), store supplies and delivery left out
+  function ocC3(rl) {
+    const d = S.sku; if (!d) return null;
+    const g = new Map(), add = (r, s, sl) => { if (/^consumables$/i.test(r[2]) || /^consumables$/i.test(r[3]) || /home delivery/i.test(r[2])) return; const x = g.get(r[4]) || { c3: r[4], s: 0, sl: 0 }; x.s += s || 0; x.sl += sl || 0; g.set(r[4], x); };
+    if (!rl) d.skus.forEach((r) => add(r, r[5], r[6]));
+    else {
+      const ri = d.rls.findIndex((x) => kname(x) === kname(rl));
+      if (!d.skuRl || ri < 0) return null;
+      d.skuRl.forEach((r) => { if (r[1] === ri) add(d.skus[r[0]], r[2], r[3]); });
+    }
+    return g;
+  }
+  const ocC3Sum = (g, re) => { let s = 0, sl = 0; g.forEach((x) => { if (re.test(x.c3)) { s += x.s; sl += x.sl; } }); return { s, sl, g: sl > 0 ? s / sl - 1 : null }; };
+  // growth of each Cat 3 with a real last-year base (0.05% of the scope's last-year sales or more)
+  function ocC3Stats(g) {
+    if (!g) return null;
+    const tot = [...g.values()].reduce((t, x) => t + x.sl, 0), xs = [...g.values()].filter((x) => x.sl > 0 && x.sl >= tot * 0.0005).map((x) => ({ ...x, g: x.s / x.sl - 1 }));
+    if (!xs.length) return null;
+    const mean = xs.reduce((t, x) => t + x.g, 0) / xs.length, sd = Math.sqrt(xs.reduce((t, x) => t + (x.g - mean) ** 2, 0) / xs.length);
+    return { n: xs.length, up: xs.filter((x) => x.g >= 0).length, down: xs.filter((x) => x.g < 0).length, sd, worst: [...xs].sort((a, b) => (a.s - a.sl) - (b.s - b.sl)).slice(0, 3) };
+  }
+  // availability of the Core, Promo and KVI items of some product divisions
+  function ocAvNd(rl, re) {
+    const d = S.av; if (!d) return null;
+    const old = arOldEnough(), days = avDays(), N = d.S, skus = d.skus.filter((s) => (s.core || s.promo || s.kvi) && re.test(s.nd || "")), a = avAcc();
+    if (!skus.length) return null;
+    d.outlets.filter((o) => arIn(rl)(o) && old(o.c)).forEach((o) => { const base = o.i * N; for (const s of skus) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i]; avAdd(a, st, sl, days, avStatus(st, sl, days)); } });
+    return avRate(a);
+  }
+  const ocAvTone = (v) => ocTone(v, 0.95, 0.9);
+  // visit punches (Visit Compliance export): visits and outlets visited in the scope
+  function ocVisits(rl) {
+    const v = S.ccv?.visit; if (!v) return null;
+    const by = new Map(v.rows.map((r) => [r[0], r[3] || 0])), outs = (S.data.tilldate?.outlets || []).filter((o) => arIn(rl)(o) && arOk(o) && o.s > 0).map((o) => o.c);
+    const hit = outs.filter((c) => by.get(c) > 0).length;
+    return { from: v.from, to: v.to, people: v.people, n: outs.length, hit, total: outs.reduce((t, c) => t + (by.get(c) || 0), 0), cov: outs.length ? hit / outs.length : null };
+  }
+  // share of the scope's sales from items that sold nothing last year
+  function ocNewness(rl) {
+    const d = S.sku; if (!d) return null;
+    let s = 0, n = 0, k = 0;
+    if (!rl) d.skus.forEach((r) => { s += r[5] || 0; if (r[5] > 0 && !(r[6] > 0)) { n += r[5]; k++; } });
+    else {
+      const ri = d.rls.findIndex((x) => kname(x) === kname(rl)); if (!d.skuRl || ri < 0) return null;
+      d.skuRl.forEach((r) => { if (r[1] !== ri) return; s += r[2] || 0; if (r[2] > 0 && !(r[3] > 0)) { n += r[2]; k++; } });
+    }
+    return s > 0 ? { v: n / s, k } : null;
+  }
+  const ocCwIt = (cw, name, k) => {
+    if (!cw) return ocNeed(name, "Consumable and wastage data is not loaded", "cw");
+    const v = cw.s[k], t = cw.s.targets[k];
+    return ocIt(name, pct(v, 2), `${isNum(t) ? `Target ${pct(t, 2)}` : "No target"} · ${esc(fdate(cw.from, true))} – ${esc(fdate(cw.to))}`, !isNum(v) || !isNum(t) ? "none" : v <= t ? "pos" : v <= t * 1.1 ? "warn" : "neg", "cw");
+  };
+
+  // ---- 1. Operational follow-up tree: six branches, each point with its figure and the page behind it
+  function ocTree(rl) {
+    const ks = ocKpis(rl), cw = arCw(rl), av = arAv(rl), ds = arDos(rl), rc = arRc(rl), cc = arCc(rl), g3 = ocC3(rl), st3 = ocC3Stats(g3), sk = arSkill(rl);
+    const c3 = (name, re, what) => { const x = g3 && ocC3Sum(g3, re); return x && x.sl > 0 ? ocIt(name, ocSigned(x.g), `${bdt(x.s)} vs ${bdt(x.sl)} last year · ${what}`, x.g >= 0.1 ? "pos" : x.g >= 0 ? "warn" : "neg", "ipc") : ocNeed(name, "No Cat 3 sales", "ipc"); };
+    const met = ks.rows.filter((r) => r.ok != null), on = met.filter((r) => r.ok);
+    const fresh = ocAvNd(rl, /fresh\s*&\s*perishables?/i), q65 = ocQ(rl, [65]);
+    return [
+      { name: "Operational initiatives", items: [
+        c3("Toy sales", /TOY/i, "Cat 3 toys"),
+        ocNeed("KBB sticker"),
+        c3("RTD & RTE", /^(READY TO DRINK|INSTANT FOOD)$/i, "Cat 3 Ready to drink and Instant food"),
+        ocIt("Relocation & renovation", "Open", "Outlet Projects Tracker", "link", "reno"),
+        ocNeed("Truck sales"),
+        ocKit(ks, "Expansion", /expansion/i, "on"),
+      ] },
+      { name: "Product management", items: [
+        ocQit(rl, "Expiry", [64]),
+        ocNeed("Body vs system price"),
+        ocQit(rl, "Offer & price tag", [51]),
+        av ? ocIt("FM and promo availability", pct(av.promo.v, 1), `Promo · Core ${pct(av.core.v, 1)} · ${int(av.days)} day${av.days === 1 ? "" : "s"} of cover`, ocAvTone(av.promo.v), "avp") : ocNeed("FM and promo availability", "Availability data is not loaded", "avp"),
+        ocNeed("VFMG price market visit"),
+        ocQit(rl, "Display & layout", [50, 52]),
+        ocIt("Bread, banana & dry veg availability", pct(fresh, 1), "Fresh & Perishables Core, Promo and KVI items (no item list of its own yet)", ocAvTone(fresh), "avb"),
+        ocNeed("Rental issues"),
+      ] },
+      { name: "Inventory, stock & cash", items: [
+        av ? ocIt("Inventory & availability", pct(av.core.v, 1), `Core availability · daily stock count ${pct(q65, 0)} in store assessment`, ocAvTone(av.core.v), "avs") : ocNeed("Inventory & availability", "Availability data is not loaded", "avs"),
+        ds ? ocIt("High DOS", `${int(ds.hi)} outlets`, `Above 45 days · ${int(ds.mid)} at 31–45 · average ${Math.round(ds.avg)} days · ${esc(fmonth(ds.m))}`, !ds.hi ? "pos" : ds.hi / ds.n > 0.2 ? "neg" : "warn", "dos") : ocNeed("High DOS", "No DOS file is loaded", "dos"),
+        ocNeed("RTV"),
+        ocNeed("Cash & vault", cc ? `Input sheet · credit card extra cost ${bdt(cc.total)} at ${int(cc.n)} outlets` : undefined, cc ? "cc" : undefined),
+      ] },
+      { name: "Performance & logistics", items: [
+        st3 ? ocIt("Cat 3 growth / degrowth", `${int(st3.up)} ▲ · ${int(st3.down)} ▼`, `of ${int(st3.n)} Cat 3s · biggest drop ${esc(st3.worst[0]?.c3 || "—")}`, ocTone(st3.up / st3.n, 0.6, 0.45), "ipc") : ocNeed("Cat 3 growth / degrowth", "No Cat 3 sales", "ipc"),
+        met.length ? ocIt("KPI track", `${int(on.length)} of ${int(met.length)}`, `KPIs on target · KPI ${esc(fmonth(ks.m))}`, ocTone(on.length / met.length, 0.75, 0.5), "okv") : ocNeed("KPI track", "No KPI figures", "performance"),
+        rc ? ocIt("DC plan vs actual (receiving)", bdt(rc.ov), `Over-receiving value · ${int(rc.oi)} over, ${int(rc.ui)} under-receiving · ${esc(fdate(rc.range.start, true))} – ${esc(fdate(rc.range.end))}`, rc.oi ? "warn" : "pos", "rco") : ocNeed("DC plan vs actual (receiving)", "Receiving data is not loaded", "rco"),
+        ocNeed("Late delivery % (E-Com)", "On the E-Commerce page (password)", "ecom"),
+      ] },
+      { name: "Staffing & training", items: [
+        ocQit(rl, "Staff training", [78]),
+        sk ? ocIt("Skill gap", pct(sk.v, 1), `${isNum(sk.t) ? `Target ${pct(sk.t, 0)} or less · ` : ""}KPI ${esc(fmonth(sk.m))}`, !isNum(sk.t) ? "none" : sk.v <= sk.t ? "pos" : sk.v <= sk.t * 1.1 ? "warn" : "neg", "osk") : ocNeed("Skill gap", "No KPI figure", "osk"),
+        ocQit(rl, "ID card & status", [76, 77]),
+      ] },
+      { name: "Expense & wastage", items: [
+        ocCwIt(cw, "Consumable % on sales", "consumableRate"),
+        ocCwIt(cw, "Wastage % on sales", "wastageSalesRate"),
+        ocKit(ks, "Salary % on sales", /salary/i),
+        ocKit(ks, "Stock loss % of sales", /stock loss/i),
+      ] },
+    ];
+  }
+  function pageOCT() {
+    const w = ocWait("oct"); if (w) return w;
+    const rl = S.ocv.rl || null, B = ocTree(rl), all = B.flatMap((b) => b.items), n = (t) => all.filter((x) => x.tone === t).length;
+    const cnt = (xs) => ["pos", "warn", "neg"].map((t) => [t, xs.filter((x) => x.tone === t).length]).filter((x) => x[1]).map(([t, k]) => `<span class="chip ${OC_TONE[t][0]}">${int(k)}</span>`).join("");
+    return `<section class="panel"><div class="panel-head"><div><h2>Operational Follow-up Tree</h2><p>The six follow-up areas with the latest figure of each point; click a point for the page behind it. Points marked "Input needed" have no data source yet.</p></div>
+      <div class="panel-tools">${ocScope()}</div></div>
+      <div class="panel-body">
+        <div class="oc-root"><div><b>${esc(rl ? `${rl} · ${(S.data.master.outlets.find((o) => o.rl === rl) || {}).rh || ""}` : "National")}</b><span>Operational follow-up</span></div>
+          <div class="oc-sum">${["pos", "warn", "neg", "none"].map((t) => `<span class="oc-it oc-${t}"><span class="oc-dot"></span><b>${int(n(t))}</b> ${OC_TONE[t][1]}</span>`).join("")}</div></div>
+        <div class="oc-tree">${B.map((b, i) => `<section class="oc-br"><header><span class="oc-n">${i + 1}</span><h3>${esc(b.name)}</h3><em>${cnt(b.items)}</em></header><ul>${b.items.map(ocItem).join("")}</ul></section>`).join("")}</div>
+      </div></section>`;
+  }
+
+  // ---- 2. KPI & values: the KPI scorecard, the stakeholder KPIs and the value pillars
+  function pageOCK() {
+    const w = ocWait("okv"); if (w) return w;
+    const rl = S.ocv.rl || null, ks = ocKpis(rl), td = S.data.tilldate, a = td ? agg(td.outlets.filter(arIn(rl))) : null;
+    const lo = arLoss(rl), cw = arCw(rl), g3 = ocC3(rl), st3 = ocC3Stats(g3), vis = ocVisits(rl), nw = ocNewness(rl), K = (n, re, go) => ocKit(ks, n, re, go);
+    // weighted score: the weight of each KPI on target, out of the weight of KPIs with a figure
+    const scored = ks.rows.filter((r) => r.ok != null), wAll = scored.reduce((t, r) => t + (r.w || 0), 0), wOn = scored.filter((r) => r.ok).reduce((t, r) => t + (r.w || 0), 0);
+    const ms = (ks.months || []).slice(-3);
+    const kRows = ks.rows.map((r) => `<tr><td>${esc(r.cat || "")}</td><td class="cell-primary">${esc(r.metric)}</td><td class="num">${isNum(r.w) ? int(r.w) : "—"}</td><td class="num">${ocKfmt(r, r.tv)}</td><td class="num"><b>${ocKfmt(r, r.av)}</b></td><td>${chip({ cls: OC_TONE[r.tone][0], label: OC_TONE[r.tone][1] })}</td>${ms.map((m) => `<td class="num${isNum(r.a?.[m]) && isNum(r.t?.[m]) && (r.dir !== "lower" ? r.a[m] >= r.t[m] : r.a[m] <= r.t[m]) ? " oc-ok" : ""}">${ocKfmt(r, r.a?.[m])}</td>`).join("")}</tr>`).join("");
+    const seen = [], card = (title, items, later, sub = "") => (seen.push(...items), `<section class="oc-card"><header><h3>${esc(title)}</h3>${sub ? `<span>${sub}</span>` : ""}</header><ul>${items.map(ocItem).join("")}</ul>${ocLater(later)}</section>`);
+    const ffg = a && a.fy > 0 ? a.f / a.fy - 1 : null, bkg = a && isNum(a.bk) && a.bky > 0 ? a.bk / a.bky - 1 : null, g3t = (v) => (v >= 0.05 ? "pos" : v >= 0 ? "warn" : "neg");
+    const lead = ocSaCat(rl, /leadership/i), sys = ocSaCat(rl, /system/i);
+    const stake = [
+      card("Investor", [K("Profit", /profit/i, "profit"), K("Sales", /^sales \(/i, "achievement"), K("Same-store sales growth", /growth/i, "growth"),
+        lo ? ocIt("Loss-making outlets", `${int(lo.n)} of ${int(lo.trading)}`, `P&L ${esc(fmonth(lo.m))} · net ${bdt(lo.net)}`, ocTone(lo.trading ? 1 - lo.n / lo.trading : null, 0.9, 0.8), "loss") : ocNeed("Loss-making outlets", "No P&L", "loss")],
+        ["PBT", "EBIT", "Valuation", "Brand rank"]),
+      card("Customer", [K("PAKHAQS score", /pakhaqs/i, "sapk"), K("Quality audit score", /quality audit/i), K("Churn", /^churn$/i), K("Churn reactivation", /reactivation/i),
+        ocIt("Footfall growth", ocSigned(ffg), a ? `${int(a.f)} vs ${int(a.fy)} last year · till date` : "", isNum(ffg) ? g3t(ffg) : "none", "footfall"),
+        ocIt("Basket growth", ocSigned(bkg), a ? `${bdt(a.bk)} vs ${bdt(a.bky)} per customer` : "", isNum(bkg) ? g3t(bkg) : "none", "footfall")],
+        ["CSI", "NPS", "CCSI", "Retention", "CLV", "Brand equity", "Lovemark index", "Mystery shopping", "Complaint resolution"]),
+      card("Employee", [K("Skill gap (store level)", /skill gap/i, "osk"), K("Store assessment score", /store assessment/i, "sao"),
+        ocIt("Leadership & associates", pct(lead, 1), `Store assessment category · ${ocSaLabel()}`, ocTone(lead), "sas")],
+        ["ESI", "HPER", "Leadership score"]),
+    ];
+    const pillars = [
+      card("Frugality & consistency", [ocCwIt(cw, "Consumable % on sales", "consumableRate"), ocCwIt(cw, "Wastage % on sales", "wastageSalesRate"), K("Stock loss % of sales", /stock loss/i), K("Salary % on sales", /salary/i),
+        ocIt("System & structure", pct(sys, 1), `Store assessment category · ${ocSaLabel()}`, ocTone(sys), "sas")],
+        ["Benchmarking", "Lean", "Imperfection cost", "Compliance audit", "Stock & cash audit", "System & process audit"]),
+      card("Excitement & surprise", [nw ? ocIt("Newness index", pct(nw.v, 2), `Share of sales from ${int(nw.k)} items with no sales last year · ${esc(ipPeriod(S.sku, true).replace(/^Data /, ""))}`, nw.v >= 0.05 ? "pos" : nw.v >= 0.02 ? "warn" : "neg", "ips") : ocNeed("Newness index", "No item performance data", "ips"),
+        ocIt("Footfall growth", ocSigned(ffg), "Till date vs last year", isNum(ffg) ? g3t(ffg) : "none", "footfall")],
+        ["Excitement index", "New offers & products", "Activations & campaigns", "POP & ambiance", "PLB", "Social engagement"]),
+      card("Massive action", [vis ? ocIt("Field visits", int(vis.total), `${int(vis.hit)} of ${int(vis.n)} trading outlets visited · ${int(vis.people)} people · ${esc(fdate(vis.from, true))} – ${esc(fdate(vis.to))}`, ocTone(vis.cov, 0.9, 0.75), "vc") : ocNeed("Field visits", "No visit data", "vc")],
+        ["Say-Do ratio", "Actions ÷ ideas", "Time in action", "Field visit vs office work"]),
+      card("Domain expertise", st3 ? [ocIt("Cat 3s growing", `${int(st3.up)} of ${int(st3.n)}`, `vs last year · ${esc(ipPeriod(S.sku, true).replace(/^Data /, ""))}`, ocTone(st3.up / st3.n, 0.6, 0.45), "ipc"),
+        ocIt("Spread of Cat 3 growth (SD)", `${(st3.sd * 100).toFixed(1)} pp`, "Lower is more even growth across categories", "link", "ipc"),
+        ocIt("Biggest Cat 3 drops", "", st3.worst.map((x) => `${esc(x.c3)} ${ocSigned(x.g)}`).join(" · "), "neg", "ipc")] : [ocNeed("Category growth", "No Cat 3 sales", "ipc")],
+        ["Category in destination", "Category rating"]),
+      card("Strategy", [ocIt("Format & location strategy", "Open", "Outlet network: formats, locations and launches", "link", "on"), ocIt("Store strategy", "Open", "Outlet Projects Tracker: relocation and renovation", "link", "reno"),
+        ocIt("Category strategy", "Open", "Category performance", "link", "category")], ["Experiment → Build → Scale", "Service design"]),
+    ];
+    return `<section class="panel"><div class="panel-head"><div><h2>KPI &amp; Values</h2><p>The KPI scorecard and the MD's stakeholder KPIs and values, filled from the dashboard's data. Items under "To be captured" have no data source yet.</p></div>
+      <div class="panel-tools">${ocScope()}</div></div>
+      <div class="panel-body">
+        <div class="oc-culture"><b>Culture</b>${["No discrimination", "Pluralism and democracy", "Depoliticisation", "Objective, data-based HR"].map((x) => `<span>${esc(x)}</span>`).join("")}</div>
+        <div class="kpis oc-kpis">${kpi({ label: `KPI score · ${ks.m ? fmonth(ks.m) : ""}`, value: pct(wAll ? wOn / wAll : null, 0), sub: `${int(wOn)} of ${int(wAll)} weight on target`, accent: `var(--${OC_TONE[ocTone(wAll ? wOn / wAll : null, 0.75, 0.5)][0]})` })}
+          ${kpi({ label: "KPIs on target", value: `${int(scored.filter((r) => r.ok).length)} of ${int(scored.length)}`, sub: `${int(scored.filter((r) => r.tone === "warn").length)} within 5% of target` })}
+          ${kpi({ label: "Data points ready", value: `${int(seen.filter((x) => x.tone !== "none" && x.tone !== "link").length)} of ${int(seen.filter((x) => x.tone !== "link").length)}`, sub: "Stakeholder and value measures with a figure" })}</div>
+        <h3 class="oc-h">KPI scorecard${rl ? ` · ${esc(rl)}` : " · National"}</h3>
+        ${ks.rows.length ? `<div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Area</th><th>KPI</th><th class="num">Weight</th><th class="num">Target</th><th class="num">Actual</th><th>Status</th>${ms.map((m) => `<th class="num">${esc(fmonth(m))}</th>`).join("")}</tr></thead><tbody>${kRows}</tbody></table></div>` : '<p class="empty">No KPI performance figures for this scope.</p>'}
+        <h3 class="oc-h">Stakeholder KPIs</h3><div class="oc-cols">${stake.join("")}</div>
+        <h3 class="oc-h">Values</h3><div class="oc-cols">${pillars.join("")}</div>
+      </div></section>`;
+  }
+
+  // ---- 3. Manager skill stack: three layers of skills, each scored per outlet from the evidence the data has
+  // (store assessment questions of its latest audit, consumable and wastage, availability, DOS, receiving, achievement and P&L).
+  // Strong 85%+, Developing 70–84%, Gap below 70%; a skill with no evidence is "To be assessed".
+  const OC_LEVEL = (p) => (!isNum(p) ? ["idle", "To be assessed"] : p >= 0.85 ? ["good", "Strong"] : p >= 0.7 ? ["warn", "Developing"] : ["bad", "Gap"]);
+  function ocCtx(rl) {
+    const c = { sa: S.sa ? ocSaLatest().by : null };
+    if (S.cw) {
+      const d = S.cw, from = S.cwv.from || d.dateRange.min, to = S.cwv.to || d.dateRange.max;
+      cwStamp(from, to);
+      const outs = d.outlets.filter(arIn(rl)), b = cwBuckets(outs.map((o) => o.code), from, to);
+      c.cw = new Map(outs.map((o) => [o.code, cwDecorate(o, b.get(o.code))]));
+    }
+    if (S.av) {
+      const d = S.av, days = avDays(), N = d.S, core = d.skus.filter((s) => s.core), kvi = d.skus.filter((s) => s.kvi);
+      c.av = new Map();
+      d.outlets.filter(arIn(rl)).forEach((o) => { const base = o.i * N, r = (list) => { const a = avAcc(); for (const s of list) { const st = d.stock[base + s.i], sl = d.sales60[base + s.i]; avAdd(a, st, sl, days, avStatus(st, sl, days)); } return avRate(a); }; c.av.set(o.c, { core: r(core), kvi: r(kvi) }); });
+    }
+    c.dos = new Map((S.data.dos?.rows || []).map(([k, v]) => [k, v]));
+    // receiving: over-receiving incidents per taka received, ranked across the network (0 = fewest, 1 = most)
+    if (S.rcv) {
+      const xs = S.rcv.outlets.filter((o) => arOk(o) && o.r > 0).map((o) => ({ o, v: (o.oi || 0) / o.r })).sort((p, q) => p.v - q.v);
+      c.rc = new Map(xs.map((x, i) => [x.o.c, { o: x.o, f: xs.length > 1 ? i / (xs.length - 1) : 0 }]));
+    }
+    c.td = new Map((S.data.tilldate?.outlets || []).map((o) => [o.c, o]));
+    const P = S.data.pnl;
+    if (P?.months?.length) { const m = P.months[P.months.length - 1], keep = S.pm; S.pm = m; try { c.pl = new Map((P.summary[m] || []).map((o) => [o.c, pnlCalc(o)])); } finally { S.pm = keep; } }
+    return c;
+  }
+  const ocSq = (ids) => (code) => { const p = ocQ(null, ids, code); return isNum(p) ? { p, v: pct(p, 0), src: `Store assessment Q${ids.join(", Q")}` } : null; };
+  const ocCwEv = (k) => (code, x) => { const m = x.cw?.get(code), t = m?.[CWM[k].target]; if (!m || !isNum(m[k])) return null; return { p: isNum(t) ? (m[k] > t ? t / m[k] : 1) : null, v: `${pct(m[k], 2)}${isNum(t) ? ` · target ${pct(t, 2)}` : ""}`, src: CWM[k].label }; };
+  const ocAvEv = (k) => (code, x) => { const v = x.av?.get(code)?.[k]; return isNum(v) ? { p: v, v: pct(v, 1), src: `${k === "kvi" ? "KVI" : "Core"} availability` } : null; };
+  const OC_EV = {
+    // top third of the network Strong, bottom third Gap
+    rc: (code, x) => { const r = x.rc?.get(code); return r ? { p: 1 - 0.45 * r.f, v: `${int(r.o.oi)} over-receiving incidents · fewer than ${pct(1 - r.f, 0)} of outlets`, src: "Receiving (per taka received)" } : null; },
+    dos: (code, x) => { const v = x.dos.get(code); return isNum(v) ? { p: v <= 30 ? 1 : v <= 45 ? 0.75 : Math.max(0.3, 30 / v), v: `${Math.round(v)} days`, src: "Days of stock" } : null; },
+    ach: (code, x) => { const o = x.td.get(code); return o?.t > 0 ? { p: Math.min(1, o.a / o.t), v: pct(o.a / o.t, 1), src: "Sales achievement till date" } : null; },
+    pl: (code, x) => { const r = x.pl?.get(code); return r && !r.closed && isNum(r.pl) ? { p: r.loss ? 0.5 : 1, v: bdt(r.pl), src: "P&L last month" } : null; },
+    sa: (code, x) => { const r = x.sa?.get(code); return isNum(r?.p) ? { p: r.p, v: pct(r.p, 0), src: "Store assessment score" } : null; },
+    sys: (code, x) => { const r = x.sa?.get(code), ci = S.sa?.cats.findIndex((c) => /system/i.test(c)); return r && isNum(r.cats?.[ci]) ? { p: r.cats[ci], v: pct(r.cats[ci], 0), src: "Store assessment System & Structure" } : null; },
+  };
+  const OC_SKILLS = [
+    ["Manager", [["Community engagement"], ["Stakeholder management"], ["Regulatory issues"], ["Catchment mapping", ocSq([72])], ["P&L", ocSq([84, 85]), OC_EV.pl], ["SOP management", OC_EV.sys]]],
+    ["Front store", [["POS", ocSq([56])], ["Product knowledge"], ["Merchandising", ocSq([48, 50])], ["Customer service", ocSq([70, 71])], ["Market survey"], ["HR management", ocSq([76, 77])],
+      ["Dashboard & compliance IA", OC_EV.sa], ["Sales & profit planning", OC_EV.ach], ["Briefing & target", ocSq([79, 82])], ["Quality & freshness", ocSq([69])], ["Communication", ocSq([49, 81])],
+      ["Assortment", ocAvEv("kvi")], ["Cutting skill"], ["Loyalty management", ocSq([73, 74])], ["Maintenance", ocSq([92, 93])], ["E-Com operation"]]],
+    ["Load breaking", [["Receiving", OC_EV.rc], ["Stock counting", ocSq([65])], ["Promo tag", ocSq([51])], ["Barcoding"], ["Stacking", ocSq([50])], ["Housekeeping", ocSq([58, 59])], ["SAP"],
+      ["Consumable management", ocCwEv("consumableRate")], ["PEMS"], ["Ordering", ocAvEv("core")], ["Quality checking", ocSq([64])], ["Preservation", ocSq([61, 62])],
+      ["Wastage management", ocCwEv("wastageSalesRate"), ocSq([66])], ["Cost management", OC_EV.pl], ["Days of stock", OC_EV.dos]]],
+  ];
+  // one outlet's skills: the average of the evidence it has
+  function ocSkills(code, x) {
+    return OC_SKILLS.map(([layer, list]) => [layer, list.map(([name, ...fs]) => {
+      const ev = fs.map((f) => f(code, x)).filter(Boolean), ps = ev.map((e) => e.p).filter(isNum);
+      return { name, ev, p: ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : null, has: fs.length > 0 };
+    })]);
+  }
+  function pageOCS() {
+    const w = ocWait("osk"); if (w) return w;
+    const rl = S.ocv.rl || null, x = ocCtx(rl);
+    // trading outlets of the scope with a leader
+    const outs = (S.data.tilldate?.outlets || []).filter((o) => arIn(rl)(o) && arOk(o) && o.s > 0).sort((a, b) => a.c.localeCompare(b.c));
+    if (S.ocv.o && !outs.some((o) => o.c === S.ocv.o)) S.ocv.o = "";
+    AFTER.push(() => {
+      const s = $("#ocOut"); if (s) s.onchange = (e) => { S.ocv.o = e.target.value; render(); };
+      $$("[data-ocout]").forEach((b) => { const go = () => { S.ocv.o = b.dataset.ocout; render(); window.scrollTo({ top: 0 }); }; b.onclick = go; b.onkeydown = (e) => { if (e.key === "Enter") go(); }; });
+    });
+    const pick = `<select class="sel" id="ocOut" aria-label="Outlet"><option value="">All outlets (${int(outs.length)})</option>${outs.map((o) => `<option value="${esc(o.c)}" ${S.ocv.o === o.c ? "selected" : ""}>${esc(o.c)} · ${esc(o.nm || "")}</option>`).join("")}</select>`;
+    const all = outs.map((o) => ({ o, sk: ocSkills(o.c, x) }));
+    const flat = (sk) => sk.flatMap(([, l]) => l);
+    const lvl = (p) => { const [cls, label] = OC_LEVEL(p); return `<span class="chip ${cls}">${label}</span>`; };
+    const bar = (p) => (isNum(p) ? `<span class="oc-bar"><i style="width:${Math.max(2, Math.min(100, p * 100)).toFixed(0)}%;background:var(--${OC_LEVEL(p)[0]})"></i></span> <b class="oc-pv">${pct(p, 0)}</b>` : '<span class="oc-bar"></span>');
+    let body;
+    if (S.ocv.o) {
+      const me = all.find((r) => r.o.c === S.ocv.o), sk = me.sk, f = flat(sk), c = (k) => f.filter((s) => OC_LEVEL(s.p)[1] === k).length;
+      body = `<div class="oc-pick"><button type="button" class="btn" data-ocout="">‹ All outlets</button><div><b>${esc(me.o.c)} · ${esc(me.o.nm || "")}</b><span>${esc(me.o.dim?.zn || "")} · ${esc(me.o.dim?.rl || "")}</span></div></div>
+        <div class="kpis oc-kpis">${[["Strong", "good"], ["Developing", "warn"], ["Gap", "bad"], ["To be assessed", "idle"]].map(([k, cls]) => kpi({ label: k, value: int(c(k)), sub: `of ${int(f.length)} skills`, accent: `var(--${cls})` })).join("")}</div>
+        <div class="oc-stack">${sk.map(([layer, list], li) => `<section class="oc-layer oc-l${li}"><header><h3>${esc(layer)}</h3><span>${int(list.filter((s) => isNum(s.p)).length)} of ${int(list.length)} assessed</span></header>
+          <table class="compact oc-sk"><tbody>${list.map((s) => `<tr><td class="cell-primary">${esc(s.name)}</td><td>${bar(s.p)}</td><td>${lvl(s.p)}</td><td class="muted">${s.ev.length ? s.ev.map((e) => `${esc(e.src)}: <b>${e.v}</b>`).join("<br>") : s.has ? "No figure for this outlet" : "Needs an assessment (input sheet)"}</td></tr>`).join("")}</tbody></table></section>`).join("")}</div>`;
+    } else {
+      // each skill across the scope: average and outlets at Gap; then the outlets with the most gaps
+      const skillRows = OC_SKILLS.map(([layer, list], li) => [layer, list.map(([name, ...fs], si) => {
+        const ps = all.map((r) => r.sk[li][1][si].p).filter(isNum);
+        return { name, has: fs.length > 0, n: ps.length, p: ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : null, gap: ps.filter((p) => p < 0.7).length };
+      })]);
+      const ranked = all.map((r) => { const f = flat(r.sk); return { ...r, gap: f.filter((s) => isNum(s.p) && s.p < 0.7).length, dev: f.filter((s) => isNum(s.p) && s.p >= 0.7 && s.p < 0.85).length, n: f.filter((s) => isNum(s.p)).length }; })
+        .sort((a, b) => b.gap - a.gap || b.dev - a.dev || a.o.c.localeCompare(b.o.c)).slice(0, 25);
+      body = `<div class="oc-stack">${skillRows.map(([layer, list], li) => `<section class="oc-layer oc-l${li}"><header><h3>${esc(layer)}</h3><span>${int(list.filter((s) => s.has).length)} of ${int(list.length)} skills have evidence</span></header>
+          <table class="compact oc-sk"><thead><tr><th>Skill</th><th>Average</th><th></th><th class="num">Outlets at Gap</th></tr></thead><tbody>${list.map((s) => `<tr><td class="cell-primary">${esc(s.name)}</td><td>${bar(s.p)}</td><td>${s.has ? lvl(s.p) : '<span class="chip idle">To be assessed</span>'}</td><td class="num">${s.has ? `${int(s.gap)} <i class="muted">of ${int(s.n)}</i>` : "—"}</td></tr>`).join("")}</tbody></table></section>`).join("")}</div>
+        <h3 class="oc-h">Outlets with the most skill gaps</h3>
+        <div class="table-wrap" style="max-height:none"><table class="compact"><thead><tr><th>Outlet</th><th>${rl ? "Zonal" : "Regional leader"}</th><th class="num">Gap</th><th class="num">Developing</th><th class="num">Assessed</th><th>Weakest skills</th></tr></thead><tbody>
+        ${ranked.map((r) => `<tr data-ocout="${esc(r.o.c)}" tabindex="0" role="link" class="clickable"><td class="cell-primary">${esc(r.o.c)} · ${esc(r.o.nm || "")}</td><td>${esc(rl ? r.o.dim?.zn : r.o.dim?.rl)}</td><td class="num"><b class="oc-bad">${int(r.gap)}</b></td><td class="num">${int(r.dev)}</td><td class="num">${int(r.n)}</td><td class="muted">${flat(r.sk).filter((s) => isNum(s.p)).sort((a, b) => a.p - b.p).slice(0, 3).map((s) => `${esc(s.name)} ${pct(s.p, 0)}`).join(" · ")}</td></tr>`).join("")}</tbody></table></div>`;
+    }
+    return `<section class="panel"><div class="panel-head"><div><h2>Manager Skill Stack</h2><p>Three layers of skills (manager, front store, load breaking), each scored from the outlet's own figures: store assessment questions, consumable and wastage, availability, DOS, receiving, achievement and P&amp;L. Strong 85%+, Developing 70–84%, Gap below 70%.</p></div>
+      <div class="panel-tools">${ocScope()}${pick}</div></div>
+      <div class="panel-body">${body}</div></section>`;
+  }
+
   // ------------------------------------------------------------------ stock gap (data/stockgap.json)
   // Inventory counting gap from the Stock Gap Dashboard workbook (RawData): one row per outlet, counting month and
   // category with the net physical minus SAP value and the sales. The gap is minus that sum (a shortage is a
@@ -9436,7 +9774,7 @@ Regional leaders: ${aiLeaders().join(", ")}.`;
     if (FILTER_PAGES.has(S.page)) renderFilters(); else $("#railFoot").innerHTML = "";
     const p = S.page;
     const PAGE = { overview: pageOverview, achievement: pageAchievement, growth: pageGrowth, gp: pageGP, footfall: pageFootfall, ranking: pageRanking, category: pageCategory, loss: pageLoss, profit: pageProfit, dos: pageDOS, performance: pageKPI, dq: pageDQ, on: pageON, gm: pageGM, cw: pageCW, cwl: pageCWL, cwx: pageCWX, cwb: pageCWB, cwm: pageCWM, cwo: pageCWO,
-      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, sg: pageSG, ecom: pageEcom, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, sapk: pageSAPK, ipo: pageIPO, ipt: pageIPT, zr: pageZR, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
+      rco: pageRCO, rcu: pageRCU, rcx: pageRCX, ar: pageAR, oct: pageOCT, okv: pageOCK, osk: pageOCS, sg: pageSG, ecom: pageEcom, sao: pageSAO, sav: pageSAV, sas: pageSAS, saq: pageSAQ, sac: pageSAC, sapk: pageSAPK, ipo: pageIPO, ipt: pageIPT, zr: pageZR, ipc: pageIPC, ips: pageIPS, avs: pageAVS, avk: pageAVK, avc: () => pageAVType("core"), avp: () => pageAVType("promo"), avv: () => pageAVType("kvi"), ave: pageAVE, avb: pageAVB };
     AFTER = [];
     const mk = monKind(p);
     const html = (mk ? monthBar(mk) : "") + (PAGE[p] ? PAGE[p]() : EMBEDS[p] ? pageEmbed(p) : pageOverview());
