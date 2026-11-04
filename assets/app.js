@@ -5525,6 +5525,21 @@
   }
   const ocLegend = () => `<div class="oc-legend">${["pos", "warn", "neg", "none"].map((k) => `<span class="oc-it oc-${k}"><span class="oc-dot"></span>${OC_TONE[k][1]}</span>`).join("")}</div>`;
   const ocItem = (x) => `<li class="oc-it oc-${x.tone}"${x.go ? ` data-go="${esc(x.go)}" tabindex="0" role="link"` : ""}><span class="oc-dot" title="${OC_TONE[x.tone][1]}"></span><span class="oc-nm">${esc(x.name)}<small>${x.sub}</small></span><b>${x.value}</b></li>`;
+  // the source documents behind each page: a thumbnail that opens the PDF in a viewer
+  const OC_DOCS = { oct: ["follow-up-tree", "Operational Follow-up Tree", "the tree diagram"], okv: ["kpi-values", "KPI and Values", "MD's deck, 13 slides"], osk: ["manager-skill-stack", "Manager Skill Stacking", "skill stack slide"] };
+  function ocDoc(k) {
+    const [f, title, what] = OC_DOCS[k], pdf = `assets/oc/${f}.pdf`;
+    AFTER.push(() => { const b = $("[data-ocdoc]"); if (b) b.onclick = () => ocDocOpen(pdf, title); });
+    return `<button type="button" class="oc-doc" data-ocdoc><img src="assets/oc/${f}.jpg" alt=""><span><b>${esc(title)}</b><small>Source document (${esc(what)}) · click to view the PDF</small></span><em>View PDF</em></button>`;
+  }
+  function ocDocOpen(pdf, title) {
+    const el = document.createElement("div");
+    el.className = "oc-viewer"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", title);
+    el.innerHTML = `<div class="oc-vbox"><header><b>${esc(title)}</b><a class="btn" href="${pdf}" target="_blank" rel="noopener">Open in new tab</a><a class="btn" href="${pdf}" download>Download</a><button type="button" class="btn" data-x aria-label="Close">✕</button></header><iframe src="${pdf}#view=FitH" title="${esc(title)}"></iframe></div>`;
+    const onKey = (e) => { if (e.key === "Escape") close(); }, close = () => { el.remove(); document.removeEventListener("keydown", onKey); };
+    el.onclick = (e) => { if (e.target === el || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", onKey); document.body.appendChild(el); el.querySelector("[data-x]").focus();
+  }
   const ocLater = (names) => (names.length ? `<p class="oc-later"><span>To be captured:</span> ${names.map((n) => `<i>${esc(n)}</i>`).join("")}</p>` : "");
 
   // ---- figures
@@ -5676,7 +5691,7 @@
     const cnt = (xs) => ["pos", "warn", "neg"].map((t) => [t, xs.filter((x) => x.tone === t).length]).filter((x) => x[1]).map(([t, k]) => `<span class="chip ${OC_TONE[t][0]}">${int(k)}</span>`).join("");
     return `<section class="panel"><div class="panel-head"><div><h2>Operational Follow-up Tree</h2><p>The six follow-up areas with the latest figure of each point; click a point for the page behind it. Points marked "Input needed" have no data source yet.</p></div>
       <div class="panel-tools">${ocScope()}</div></div>
-      <div class="panel-body">
+      <div class="panel-body">${ocDoc("oct")}
         <div class="oc-root"><div><b>${esc(rl ? `${rl} · ${(S.data.master.outlets.find((o) => o.rl === rl) || {}).rh || ""}` : "National")}</b><span>Operational follow-up</span></div>
           <div class="oc-sum">${["pos", "warn", "neg", "none"].map((t) => `<span class="oc-it oc-${t}"><span class="oc-dot"></span><b>${int(n(t))}</b> ${OC_TONE[t][1]}</span>`).join("")}</div></div>
         <div class="oc-tree">${B.map((b, i) => `<section class="oc-br"><header><span class="oc-n">${i + 1}</span><h3>${esc(b.name)}</h3><em>${cnt(b.items)}</em></header><ul>${b.items.map(ocItem).join("")}</ul></section>`).join("")}</div>
@@ -5725,7 +5740,7 @@
     ];
     return `<section class="panel"><div class="panel-head"><div><h2>KPI &amp; Values</h2><p>The KPI scorecard and the MD's stakeholder KPIs and values, filled from the dashboard's data. Items under "To be captured" have no data source yet.</p></div>
       <div class="panel-tools">${ocScope()}</div></div>
-      <div class="panel-body">
+      <div class="panel-body">${ocDoc("okv")}
         <div class="oc-culture"><b>Culture</b>${["No discrimination", "Pluralism and democracy", "Depoliticisation", "Objective, data-based HR"].map((x) => `<span>${esc(x)}</span>`).join("")}</div>
         <div class="kpis oc-kpis">${kpi({ label: `KPI score · ${ks.m ? fmonth(ks.m) : ""}`, value: pct(wAll ? wOn / wAll : null, 0), sub: `${int(wOn)} of ${int(wAll)} weight on target`, accent: `var(--${OC_TONE[ocTone(wAll ? wOn / wAll : null, 0.75, 0.5)][0]})` })}
           ${kpi({ label: "KPIs on target", value: `${int(scored.filter((r) => r.ok).length)} of ${int(scored.length)}`, sub: `${int(scored.filter((r) => r.tone === "warn").length)} within 5% of target` })}
@@ -5831,7 +5846,7 @@
     }
     return `<section class="panel"><div class="panel-head"><div><h2>Manager Skill Stack</h2><p>Three layers of skills (manager, front store, load breaking), each scored from the outlet's own figures: store assessment questions, consumable and wastage, availability, DOS, receiving, achievement and P&amp;L. Strong 85%+, Developing 70–84%, Gap below 70%.</p></div>
       <div class="panel-tools">${ocScope()}${pick}</div></div>
-      <div class="panel-body">${body}</div></section>`;
+      <div class="panel-body">${ocDoc("osk")}${body}</div></section>`;
   }
 
   // ------------------------------------------------------------------ stock gap (data/stockgap.json)
