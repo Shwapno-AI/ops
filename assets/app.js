@@ -16,7 +16,7 @@
     { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"], ["zr", "Z - REPORT"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
     { group: "Operational Control", items: [["oct", "Follow-up Tree"], ["okv", "KPI & Values"], ["osk", "Manager Skill Stack"]] },
-    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["reno", "Outlet Projects Tracker"], ["bpr", "Shwapno BPR"]] },
+    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["opd", "Category X Store Performance"], ["reno", "Outlet Projects Tracker"], ["bpr", "Shwapno BPR"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
   const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" || t === "Z - REPORT" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
@@ -37,6 +37,8 @@
     vc: { url: "https://aftabz-lab.github.io/visit-compliance-dashboard/", desc: "Outlet visit schedules and compliance." },
     // renovation.shwapno.app sends X-Frame-Options: DENY and frame-ancestors 'none', so browsers refuse to show it in a
     // frame; it opens in its own tab until that site allows https://ops.shwapno.app (then drop noFrame)
+    // opd.shwapno.app has its own login: the ops server proxies it at /opd/ and adds that login (deploy/entrypoint.sh)
+    opd: { url: "opd/", desc: "Category and store performance." },
     reno: { url: "https://renovation.shwapno.app/", desc: "Outlet renovation and project tracking.", noFrame: true },
     // behind a password (SHA-256 of it kept here); the frame is only created after unlocking, and it locks again on
     // leaving the page. This keeps casual visitors out; it is not server-side security.

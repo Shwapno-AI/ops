@@ -10,6 +10,39 @@ else
   : > /etc/nginx/auth.conf
 fi
 
+# Category X Store Performance (opd.shwapno.app, behind its own Basic Auth): proxied at /opd/ with its login added
+# here on the server, so the browser never sees it. Set OPD_AUTH_USER and OPD_AUTH_PASSWORD in Coolify (OPD_URL to
+# move it). The address is resolved per request, so nginx still starts when that site is down.
+if [ -n "$OPD_AUTH_USER" ] && [ -n "$OPD_AUTH_PASSWORD" ]; then
+  opd_url=${OPD_URL:-https://opd.shwapno.app}
+  opd_tok=$(printf '%s:%s' "$OPD_AUTH_USER" "$OPD_AUTH_PASSWORD" | base64 | tr -d '\n')
+  cat > /etc/nginx/opd.conf <<NGINX
+location /opd/ {
+    resolver 1.1.1.1 8.8.8.8 valid=300s ipv6=off;
+    set \$opd_up $opd_url;
+    rewrite ^/opd/(.*)\$ /\$1 break;
+    proxy_pass \$opd_up;
+    proxy_ssl_server_name on;
+    proxy_set_header Authorization "Basic $opd_tok";
+    proxy_set_header Accept-Encoding "";
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Content-Security-Policy;
+    proxy_redirect $opd_url/ /opd/;
+    proxy_redirect / /opd/;
+    # its own absolute links (/assets/..., /api/...) are kept under /opd/
+    sub_filter_once off;
+    sub_filter_types text/css application/javascript;
+    sub_filter 'href="/' 'href="/opd/';
+    sub_filter 'src="/' 'src="/opd/';
+    sub_filter 'action="/' 'action="/opd/';
+    sub_filter 'url(/' 'url(/opd/';
+}
+NGINX
+  echo "Category X Store Performance proxy on for $opd_url"
+else
+  : > /etc/nginx/opd.conf
+fi
+
 # Refresh loop: download the Drive files and rebuild the data files.
 #  - Watch: every WATCH_MINUTES (5), day and night, scripts/watch_drive.py lists the Drive folders (names and
 #    modified times only). When a file was added, replaced, renamed or removed, the refresh runs straight away.
