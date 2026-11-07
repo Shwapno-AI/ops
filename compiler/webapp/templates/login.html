@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excel compiler</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}">
+<script src="{{ url_for('static', filename='theme.js', v=version) }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css', v=version) }}">
+</head>
+<body class="center-page">
+<main class="panel login">
+  <div class="panel-body">
+    <div class="brand"><img src="{{ url_for('static', filename='icon.svg') }}" alt="" width="28" height="28"><h1>Excel compiler</h1></div>
+    {% if setup %}
+    <p>This site needs a password before it can be used.</p>
+    <p class="muted">In Coolify, open this app, go to Environment Variables, add <code>APP_PASSWORD</code> with a password of your choice, then redeploy.</p>
+    {% else %}
+    <form method="post" action="{{ url_for('login') }}">
+      <label class="field-label" for="password">Password</label>
+      <input class="input" id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+      {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+      <button class="btn primary wide" type="submit">Sign in</button>
+    </form>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>

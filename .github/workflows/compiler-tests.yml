@@ -1,0 +1,51 @@
+name: Compiler tests
+
+# The Excel compiler in compiler/ (its own Coolify app). Runs only when that folder changes.
+on:
+  push:
+    branches: [main]
+    paths: ["compiler/**", ".github/workflows/compiler-tests.yml"]
+  pull_request:
+    paths: ["compiler/**", ".github/workflows/compiler-tests.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compiler-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: compiler
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build the Docker image
+        timeout-minutes: 10
+        run: docker build -t excel-compiler .
+
+      - name: Run the tests inside the image
+        timeout-minutes: 5
+        run: docker run --rm -v "$PWD:/src" -w /src --entrypoint sh excel-compiler -c "pip install -q pytest && python -m pytest -q -p no:cacheprovider"
+
+      - name: Try the image the way Coolify runs it
+        timeout-minutes: 10
+        run: |
+          pip install -q requests openpyxl
+          docker run -d --name app -p 3000:3000 -e APP_PASSWORD=smoke-test -v excel-data:/data excel-compiler
+          python scripts/smoke_check.py http://127.0.0.1:3000 smoke-test
+
+      - name: Show the app log if something failed
+        if: failure()
+        run: docker logs app
