@@ -16,7 +16,7 @@
     { group: "Store level report (SKU)", items: [["ipo", "Overview"], ["ipt", "Outlets"], ["ipc", "Categories"], ["ips", "SKUs"], ["zr", "Z - REPORT"]] },
     { group: "Receiving", items: [["rco", "Overview"], ["rcu", "By outlet"], ["rcx", "Drill-down"]] },
     { group: "Operational Control", items: [["oct", "Follow-up Tree"], ["okv", "KPI & Values"], ["osk", "Manager Skill Stack"]] },
-    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["opd", "Category X Store Performance"], ["reno", "Outlet Projects Tracker"], ["bpr", "Shwapno BPR"]] },
+    { group: "Connected dashboards", items: [["gpva", "GPVA% Tracker"], ["cc", "Credit Card Extra Amount"], ["vc", "Visit Compliance"], ["opd", "Category X Store Performance"], ["reno", "Outlet Projects Tracker"], ["bpr", "Shwapno BPR"], ["compiler", "Compiler"]] },
     { group: "System", items: [["dq", "Data quality"]] },
   ];
   const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items.map(([k, t]) => [k, g.group === "Consumable and wastage" || g.group === "Availability" || g.group === "Receiving" || g.group === "Store level report (SKU)" || g.group === "Store assessment" ? `${g.group}: ${t === "KVI" || t === "Z - REPORT" ? t : t.toLowerCase().replace("e-commerce", "E-Commerce").replace("sku", "SKU").replace("pakhaqs", "PAKHAQS")}` : t])));
@@ -42,6 +42,9 @@
     reno: { url: "https://renovation.shwapno.app/", desc: "Outlet renovation and project tracking.", noFrame: true },
     // behind a password (SHA-256 of it kept here); the frame is only created after unlocking, and it locks again on
     // leaving the page. This keeps casual visitors out; it is not server-side security.
+    // the Excel compiler in compiler/ of this repo, deployed as its own Coolify app (see compiler/README.md); it has its
+    // own password and allows this site to frame it through its FRAME_ANCESTORS setting
+    compiler: { url: "https://compiler.shwapno.app/", desc: "Compile Excel files: drop in source files and an optional template, then download the result." },
     bpr: { url: "https://kaziradin.github.io/SHWAPNO_SALES_REPORT/", desc: "Shwapno business performance report.", lockHash: "19581e27de7ced00ff1ce50b2047e7a567c76b1cbaebabe5ef03f7c3017bb5b7" },
   };
   // Outlets that are not in the outlet master (Zone Distribution) yet: new outlets, not distributed to a leader.

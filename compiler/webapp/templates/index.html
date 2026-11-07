@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excel compiler</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}">
+<script src="{{ url_for('static', filename='theme.js', v=version) }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css', v=version) }}">
+<script src="{{ url_for('static', filename='app.js', v=version) }}" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img src="{{ url_for('static', filename='icon.svg') }}" alt="" width="26" height="26"><h1>Excel compiler</h1></div>
+  <div class="topbar-tools">
+    <span id="qwen-pill" class="chip idle">Checking Qwen</span>
+    <button id="theme-toggle" class="btn" type="button">Light theme</button>
+    {% if can_logout %}<form method="post" action="{{ url_for('logout') }}"><button class="btn" type="submit">Sign out</button></form>{% endif %}
+  </div>
+</header>
+
+<main class="view">
+  <div id="notices"></div>
+
+  <section class="panel" id="new-panel" aria-labelledby="new-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="new-title">New compile</h2>
+        <p>Add your files and click Compile. With a template, its design and formulas stay as they are. Without one, Qwen decides the layout.</p>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="split">
+        <div>
+          <span class="field-label">Source files</span>
+          <label class="drop" id="input-drop" for="input-files">
+            <input id="input-files" type="file" multiple accept=".xlsx,.xlsm,.xlsb,.xls,.ods,.csv,.tsv,.txt">
+            <strong>Drop files here or click to choose</strong>
+            <span>Excel or CSV, as many as you need</span>
+          </label>
+          <ul class="file-list" id="input-list"></ul>
+        </div>
+        <div>
+          <span class="field-label">Template (optional)</span>
+          <label class="drop" id="template-drop" for="template-file">
+            <input id="template-file" type="file" accept=".xlsx,.xlsm,.xlsb,.xls,.ods">
+            <strong>Drop one template</strong>
+            <span>The file to fill in</span>
+          </label>
+          <ul class="file-list" id="template-list"></ul>
+        </div>
+      </div>
+      <label class="field-label" for="instruction">Instruction (optional)</label>
+      <textarea class="input" id="instruction" rows="3" maxlength="4000" placeholder="Bangla or English. For example: one row per outlet, add the zone, keep all remarks."></textarea>
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+      <div class="actions">
+        <button class="btn primary" id="compile" type="button">Compile</button>
+        <button class="btn text" id="try-sample" type="button">Try with sample files</button>
+        <button class="btn text" id="test-qwen" type="button">Test Qwen connection</button>
+        <span class="muted" id="test-result" role="status"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="job-panel" aria-labelledby="job-title" hidden>
+    <div class="panel-head">
+      <div><h2 id="job-title">Compile</h2><p id="job-subtitle"></p></div>
+      <div class="panel-tools"><button class="btn" id="cancel-job" type="button" hidden>Cancel</button></div>
+    </div>
+    <div class="panel-body" id="job-body" aria-live="polite"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="history-title">
+    <div class="panel-head">
+      <div><h2 id="history-title">Recent results</h2><p id="history-note"></p></div>
+    </div>
+    <div class="table-wrap" id="history"></div>
+  </section>
+</main>
+</body>
+</html>
