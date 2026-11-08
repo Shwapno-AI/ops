@@ -112,8 +112,8 @@
   // ------------------------------------------------------------------ data
   function prep(d) {
     const M = masterMap(d);
-    ["tilldate", "monthend"].forEach((k) => prepRep(d[k], M));
-    Object.values(d.pnl?.summary || {}).forEach((list) => list.forEach((o) => { mkDim(o, M[o.c], MISS); o.nm = o.n || o.m?.n || o.c; }));
+    ["tilldate", "monthend"].forEach((k) => prepRep(d[k], M, d));
+    Object.entries(d.pnl?.summary || {}).forEach(([m, list]) => { const z = zoneOf(m, d); list.forEach((o) => { mkDim(o, M[o.c], MISS); dimMonth(o, z); o.nm = o.n || o.m?.n || o.c; }); });
     prepKpi(d.kpi);
     const dp = dosFromPnl(d);
     if (dp) d.dos = dp; // DOS from the outlet P&L (average stock / COGS x days); the compiled DOS file only as a fallback
@@ -137,10 +137,29 @@
     (d.master?.outlets || []).forEach((o) => (M[o.c] = o));
     return M;
   }
-  function prepRep(r, M) {
+  // Leader and zonal of a month from that month's Zone Distribution (data.json "zones", one per month, named by the
+  // month in its file name). A month without its own file uses the nearest earlier one, else the earliest there is.
+  // Null when no month list is loaded: the source's own leader and zonal then stay.
+  function zoneOf(ym, d = S.data) {
+    const Z = d?.zones?.months; if (!Z || !ym) return null;
+    const ms = Object.keys(Z).sort(); if (!ms.length) return null;
+    const m = [...ms].reverse().find((x) => x <= ym) || ms[0];
+    if (!d.zoneCache) d.zoneCache = {};
+    if (!d.zoneCache[m]) d.zoneCache[m] = new Map(Z[m].rows.map(([c, rl, zn]) => [c, { rl, zn }]));
+    return { m, file: Z[m].file, by: d.zoneCache[m] };
+  }
+  // Puts that month's leader and zonal on o.dim; an outlet not in that month's Zone Distribution was not distributed then.
+  function dimMonth(o, z, code = o.c) {
+    if (!z || !o?.dim) return;
+    const x = z.by.get(code);
+    o.dim.rl = x?.rl || MISS; o.dim.zn = x?.zn || MISS;
+  }
+  function prepRep(r, M, d = S.data) {
     if (!r) return;
+    const z = zoneOf(String(r.date || "").slice(0, 7), d); // the report month's leaders and zonals
     r.outlets.forEach((o) => {
       mkDim(o, M[o.c], MISS); // not in the outlet master: new or closed, one group
+      dimMonth(o, z);
       o.nm = o.m?.n || String(o.name || o.c).replace(new RegExp("^" + o.c + "\\s*-\\s*"), "");
     });
   }
@@ -1983,10 +2002,11 @@
     const d = S.pk; if (!d) return [];
     const M = masterMap(S.data), out = [];
     if (mi == null) mi = d.months.indexOf(S.pkm);
+    const z = zoneOf(d.months[mi]); // the survey month's leaders and zonals
     for (let i = 0; i < d.r.o.length; i++) {
       if (d.r.m[i] !== mi) continue;
       const [c, n, type] = d.outlets[d.r.o[i]], o = { c, nm: M[c]?.n || n || c, type, n: d.r.n[i], s: d.r.s[i], a: d.r.a[i] };
-      mkDim(o, M[c], MISS); out.push(o);
+      mkDim(o, M[c], MISS); dimMonth(o, z); out.push(o);
     }
     return out;
   }
@@ -2253,13 +2273,14 @@
   function prepNet(d) {
     const rows = Array.isArray(d.rows) ? d.rows : [];
     const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
-    const all = new Set(), act = new Set();
+    const all = new Set(), act = new Set(), zNet = zoneOf(d.source?.reportMonth);
     rows.forEach((r) => {
       const st = String(r.status || "").trim();
       r.status = /^own/i.test(st) ? "Own" : /^fr/i.test(st) ? "Franchise" : st;
       r.c = r.code; r.nm = r.outletName || r.code;
       r.dim = { rl: v(r.leader || r.regionalHead), zn: v(r.zonal), div: v(r.division), dis: v(r.district), fmt: v(r.format), own: v(r.status), pnp: v(r.pnpStatus),
         loc: v(r.locationType), area: v(r.area), city: v(r.cityType), floor: v(r.floorType), shape: v(r.layoutShape) };
+      dimMonth(r, zNet); // the report month's leaders and zonals
       Object.keys(r.dailySalesTargets || {}).forEach((x) => all.add(x));
       Object.keys(r.dailySalesActuals || {}).forEach((x) => { all.add(x); act.add(x); });
     });
@@ -3338,6 +3359,8 @@
       o.c = o.code; o.nm = o.name;
       o.dim = { rl: v(o.regionalLeader), zn: v(o.zone), div: v(o.division), dis: v(o.district), fmt: v(o.format), own: v(own), pnp: v(o.pnpStatus), loc: v(o.locationType), area: v(o.area), crit: v(o.criteria) };
     });
+    const z = zoneOf(String(d.dateRange?.max || "").slice(0, 7)); // the data month's leaders and zonals
+    d.outlets.forEach((o) => dimMonth(o, z));
     d.byCode = new Map(d.outlets.map((o) => [o.code, o]));
     S.cwv.from = d.dateRange.min; S.cwv.to = d.dateRange.max;
   }
@@ -3873,6 +3896,8 @@
   function prepAv(d) {
     const v = (x) => (x == null || String(x).trim() === "" ? NET_MISS : fixMiss(String(x).trim()));
     d.outlets.forEach((o, i) => { o.i = i; o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc), area: v(o.area) }; });
+    const z = zoneOf(avStockDay(d).slice(0, 7)); // the stock month's leaders and zonals
+    d.outlets.forEach((o) => dimMonth(o, z));
     d.skus.forEach((s, i) => (s.i = i));
     d.S = d.skus.length;
     d.stock = Float64Array.from(d.stock); d.sales60 = Float64Array.from(d.sales60);
@@ -7828,6 +7853,8 @@
       const by = new Map();
       B.visits.forEach((x) => { const r = by.get(x.c); if (!r) by.set(x.c, { c: x.c, nm: d.nameOf(x.c), dim: d.dimOf(x.c), v: x, n: 1, list: [x] }); else { r.n++; r.list.push(x); if (`${x.date} ${x.time}` >= `${r.v.date} ${r.v.time}`) r.v = x; } });
       B.rows = [...by.values()].map((r) => ({ ...r, p: r.v.p, cats: r.v.cats, grade: saGrade(r.v.p) }));
+      const z = zoneOf(B.visits[0]?.m);
+      B.rows.forEach((r) => dimMonth(r, z)); // the audit month's leaders and zonals
       B.byCode = new Map(B.rows.map((r) => [r.c, r]));
     });
     d.masterRows = [...M.values()].map((m) => ({ c: m.c, nm: m.n || m.c, dim: d.dimOf(m.c) }));
@@ -8665,6 +8692,8 @@
     const v = (x) => (x == null || String(x).trim() === "" ? MISS : fixMiss(String(x).trim()));
     d.rls = d.rls.map(fixMiss);
     d.outlets.forEach((o) => { o.nm = o.n; o.dim = { rl: v(o.rl), zn: v(o.zn), div: v(o.div), dis: v(o.dis), fmt: v(o.fmt), own: v(o.own), pnp: v(o.pnp), loc: v(o.loc) }; });
+    const z = zoneOf(String(d.period?.end || "").slice(0, 7)); // the report month's leaders and zonals
+    d.outlets.forEach((o) => dimMonth(o, z));
     d.byCode = new Map(d.outlets.map((o) => [o.c, o]));
     // category names are stored once and referred to by number
     d.cube.forEach((r) => { r[1] = d.divs[r[1]]; r[2] = d.c1s[r[2]]; });

@@ -761,7 +761,18 @@ def build(root):
     elif me is None:
         issue("warn", "monthend", "No closed month-end file found.")
 
-    master = max(found["master"], key=lambda m: (m["latest_launch"] or dt.date.min, len(m["outlets"])), default=None)
+    # Every month's Zone Distribution stays in Drive, named by its month ("Zone Distribution Oct 2026 ..."):
+    # the latest month's is the outlet master; each month's leader and zonal go to "zones" so the pages group
+    # an earlier month's figures by that month's leaders and zonals.
+    for m in found["master"]:
+        hit = re.search(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s'._-]*((?:20)?\d{2})(?!\d)", m["file"], re.I)
+        m["month"] = "%d-%02d" % (2000 + int(hit.group(2)[-2:]), "janfebmaraprmayjunjulaugsepoctnovdec".index(hit.group(1).lower()[:3]) // 3 + 1) if hit else ""
+    master = max(found["master"], key=lambda m: (m["month"], m["latest_launch"] or dt.date.min, len(m["outlets"])), default=None)
+    zones = {}
+    for m in sorted((m for m in found["master"] if m["month"]), key=lambda m: (m["latest_launch"] or dt.date.min, len(m["outlets"]))):
+        zones[m["month"]] = {"file": m["file"], "rows": [[o["c"], o.get("rl", ""), o.get("zn", "")] for o in m["outlets"]]}
+    if zones:
+        print("zone distributions by month: " + ", ".join(k + " (" + v["file"] + ")" for k, v in sorted(zones.items())))
     if master is None:
         issue("warn", "performance", "No outlet master (zone distribution) found; filters will use the names in the sales files.")
 
@@ -824,6 +835,8 @@ def build(root):
         "history": [{"ym": b["date"].strftime("%Y-%m"), "date": b["date"].isoformat(), "file": b["file"]} for b in hist],
         "_history_reports": {b["date"].strftime("%Y-%m"): rep_out(b) for b in hist},
         "master": {"file": master["file"], "outlets": master["outlets"]} if master else None,
+        # [outlet code, leader, zonal] of each month's Zone Distribution
+        "zones": {"months": zones},
         "pnl": pnl,
         "kpi": {"months": kpi_months, "files": [f["file"] for f in found["kpi"]], **kpi},
         # [outlet code, days of stock]

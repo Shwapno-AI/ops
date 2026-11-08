@@ -309,6 +309,14 @@ def content_role(path: Path) -> str:
 
 
 MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
+ZONE_MONTH_RE = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s'._-]*((?:20)?\d{2})(?!\d)", re.I)
+
+
+def zone_month(name: str) -> str:
+    """'YYYY-MM' named in a Zone Distribution file name ("Zone Distribution Oct 2026 w location type"), or "".
+    Every month's Zone Distribution stays in Drive; the builders use the latest month's, whatever was uploaded last."""
+    m = ZONE_MONTH_RE.search(Path(str(name)).stem)
+    return f"{2000 + int(m.group(2)[-2:])}-{MONTHS[m.group(1).lower()[:3]]:02d}" if m else ""
 
 
 def workbook_month(item: dict) -> tuple[int, int] | None:
@@ -397,6 +405,8 @@ def main() -> int:
             # (the month-end report, not the till-date one).
             if role == "dayWiseTarget":
                 options.sort(key=lambda f: (workbook_month(f) or (0, 0), modified_sort_key(f)), reverse=True)
+            elif role == "outletMaster":  # the latest month's Zone Distribution (by its name), not the last uploaded
+                options.sort(key=lambda f: (zone_month(f["name"]), modified_sort_key(f)), reverse=True)
             else:
                 options.sort(key=lambda f: (period_match(role, f, candidates), modified_sort_key(f)), reverse=True)
             if len(options) > 1:

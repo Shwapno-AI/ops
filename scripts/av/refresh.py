@@ -362,7 +362,8 @@ def main():
         pick = {}
         for kind, options in found.items():
             if options:
-                options.sort(key=lambda o: o["modified"], reverse=True)
+                # the latest month's Zone Distribution (by its name), not the last uploaded
+                options.sort(key=lambda o: (drive.zone_month(o["name"]) if kind == "zones" else "", o["modified"]), reverse=True)
                 if len(options) > 1:
                     log(f"::warning::{len(options)} {kind} files found; using {options[0]['name']}. Others: {', '.join(o['name'] for o in options[1:])}")
                 pick[kind] = options[0]

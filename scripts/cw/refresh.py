@@ -197,7 +197,10 @@ def main():
             return 1
         files = {}
         for kind, options in found.items():
-            options.sort(key=lambda o: (o[0] or bd.dt.date.min, o[1]), reverse=True)
+            if kind == "zones":  # the latest month's Zone Distribution (by its name), not the last uploaded
+                options.sort(key=lambda o: (drive.zone_month(o[3]), o[1]), reverse=True)
+            else:
+                options.sort(key=lambda o: (o[0] or bd.dt.date.min, o[1]), reverse=True)
             if len(options) > 1:
                 log(f"::warning::{len(options)} {kind} files found; using {options[0][3]}. Others: {', '.join(o[3] for o in options[1:])}")
             files[kind] = options[0][2]
