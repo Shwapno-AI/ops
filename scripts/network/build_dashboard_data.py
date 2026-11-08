@@ -408,6 +408,10 @@ def build() -> dict:
     for i, value in enumerate(target_header):
         if i in (target_cols["code"], target_cols["name"]):
             continue
+        # a number is a date only in Excel's 1909-2119 range: the November 2026 workbook has a stray count (863571)
+        # in the header row
+        if isinstance(value, (int, float)) and not 40000 < float(value) < 80000:
+            continue
         date = excel_date_to_iso(value)
         if re.match(r"^\d{4}-\d{2}-\d{2}$", date) and date not in seen_dates:
             seen_dates.add(date)

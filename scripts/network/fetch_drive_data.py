@@ -291,34 +291,49 @@ def content_role(path: Path) -> str:
     except ValueError:
         return ""
     header = [norm(v) for v in rows[header_row]]
-    # The outlet register has columns no other outlet list carries (the leader's HR name, format, launch date,
-    # size). Lists that only name each outlet's RHO and zonal, such as the compiled DOS workbook, are not it.
-    if "dos" not in header and {"regional head hr name", "format", "launching date", "sft"} & set(header):
-        return "outletMaster"
+    # A row of daily dates next to the outlet code is the day-wise target. Checked first: the November 2026
+    # target workbook ("Store wise Target NOV'26") also carries Cluster, Launching Date and GP% columns.
     date_like = 0
     for value in rows[header_row]:
         if isinstance(value, (int, float)) and 40000 < float(value) < 80000:
             date_like += 1
         elif re.match(r"^\d{4}-\d{2}-\d{2}", str(value or "")):
             date_like += 1
-    return "dayWiseTarget" if date_like >= 5 else ""
+    if date_like >= 5:
+        return "dayWiseTarget"
+    # The outlet register has columns no other outlet list carries (the leader's HR name, format, launch date,
+    # size). Lists that only name each outlet's RHO and zonal, such as the compiled DOS workbook, are not it.
+    if "dos" not in header and {"regional head hr name", "format", "launching date", "sft"} & set(header):
+        return "outletMaster"
+    return ""
 
 
 MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
 
 
-def target_month(candidates: dict) -> tuple[int, int] | None:
-    """(year, month) of the day-wise target workbook, read from its date header."""
-    for item in candidates.get("dayWiseTarget", []):
+def workbook_month(item: dict) -> tuple[int, int] | None:
+    """(year, month) of a day-wise target workbook, read from its date header (kept on the item)."""
+    if "month" not in item:
+        item["month"] = None
         try:
             _, rows = read_named_sheet(item["local"], (sheet_names(item["local"])[0],), max_rows=30)
         except Exception:  # noqa: BLE001
-            continue
+            return None
         for row in rows:
             for value in row:
                 iso = build.excel_date_to_iso(value) if isinstance(value, (int, float)) and 40000 < value < 80000 else str(value or "")
                 if re.match(r"^\d{4}-\d{2}-\d{2}", iso):
-                    return int(iso[:4]), int(iso[5:7])
+                    item["month"] = (int(iso[:4]), int(iso[5:7]))
+                    return item["month"]
+    return item["month"]
+
+
+def target_month(candidates: dict) -> tuple[int, int] | None:
+    """(year, month) of the chosen (first) day-wise target workbook."""
+    for item in candidates.get("dayWiseTarget", []):
+        month = workbook_month(item)
+        if month:
+            return month
     return None
 
 
@@ -377,9 +392,13 @@ def main() -> int:
                     return 1
                 log(f"  (no {spec['label']} workbook – last-month figures will show as —)")
                 continue
-            # Newest first. For last month, the workbook whose SPLY period is the month
-            # before the target month wins (the month-end report, not the till-date one).
-            options.sort(key=lambda f: (period_match(role, f, candidates), modified_sort_key(f)), reverse=True)
+            # Newest first. For the day-wise target, the latest month wins (an old month's target file can stay in
+            # Drive); for last month, the workbook whose SPLY period is the month before the target month wins
+            # (the month-end report, not the till-date one).
+            if role == "dayWiseTarget":
+                options.sort(key=lambda f: (workbook_month(f) or (0, 0), modified_sort_key(f)), reverse=True)
+            else:
+                options.sort(key=lambda f: (period_match(role, f, candidates), modified_sort_key(f)), reverse=True)
             if len(options) > 1:
                 # Month-end and till-date reports both carry an SPLY sheet. When exactly one of them covers
                 # the month before the target month, the choice is certain: say so without a warning.
