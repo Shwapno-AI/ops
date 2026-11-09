@@ -326,6 +326,18 @@ def build(path, meta):
     log(f"Wrote {OUT}: {len(outlets)} outlets, {len(details)} categories, {len(defs)} rows, months {actual[0]} to {actual[-1]}, {len(summaries)} all-outlet month rows.")
 
 
+MON_RE = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s'’._-]*(\d{4}|\d{2})\b", re.I)
+
+
+def name_end(name):
+    """The latest month written in a file name ("JAN 21- SEP 26" -> "2026-09", "Oct'26" -> "2026-10"), or ""."""
+    best = ""
+    for m, y in MON_RE.findall(str(name or "")):
+        yy = int(y) + (2000 if len(y) == 2 else 0)
+        best = max(best, f"{yy:04d}-{MON[m[:3].lower()]:02d}")
+    return best
+
+
 def score(name):
     n = name.lower()
     if n.startswith("~$") or not n.endswith((".xlsx", ".xlsm")):
@@ -350,7 +362,11 @@ def main():
     items = [i for i in drive.walk(FOLDER) if drive.is_spreadsheet(i)]
     for i in items:
         i["score"] = 0 if i["mimeType"] == drive.GSHEET_MIME and re.search(r"z[\s_-]*report", i["name"], re.I) else score(i["name"] if i["mimeType"] != drive.GSHEET_MIME else i["name"] + ".xlsx")
-    items = sorted((i for i in items if i["score"] < 99), key=lambda i: (i["score"], -drive.modified_sort_key(i)))
+    # newest first: the latest month in the name ("… SEP 26" < "… OCT 26"), then the latest Drive change, then the name
+    # match. Only the first readable workbook is used, so an older file left in the folder never wins.
+    items = sorted((i for i in items if i["score"] < 99), key=lambda i: (name_end(i["name"]), drive.modified_sort_key(i), -i["score"]), reverse=True)
+    for i in items:
+        log(f"  found  {i.get('path') or i['name']}  (month in name: {name_end(i['name']) or 'none'}, modified {i.get('modified', '?')})")
     if not items:
         log("::warning::No workbook in the Z-Report folder; zr.json left as is.")
         return 1
