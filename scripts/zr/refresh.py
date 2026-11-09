@@ -291,6 +291,7 @@ def build(path, meta):
 
     actual = sorted(actual)
     tmp = Path(tempfile.mkdtemp(prefix="zr-out-", dir=OUT.parent))
+    tmp.chmod(0o755)  # mkdtemp makes it owner-only; the web server must be able to read the outlet files
     outlets = []
     try:
         used = set()
@@ -338,6 +339,8 @@ def score(name):
 
 def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
+    if OUT_DIR.is_dir():
+        OUT_DIR.chmod(0o755)  # repair a folder an earlier run left owner-only (the web server got 404 for every outlet)
     if "--local" in sys.argv:
         p = Path(sys.argv[sys.argv.index("--local") + 1])
         build(p, {"file": p.name, "key": "", "modified": ""})
