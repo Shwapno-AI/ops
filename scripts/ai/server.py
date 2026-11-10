@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shwapno Intelligence (SI) relay, the dashboard's Ask AI chat: forwards the dashboard's chat requests to Azure OpenAI or Qwen, holding the keys.
+"""Shwapno Intelligence (SI) relay, the dashboard's Ask AI chat: forwards the dashboard's chat requests to Ollama Cloud, Qwen or Azure OpenAI, holding the keys.
 
 The browser runs the conversation and every data lookup itself (with the dashboard's own data and rules),
 so this service only adds the provider's address and key and passes the chat request through. Keys come
@@ -13,6 +13,10 @@ from environment variables (set them in Coolify), never from the repository or t
                            (English; it cannot speak Bangla, so Bangla text is translated as it is read)
 
 Environment:
+  OLLAMA_API_KEY           Ollama Cloud key (ollama.com, Settings > Keys); with it the model shows as id "ollama"
+  OLLAMA_MODEL             the model (default glm-5.3-flash)
+  OLLAMA_ENDPOINT          OpenAI-compatible base URL (default https://ollama.com/v1)
+  OLLAMA_LABEL             name shown in the menu (default "<model> (Ollama)")
   AZURE_OPENAI_ENDPOINT    the Azure AI / OpenAI endpoint (a project URL or a resource URL)
   AZURE_OPENAI_KEY         its key
   AZURE_OPENAI_DEPLOYMENT  the model deployment name
@@ -21,7 +25,7 @@ Environment:
   QWEN_KEY or QWEN_API_KEY, QWEN_MODEL     its key and model
   QWEN_LABEL               name shown in the menu (default "Alibaba Qwen")
   QWEN_REASONING_EFFORT    optional; sent to the model as reasoning_effort (dropped if the model rejects it)
-  AI_DEFAULT_PROVIDER      id of the model selected by default (default qwen38, else qwen)
+  AI_DEFAULT_PROVIDER      id of the model selected by default (default ollama when set up, else qwen38, else qwen)
   QWEN37_*, QWEN38_* ...   more Qwen models, same five names with a number in the prefix (QWEN38_ENDPOINT,
                            QWEN38_API_KEY, QWEN38_MODEL, QWEN38_LABEL, QWEN38_REASONING_EFFORT); each one
                            is its own entry in the Model menu. QWEN_* (no number) is the default.
@@ -70,14 +74,27 @@ def qwen_groups():
     return out
 
 
+def ollama_cfg():
+    """Ollama Cloud through its OpenAI-compatible API, when OLLAMA_API_KEY is set."""
+    key = env("OLLAMA_API_KEY") or env("OLLAMA_KEY")
+    if not key:
+        return None
+    model = env("OLLAMA_MODEL") or "glm-5.3-flash"
+    return {"endpoint": (env("OLLAMA_ENDPOINT") or "https://ollama.com/v1").rstrip("/"), "key": key, "model": model,
+            "label": env("OLLAMA_LABEL") or f"{model} (Ollama)"}
+
+
 def providers():
-    """The configured providers for the dashboard's Model menu: the default first (Qwen 3.8 Omni Flash, id qwen38), other Qwen models, Azure last."""
-    groups = qwen_groups()
-    first = env("AI_DEFAULT_PROVIDER") or "qwen38"  # the default model: first in the menu (override with AI_DEFAULT_PROVIDER)
-    out = [{"id": i, "label": groups[i]["label"]} for i in sorted(groups, key=lambda x: (x != first, x != "qwen", x))]
+    """The configured providers for the dashboard's Model menu: the default first (Ollama when set up, else
+    Qwen 3.8 Omni Flash, id qwen38), then the other Qwen models, Azure last."""
+    groups, ol = qwen_groups(), ollama_cfg()
+    first = env("AI_DEFAULT_PROVIDER") or ("ollama" if ol else "qwen38")  # first in the menu (override with AI_DEFAULT_PROVIDER)
+    out = [{"id": i, "label": groups[i]["label"]} for i in sorted(groups, key=lambda x: (x != "qwen", x))]
+    if ol:
+        out.append({"id": "ollama", "label": ol["label"]})
     if env("AZURE_OPENAI_ENDPOINT") and env("AZURE_OPENAI_KEY") and env("AZURE_OPENAI_DEPLOYMENT"):
         out.append({"id": "azure", "label": env("AZURE_OPENAI_LABEL") or "Azure OpenAI"})
-    return out
+    return sorted(out, key=lambda p: p["id"] != first)  # stable: the rest keep their order
 
 
 def post(url, headers, body):
@@ -159,6 +176,9 @@ def chat(provider, messages, tools):
                 if e.code not in (404, 400):  # a different route will not help
                     raise
         raise last
+    if provider == "ollama":
+        o = ollama_cfg()
+        return post(o["endpoint"] + "/chat/completions", {"Authorization": "Bearer " + o["key"]}, {**body, "model": o["model"]})
     g = qwen_groups().get(provider)
     if g:
         url, head, base = g["endpoint"] + "/chat/completions", {"Authorization": "Bearer " + g["key"]}, {**body, "model": g["model"]}
@@ -214,7 +234,8 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             detail = ""
             try:
-                detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
+                err = json.loads(e.read().decode("utf-8")).get("error", "")
+                detail = err.get("message", "") if isinstance(err, dict) else str(err)  # Ollama sends the error as text
             except Exception:  # noqa: BLE001
                 pass
             self.reply(PROVIDER_ERR, {"error": f"The AI service answered {e.code}. {detail}".strip()})
