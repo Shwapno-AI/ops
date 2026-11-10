@@ -146,6 +146,8 @@ def source_file_kind(path: Path) -> str | None:
         return "targets"
     if suffix in {".xlsx", ".xlsm"} and {"sales", "till"} <= words:
         return "sales"
+    if suffix == ".csv" and "sales" in words:
+        return "sales"
     if suffix in {".xlsx", ".xlsm"} and {"zone", "distribution"} <= words:
         return "zones"
     sap_suffixes = {".xls", ".xlsx", ".xlsm", ".txt", ".csv"}
@@ -346,7 +348,7 @@ SALES_ALIASES = {
     "Outlet Code": ("outlet code", "store code", "plant", "plant code", "site code", "site", "outlet", "code"),
     "Date": ("date", "sales date", "business date", "posting date", "transaction date", "pos date", "calendar day"),
     "Division": ("division", "article division"),
-    "POS NSI": ("pos nsi",),
+    "POS NSI": ("pos nsi", "all"),  # "All" in the Sales.csv export (Outlet Code, Article Division, Date, All)
 }
 SALES_SCAN_ROWS = 20  # the headings can sit under a few title rows
 
@@ -358,6 +360,30 @@ def sales_outlet_code(value: Any) -> str:
         return text
     match = re.match(r"^([A-Z][0-9]{3,4})(?=[\s\-–:/])", text)
     return match.group(1) if match else ""
+
+
+class CsvBook:
+    """A CSV export read like a one-sheet workbook, so the sales reader takes Sales.csv and the Excel export alike."""
+
+    sheetnames = ["CSV"]
+
+    def __init__(self, path: Path):
+        self.rows = [tuple(r) for r in csv.reader(io.StringIO(path.read_bytes().decode("utf-8-sig", errors="replace")))]
+
+    def __getitem__(self, name: str) -> "CsvBook":
+        return self
+
+    def iter_rows(self, min_row: int = 1, max_row: int | None = None, values_only: bool = True) -> Iterable[tuple[Any, ...]]:
+        return iter(self.rows[min_row - 1:max_row])
+
+    def close(self) -> None:
+        pass
+
+
+def open_sales_book(path: Path) -> Any:
+    """The daily sales file: the Excel export ("Article W Sales.xlsx") or the CSV one ("Sales.csv")."""
+    data = Path(path).read_bytes()[:4]
+    return load_workbook(path, read_only=True, data_only=True) if data == b"PK\x03\x04" else CsvBook(Path(path))
 
 
 def find_sales_header(workbook: Any) -> tuple[str, int, dict[str, list[int]]] | None:
@@ -376,7 +402,7 @@ def find_sales_header(workbook: Any) -> tuple[str, int, dict[str, list[int]]] | 
 
 
 def read_sales(path: Path) -> tuple[dict[tuple[str, dt.date], dict[str, float]], dict[str, Any]]:
-    workbook = load_workbook(path, read_only=True, data_only=True)
+    workbook = open_sales_book(path)
     found = find_sales_header(workbook)
     if found is None:
         sheets = ", ".join(workbook.sheetnames)

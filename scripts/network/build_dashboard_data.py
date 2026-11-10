@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import calendar
+import csv
+import io
 import json
 import os
 import re
@@ -41,7 +43,7 @@ def resolve_files() -> None:
     global ZONE_FILE, TARGET_FILE, SALES_FILE, LAST_MONTH_FILE
     ZONE_FILE = pick_file("zone-distribution.xlsx", "Zone Distribution.xlsx")
     TARGET_FILE = pick_file("day-wise-target.xlsx", "day-wise-sales-target.xlsx", "Day-wise Target.xlsx")
-    SALES_FILE = pick_file("day-wise-sales.xlsx", "till-date-sales.xlsx", "Day-wise Sales.xlsx")
+    SALES_FILE = pick_file("day-wise-sales.xlsx", "day-wise-sales.csv", "till-date-sales.xlsx", "Day-wise Sales.xlsx")
     LAST_MONTH_FILE = optional_file(*LAST_MONTH_NAMES)
 
 
@@ -69,8 +71,22 @@ def col_to_num(col: str) -> int:
     return value
 
 
+def read_csv_rows(path: Path, max_rows: int | None = None) -> tuple[str, list[list[object]]]:
+    """A CSV export as worksheet rows: the daily sales also come as "Sales.csv" (Outlet Code, Article Division,
+    Date, All: one row per outlet, division and day, under a "Total" line)."""
+    text = path.read_bytes().decode("utf-8-sig", errors="replace")
+    rows: list[list[object]] = []
+    for row in csv.reader(io.StringIO(text)):
+        rows.append(row)
+        if max_rows and len(rows) >= max_rows:
+            break
+    return "CSV", rows
+
+
 def read_first_sheet(path: Path) -> tuple[str, list[list[object]]]:
-    """Read the first worksheet using only Python's standard library."""
+    """Read the first worksheet using only Python's standard library (a CSV file as its only sheet)."""
+    if not zipfile.is_zipfile(path):
+        return read_csv_rows(path)
     with zipfile.ZipFile(path) as archive:
         shared_strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
@@ -146,6 +162,8 @@ def read_named_sheet(path: Path, sheet_names: tuple[str, ...], max_columns: int 
     Uses iterparse and a hard column cap so a very wide sibling sheet in the
     same workbook never blows up memory during the GitHub Actions build.
     """
+    if not zipfile.is_zipfile(path):
+        return read_csv_rows(path, max_rows)
     with zipfile.ZipFile(path) as archive:
         shared_strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
@@ -436,7 +454,7 @@ def build() -> dict:
         {
             "code": {"outlet code", "code", "store code", "outlet"},
             "date": {"date", "sales date", "business date", "transaction date", "pos date"},
-            "sales": {"pos nsi", "daily sales", "actual sales", "net sales", "sales"},
+            "sales": {"pos nsi", "daily sales", "actual sales", "net sales", "sales", "all"},
         },
     )
     actual_map: dict[str, dict[str, float]] = {}

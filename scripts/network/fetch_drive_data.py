@@ -241,8 +241,9 @@ def fetch_bytes(item: dict) -> bytes:
 
 def download(item: dict, dest: Path) -> None:
     body = fetch_bytes(item)
-    if not body.startswith(b"PK"):
-        raise RuntimeError(f"'{item['path']}' did not download as an Excel file.")
+    is_csv = item["name"].lower().endswith(".csv")
+    if not body.startswith(b"PK") and not (is_csv and not body.lstrip()[:15].lower().startswith((b"<!doctype", b"<html"))):
+        raise RuntimeError(f"'{item['path']}' did not download as an {'CSV' if is_csv else 'Excel'} file.")
     dest.write_bytes(body)
 
 
@@ -261,6 +262,8 @@ def name_hint(name: str) -> str:
 
 
 def sheet_names(path: Path) -> list[str]:
+    if not zipfile.is_zipfile(path):
+        return ["CSV"]  # a CSV export reads as one sheet
     with zipfile.ZipFile(path) as archive:
         workbook = ET.fromstring(archive.read("xl/workbook.xml"))
     sheets = workbook.find("m:sheets", NS)
@@ -281,7 +284,7 @@ def content_role(path: Path) -> str:
         _, cols = find_header(rows, {"code", "date", "sales"}, {
             "code": code,
             "date": {"date", "sales date", "business date", "transaction date", "pos date"},
-            "sales": {"pos nsi", "daily sales", "actual sales", "net sales", "sales"},
+            "sales": {"pos nsi", "daily sales", "actual sales", "net sales", "sales", "all"},
         })
         return "dayWiseSales"
     except ValueError:
@@ -365,7 +368,8 @@ def period_match(role: str, item: dict, candidates: dict) -> bool:
 
 def main() -> int:
     log(f"Listing Google Drive folder {FOLDER_ID} ({'Drive API' if API_KEY else 'public link'})…")
-    files = [f for f in walk(FOLDER_ID) if is_spreadsheet(f)]
+    # the daily sales also come as a CSV export ("Sales.csv"); other CSVs (stock extracts) are not opened
+    files = [f for f in walk(FOLDER_ID) if is_spreadsheet(f) or (f["name"].lower().endswith(".csv") and "sales" in f["name"].lower())]
     if not files:
         log("::error::No Excel workbooks found in the Drive folder.")
         return 1
@@ -413,17 +417,22 @@ def main() -> int:
                 # Month-end and till-date reports both carry an SPLY sheet. When exactly one of them covers
                 # the month before the target month, the choice is certain: say so without a warning.
                 clear = role == "lastMonth" and period_match(role, options[0], candidates) and not any(period_match(role, o, candidates) for o in options[1:])
+                # every month's Zone Distribution stays in Drive: one per month is expected, not a warning
+                clear = clear or (role == "outletMaster" and zone_month(options[0]["name"]) > max(zone_month(o["name"]) for o in options[1:]))
                 log(f"{'  ' if clear else '::warning::'}{len(options)} {spec['label']} workbooks found; using {options[0]['path']}"
-                    f"{' (its SPLY period is last month)' if clear else ''}. Others: {', '.join(o['path'] for o in options[1:])}")
+                    f"{' (its SPLY period is last month)' if clear and role == 'lastMonth' else ' (the latest month)' if clear else ''}. Others: {', '.join(o['path'] for o in options[1:])}")
             chosen[role] = options[0]
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         for role, spec in ROLES.items():
             target = DATA_DIR / spec["target"]
+            alt = target.with_suffix(".csv")  # a CSV export keeps its own suffix (the build reads either)
+            for old in (target, alt):
+                if old.exists():
+                    old.unlink()  # an optional file removed from Drive must not linger from the repo
             if role in chosen:
-                target.write_bytes(chosen[role]["local"].read_bytes())
-            elif target.exists():
-                target.unlink()  # an optional file removed from Drive must not linger from the repo
+                csv_src = chosen[role]["name"].lower().endswith(".csv")
+                (alt if csv_src else target).write_bytes(chosen[role]["local"].read_bytes())
 
     manifest = {
         "folderId": FOLDER_ID,

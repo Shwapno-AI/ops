@@ -365,7 +365,9 @@ def main():
                 # the latest month's Zone Distribution (by its name), not the last uploaded
                 options.sort(key=lambda o: (drive.zone_month(o["name"]) if kind == "zones" else "", o["modified"]), reverse=True)
                 if len(options) > 1:
-                    log(f"::warning::{len(options)} {kind} files found; using {options[0]['name']}. Others: {', '.join(o['name'] for o in options[1:])}")
+                    # every month's Zone Distribution stays in Drive: one per month is expected, not a warning
+                    monthly = kind == "zones" and drive.zone_month(options[0]["name"]) > max(drive.zone_month(o["name"]) for o in options[1:])
+                    log(f"{'  ' if monthly else '::warning::'}{len(options)} {kind} files found; using {options[0]['name']}. Others: {', '.join(o['name'] for o in options[1:])}")
                 pick[kind] = options[0]
 
         lists = read_lists(pick["lists"]["path"])

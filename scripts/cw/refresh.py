@@ -133,11 +133,13 @@ def table_kind(path):
     text = data[:4096].decode("utf-8-sig", errors="replace")
     first = text.splitlines()[0] if text else ""
     heads = {norm(h) for h in re.split(r"[\t,;|]", first)}
+    if is_sales(heads):  # the daily sales as a CSV export (Sales.csv)
+        return "sales", sales_latest(path)
     return ("targets", None) if TARGET_HEADERS <= heads else None
 
 
 def sales_latest(path):
-    wb = load_workbook(io.BytesIO(path.read_bytes()), read_only=True, data_only=True)
+    wb = bd.open_sales_book(path)
     try:
         found = bd.find_sales_header(wb)  # the same sheet and heading row the build reads
         if found is None:
@@ -202,7 +204,9 @@ def main():
             else:
                 options.sort(key=lambda o: (o[0] or bd.dt.date.min, o[1]), reverse=True)
             if len(options) > 1:
-                log(f"::warning::{len(options)} {kind} files found; using {options[0][3]}. Others: {', '.join(o[3] for o in options[1:])}")
+                # every month's Zone Distribution stays in Drive: one per month is expected, not a warning
+                monthly = kind == "zones" and drive.zone_month(options[0][3]) > max(drive.zone_month(o[3]) for o in options[1:])
+                log(f"{'  ' if monthly else '::warning::'}{len(options)} {kind} files found; using {options[0][3]}. Others: {', '.join(o[3] for o in options[1:])}")
             files[kind] = options[0][2]
         try:
             payload = bd.build_dashboard_data(work, files)
